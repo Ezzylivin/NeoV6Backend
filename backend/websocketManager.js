@@ -2,7 +2,7 @@
 const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
 const url = require('url');
-const User = require('../models/userModel'); // This was missing
+const User = require('./models/userModel'); // This was missing
 
 const clients = new Map();
 

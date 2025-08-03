@@ -9,7 +9,7 @@ const connectDB = require('./config/db');
 const apiRoutes = require('./routes/api');
 const { initializeWebSocket } = require('./websocketManager');
 const botRoutes = require('./routes/bot');
-app.use('/api/bot', botRoutes);
+
 
 
 // --- Main Setup ---
@@ -49,6 +49,7 @@ app.use(express.json());
 
 // --- API Routes ---
 app.use('/api', apiRoutes);
+app.use('/api/bot', botRoutes);
 
 // --- WebSocket Initialization ---
 initializeWebSocket(server);

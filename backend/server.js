@@ -20,7 +20,7 @@ const server = http.createServer(app);
 const allowedOrigins = [
   'http://localhost:5173', // Vite default for local testing
   'http://localhost:3000', // Create React App default for local testing
-  'https://YOUR_VERCEL_FRONTEND_URL' // IMPORTANT: REPLACE THIS
+  'https://neo-v6-frontend.vercel.app/' // IMPORTANT: REPLACE THIS
 ];
 
 const corsOptions = {

@@ -2,7 +2,7 @@
 // backend/services/botService.js
 const ExchangeService = require('./exchangeService');
 const { decrypt } = require('./cryptoService');
-const { logToUser } = require('../server');
+const { logToUser } = require('../websocketManager');
 const User = require('../models/userModel');
 
 const activeBots = new Map();

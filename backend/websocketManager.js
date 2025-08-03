@@ -1,29 +1,44 @@
+// File: backend/websocketManager.js
+const WebSocket = require('ws');
+const jwt = require('jsonwebtoken');
+const url = require('url');
+const User = require('../models/userModel'); // This was missing
+
 const clients = new Map();
 
-// This function will receive the WebSocket server instance from server.js
-function initializeWebSocket(wss) {
-  wss.on('connection', (ws, req) => {
-    // Note: To keep this simple, we're omitting the JWT verification here,
-    // as it relies on other parts of your server.js. The primary goal
-    // is to break the dependency. We can add verification back later if needed.
-    const url = require('url');
+// We need to pass the whole http server, not just the wss instance
+function initializeWebSocket(server) {
+  const wss = new WebSocket.Server({ server });
+
+  wss.on('connection', async (ws, req) => {
     const token = url.parse(req.url, true).query.token;
+    if (!token) return ws.close(1008, 'Token required');
 
-    console.log(`[WS] Client connected with token: ${token}`);
-    clients.set(token, ws); // Storing by token for simplicity here
+    try {
+      // This logic is essential and was missing
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const user = await User.findById(decoded.id);
+      if (!user) return ws.close(1008, 'Invalid user');
+      
+      const userId = user._id.toString();
+      clients.set(userId, ws); // <-- CRITICAL FIX: Store by userId
+      console.log(`[WS] Client connected: ${user.email}`);
+      ws.send(JSON.stringify({ message: 'Live Log connection established.' }));
 
-    ws.on('close', () => {
-      clients.delete(token);
-      console.log(`[WS] Client disconnected`);
-    });
+      ws.on('close', () => {
+        clients.delete(userId); // <-- CRITICAL FIX: Delete by userId
+        console.log(`[WS] Client disconnected: ${user.email}`);
+      });
+
+    } catch (error) {
+      ws.close(1008, 'Invalid token');
+    }
   });
 }
 
 function logToUser(userId, message) {
-  // This part needs to be adjusted based on how you map users to sockets.
-  // If you map by token instead of userId, you'd look up the client by token.
-  const userSocket = clients.get(userId.toString()); // Assuming you can map userId to a socket
-  if (userSocket && userSocket.readyState === 1) { // 1 means WebSocket.OPEN
+  const userSocket = clients.get(userId.toString());
+  if (userSocket && userSocket.readyState === WebSocket.OPEN) {
     userSocket.send(JSON.stringify({ message }));
   }
 }

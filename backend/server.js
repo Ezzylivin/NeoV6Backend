@@ -20,7 +20,7 @@ const server = http.createServer(app);
 const allowedOrigins = [
   'http://localhost:5173', // Vite default for local testing
   'http://localhost:3000', // Create React App default for local testing
-  'https://neo-v6-frontend.vercel.app/' // IMPORTANT: REPLACE THIS
+  'https://neo-v6-frontend.vercel.app' // IMPORTANT: REPLACE THIS
 ];
 
 const corsOptions = {
@@ -77,4 +77,4 @@ module.exports.logToUser = logToUser;
 
 // --- Start Server ---
 const PORT = process.env.PORT || 8000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

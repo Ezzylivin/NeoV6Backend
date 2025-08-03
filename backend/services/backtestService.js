@@ -16,7 +16,6 @@ const runBacktest = async () => {
   for (const candle of historicalData) {
     const [timestamp, open, high, low, close, volume] = candle;
     
-const { crossoverStrategy } = require('./strategyEngine');
 const recentCandles = historicalData.slice(0, historicalData.indexOf(candle) + 1);
 const decision = crossoverStrategy(recentCandles);
 

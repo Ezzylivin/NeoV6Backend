@@ -1,5 +1,5 @@
-// File: backend/config/db.js
 
+// File: backend/config/db.js
 const mongoose = require('mongoose');
 require('dotenv').config();
 
@@ -15,5 +15,3 @@ const connectDB = async () => {
     process.exit(1); // Exit with failure
   }
 };
-
-module.exports = connectDB;

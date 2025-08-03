@@ -18,14 +18,14 @@ const server = http.createServer(app);
 
 // --- Middleware ---
 const allowedOrigins = [
-  'http://localhost:5173', // Vite default for local testing
-  'http://localhost:3000', // Create React App default for local testing
-  'https://neo-v6-frontend.vercel.app' // IMPORTANT: REPLACE THIS
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://neo-v6-frontend.vercel.app'
 ];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
+  
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
@@ -43,6 +43,7 @@ app.use('/api', apiRoutes);
 
 // --- WebSocket Server for Live Logs ---
 const wss = new WebSocket.Server({ server });
+initializeWebSocket(wss);
 const clients = new Map();
 
 wss.on('connection', async (ws, req) => {

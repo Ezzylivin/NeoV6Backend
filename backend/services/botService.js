@@ -16,7 +16,7 @@ const startTradingBot = async (userId, symbol = 'BTC/USDT', amount = 0.001, time
 
   try {
     const user = await User.findById(userId);
-    if (!user || !user.exchangeApiKey) throw new Error('API keys are not set for this user.');
+    if (!user || !user.exchangeApiSecret || !user.exchangeApiKey) throw new Error('API keys are not set for this user.');
 
     const apiKey = decrypt(user.exchangeApiKey);
     const apiSecret = decrypt(user.exchangeApiSecret);

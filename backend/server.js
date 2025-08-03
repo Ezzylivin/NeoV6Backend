@@ -18,7 +18,7 @@ const server = http.createServer(app);
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
-  'https://neo-v6-frontend.vercel.app' // <-- This contains the critical CORS fix
+  'https://neotradingbot.vercel.app' // <-- This contains the critical CORS fix
 ];
 
 const corsOptions = {

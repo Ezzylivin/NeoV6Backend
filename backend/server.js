@@ -3,13 +3,11 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
-const WebSocket = require('ws');
-const jwt = require('jsonwebtoken');
-const url = require('url');
 
+// Local imports
 const connectDB = require('./config/db');
 const apiRoutes = require('./routes/api');
-const User = require('./models/userModel');
+const { initializeWebSocket } = require('./websocketManager'); // <-- We now import from our new file
 
 // --- Main Setup ---
 connectDB();
@@ -20,18 +18,17 @@ const server = http.createServer(app);
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
-  'https://neo-v6-frontend.vercel.app'
+  'https://neo-v6-frontend.vercel.app' // <-- This contains the critical CORS fix
 ];
 
 const corsOptions = {
   origin: (origin, callback) => {
-  
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
-    return callback(null, true);
   }
 };
 
@@ -41,40 +38,8 @@ app.use(express.json());
 // --- API Routes ---
 app.use('/api', apiRoutes);
 
-// --- WebSocket Server for Live Logs ---
-const wss = new WebSocket.Server({ server });
-initializeWebSocket(wss);
-const clients = new Map();
-
-wss.on('connection', async (ws, req) => {
-    const token = url.parse(req.url, true).query.token;
-    if (!token) return ws.close(1008, 'Token required');
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id);
-        if (!user) return ws.close(1008, 'Invalid user');
-        
-        const userId = user._id.toString();
-        clients.set(userId, ws);
-        console.log(`[WS] Client connected: ${user.email}`);
-        ws.send(JSON.stringify({ message: 'Live Log connection established.' }));
-
-        ws.on('close', () => {
-            clients.delete(userId);
-            console.log(`[WS] Client disconnected: ${user.email}`);
-        });
-    } catch (error) {
-        ws.close(1008, 'Invalid token');
-    }
-});
-
-const logToUser = (userId, message) => {
-    const userSocket = clients.get(userId.toString());
-    if (userSocket && userSocket.readyState === WebSocket.OPEN) {
-        userSocket.send(JSON.stringify({ message }));
-    }
-};
-module.exports.logToUser = logToUser;
+// --- WebSocket Initialization ---
+initializeWebSocket(server); // <-- We pass the whole server to the manager
 
 // --- Start Server ---
 const PORT = process.env.PORT || 8000;

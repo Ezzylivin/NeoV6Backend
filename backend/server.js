@@ -17,7 +17,25 @@ const app = express();
 const server = http.createServer(app);
 
 // --- Middleware ---
-app.use(cors());
+const allowedOrigins = [
+  'http://localhost:5173', // Vite default for local testing
+  'http://localhost:3000', // Create React App default for local testing
+  'https://YOUR_VERCEL_FRONTEND_URL' // IMPORTANT: REPLACE THIS
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  }
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // --- API Routes ---

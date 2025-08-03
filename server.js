@@ -7,7 +7,7 @@ const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
 const url = require('url');
 
-const connectDB = require('./config/db');
+const connectDB = require('backend/config/db');
 const apiRoutes = require('./routes/api');
 const User = require('./models/userModel');
 

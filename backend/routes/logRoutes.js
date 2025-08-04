@@ -7,24 +7,44 @@ const router = express.Router();
 
 /**
  * @route   GET /api/logs
- * @desc    Admin gets all logs, users get only their own (latest 100)
- * @access  Private (all roles)
+ * @desc    Admin sees all logs; users see only their own (latest 100)
+ * @access  Private
  */
 router.get('/', protect, async (req, res) => {
   try {
-    let logs;
+    const isAdmin = req.user.role === 'admin';
 
-    if (req.user.role === 'admin') {
-      // Admin sees all logs
-      logs = await Log.find().sort({ createdAt: -1 }).limit(100);
-    } else {
-      // Other users see only their own logs
-      logs = await Log.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(100);
-    }
+    const logs = await Log.find(
+      isAdmin ? {} : { userId: req.user._id }
+    ).sort({ createdAt: -1 }).limit(100);
 
     res.json(logs);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch logs' });
+  }
+});
+
+/**
+ * @route   POST /api/logs
+ * @desc    Add a log message
+ * @access  Private
+ * @body    { message: "..." }
+ */
+router.post('/', protect, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ message: 'Message is required' });
+    }
+
+    const log = await Log.create({
+      userId: req.user._id,
+      message,
+    });
+
+    res.status(201).json({ message: 'Log created', log });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to create log' });
   }
 });
 

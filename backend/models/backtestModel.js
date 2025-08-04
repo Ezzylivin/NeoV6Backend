@@ -1,13 +1,15 @@
-// File: backend/models/botStatus.js
+// File: backend/models/backtestModel.js
 import mongoose from 'mongoose';
 
-const botStatusSchema = new mongoose.Schema({
+const backtestSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  isRunning: { type: Boolean, default: false },
-  symbol: String,
-  amount: Number,
-  timeframes: [String],
-  startedAt: Date,
+  timeframe: { type: String, required: true },
+  initialBalance: Number,
+  finalBalance: Number,
+  profit: Number,
+  totalTrades: Number,
+  candlesTested: Number,
+  createdAt: { type: Date, default: Date.now }
 });
 
-export default mongoose.model('BotStatus', botStatusSchema);
+export default mongoose.model('Backtest', backtestSchema);

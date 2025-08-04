@@ -7,7 +7,7 @@ const cors = require('cors');
 // Local imports
 const connectDB = require('./config/db');
 const apiRoutes = require('./routes/api');
-const { initializeWebSocket } = require('./websocketManager');
+// const { initializeWebSocket } = require('./websocketManager');
 const botRoutes = require('./routes/bot');
 
 

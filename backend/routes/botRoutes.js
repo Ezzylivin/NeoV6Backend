@@ -1,10 +1,8 @@
 // File: backend/routes/botRoutes.js
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
+import { startBotHandler, stopBotHandler, getBotStatusHandler } from '../services/botService.js';
 import {
-  startTradingBot,
-  stopTradingBot,
-  getBotStatus,
   logToDb
 } from '../services/loggerService.js';
 

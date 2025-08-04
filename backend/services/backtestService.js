@@ -7,12 +7,10 @@ import { logToDb } from './loggerService.js';
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'];
 
 /**
- * Run backtests across multiple timeframes using crossover strategy.
- * Stores results in MongoDB per timeframe if userId is provided.
+ * Run backtests across all timeframes for given user
  */
-export const runBacktestAndStore = async (userId = timeframe = '1h') => {
+export const runBacktestAndStore = async (userId) => {
   console.log(`[Backtest] Starting across ${TIMEFRAMES.length} timeframes...`);
-
   const exchange = new ExchangeService();
   const results = [];
 
@@ -23,12 +21,10 @@ export const runBacktestAndStore = async (userId = timeframe = '1h') => {
     let asset = 0;
     let trades = 0;
 
-    for (const candle of historicalData) {
-      const index = historicalData.indexOf(candle);
-      const recentCandles = historicalData.slice(0, index + 1);
+    for (let i = 0; i < historicalData.length; i++) {
+      const recentCandles = historicalData.slice(0, i + 1);
       const decision = crossoverStrategy(recentCandles);
-
-      const close = candle[4];
+      const close = historicalData[i][4];
 
       if (decision === 'BUY' && balance > close) {
         asset += balance / close;
@@ -56,13 +52,13 @@ export const runBacktestAndStore = async (userId = timeframe = '1h') => {
 
     results.push(result);
 
+    // Store result in DB if userId is provided
     if (userId) {
       await Backtest.create(result);
-      await logToDb(userId, `[Backtest:${timeframe}] Profit: ${result.profit} USDT`);
+      await logToDb(userId, `[Backtest] ${timeframe} | Profit: $${result.profit} | Trades: ${result.totalTrades}`);
     }
-
-    console.log(`[Backtest:${timeframe}] Done — Final Balance: ${result.finalBalance} USDT`);
   }
 
+  console.log(`[Backtest] Completed all timeframes.`);
   return results;
 };

@@ -1,10 +1,10 @@
-// File: backend/routes/bot.js
+// File: backend/routes/botRoutes.js
 import express from 'express';
 import { startTradingBot, stopTradingBot } from '../services/botService.js';
 
 const router = express.Router();
 
-// GET /api/bot/info - Example bot info route
+// Example GET /api/bot/info - just to check the route works
 router.get('/info', (req, res) => {
   res.json({ bot: 'Bot endpoint is working.' });
 });
@@ -12,22 +12,28 @@ router.get('/info', (req, res) => {
 // POST /api/bot/start - Start the trading bot
 router.post('/start', async (req, res) => {
   const { userId, symbol, amount, timeframes } = req.body;
+  if (!userId || !symbol || !amount || !timeframes) {
+    return res.status(400).json({ error: 'Missing required parameters' });
+  }
   try {
     await startTradingBot(userId, symbol, amount, timeframes);
     res.status(200).json({ message: 'Bot started' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message || 'Failed to start bot' });
   }
 });
 
 // POST /api/bot/stop - Stop the trading bot
-router.post('/stop', (req, res) => {
+router.post('/stop', async (req, res) => {
   const { userId } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing userId' });
+  }
   try {
-    stopTradingBot(userId);
+    await stopTradingBot(userId);
     res.status(200).json({ message: 'Bot stopped' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message || 'Failed to stop bot' });
   }
 });
 

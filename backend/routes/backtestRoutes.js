@@ -22,16 +22,6 @@ router.get('/results', protect, async (req, res) => {
 });
 
 
-// Only admin or analyst roles can trigger backtest runs
-router.post('/run', protect, authorizeRoles('admin', 'analyst'), async (req, res) => {
-  try {
-    const { timeframe } = req.body;
-    const result = await runBacktestAndStore(req.user._id, timeframe);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to run backtest' });
-  }
-});
 
 
 // POST /api/backtest/run

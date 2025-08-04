@@ -1,29 +1,31 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const connectDB = require('./config/db');
+import express from 'express';
+import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+import cors from 'cors';
 
-const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes');
-const botRoutes = require('./routes/botRoutes');
-const backtestRoutes = require('./routes/backtestRoutes');
-const logRoutes = require('./routes/logRoutes');
+import apiRoutes from './routes/api.js';
+import connectDB from './config/db.js';
+
+dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 8000;
 
 connectDB();
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? 'https://your-frontend-url.vercel.app'
+    : '*',
+  credentials: true
+}));
 app.use(express.json());
+app.use('/api', apiRoutes);
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/bot', botRoutes);
-app.use('/api/backtest', backtestRoutes);
-app.use('/api/logs', logRoutes);
+app.get('/', (req, res) => {
+  res.send('API is running...');
+});
 
-const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

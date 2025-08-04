@@ -52,7 +52,8 @@ app.use('/api', apiRoutes);
 app.use('/api/bot', botRoutes);
 
 // --- WebSocket Initialization ---
-initializeWebSocket(server);
+
+// initializeWebSocket(server);
 
 // --- Start Server ---
 const PORT = process.env.PORT || 8000;

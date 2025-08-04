@@ -12,7 +12,7 @@ const generateToken = (id) => {
 
 // Register a new user
 router.post('/register', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, role } = req.body;
   if (!email || !password) return res.status(400).json({ message: 'Please enter all fields' });
 
   const userExists = await User.findOne({ email });

@@ -1,4 +1,5 @@
-const mongoose = require('mongoose');
+// File: backend/models/botStatusModel.js
+import mongoose from 'mongoose';
 
 const botStatusSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -7,6 +8,7 @@ const botStatusSchema = new mongoose.Schema({
   amount: Number,
   timeframes: [String],
   startedAt: Date,
-});
+}, { timestamps: true });
 
-module.exports = mongoose.model('BotStatus', botStatusSchema);
+const BotStatus = mongoose.model('BotStatus', botStatusSchema);
+export default BotStatus;

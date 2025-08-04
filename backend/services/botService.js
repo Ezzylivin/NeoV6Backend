@@ -1,18 +1,17 @@
-
-// backend/services/botService.js
 const ExchangeService = require('./exchangeService');
 const { decrypt } = require('./cryptoService');
-const { logToUser } = require('../websocketManager');
+const { logToDb } = require('./loggerService');
 const User = require('../models/userModel');
 
 const activeBots = new Map();
 
 const startTradingBot = async (userId, symbol = 'BTC/USDT', amount = 0.001, timeframes = ['5m']) => {
   if (activeBots.has(userId)) {
-    return logToUser(userId, 'Bot is already running.');
+    await logToDb(userId, 'Bot is already running.');
+    return;
   }
 
-  logToUser(userId, `[Bot] Initializing in standard mode for ${symbol} with amount ${amount} on timeframes: ${timeframes.join(', ')}`);
+  await logToDb(userId, `[Bot] Initializing in standard mode for ${symbol} with amount ${amount} on timeframes: ${timeframes.join(', ')}`);
 
   try {
     const user = await User.findById(userId);
@@ -30,27 +29,30 @@ const startTradingBot = async (userId, symbol = 'BTC/USDT', amount = 0.001, time
           const data = await exchange.fetchOHLCV(symbol, tf, 100);
           const lastClose = data[data.length - 1][4];
           // TODO: Replace with your strategy logic
-          logToUser(userId, `[Standard ${tf}] Last Close: ${lastClose}`);
+          await logToDb(userId, `[Standard ${tf}] Last Close: ${lastClose}`);
         } catch (err) {
-          logToUser(userId, `[Standard ${tf}] Error: ${err.message}`);
+          await logToDb(userId, `[Standard ${tf}] Error: ${err.message}`);
         }
       }
     }, 60000);
 
     activeBots.set(userId, { instance: tradingLoop, mode: 'standard' });
   } catch (err) {
-    logToUser(userId, `[Bot] CRITICAL ERROR: ${err.message}`);
+    await logToDb(userId, `[Bot] CRITICAL ERROR: ${err.message}`);
     if (activeBots.has(userId)) activeBots.delete(userId);
   }
 };
 
-const stopTradingBot = (userId) => {
-  if (!activeBots.has(userId)) return logToUser(userId, 'Bot is not running.');
+const stopTradingBot = async (userId) => {
+  if (!activeBots.has(userId)) {
+    await logToDb(userId, 'Bot is not running.');
+    return;
+  }
 
   const botInfo = activeBots.get(userId);
   clearInterval(botInfo.instance);
   activeBots.delete(userId);
-  logToUser(userId, 'Bot has been stopped.');
+  await logToDb(userId, 'Bot has been stopped.');
 };
 
 module.exports = { startTradingBot, stopTradingBot };

@@ -1,30 +1,25 @@
-const express = require('express');
-const User = require('../models/userModel');
-const authMiddleware = require('../middleware/authMiddleware');
+// File: backend/routes/userRoutes.js
+import express from 'express';
+import { protect } from '../middleware/authMiddleware.js';
+import User from '../models/userModel.js';
+
 const router = express.Router();
 
-router.get('/', authMiddleware, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id).select('-password');
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json(user);
-  } catch {
-    res.status(500).json({ message: 'Error fetching user info' });
-  }
-});
-
-router.post('/keys', authMiddleware, async (req, res) => {
+// Save or update exchange API keys (protected)
+router.post('/keys', protect, async (req, res) => {
   const { apiKey, apiSecret } = req.body;
   try {
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found' });
+
     user.apiKey = apiKey;
     user.apiSecret = apiSecret;
     await user.save();
-    res.json({ message: 'API keys saved' });
-  } catch {
-    res.status(500).json({ message: 'Failed to save API keys' });
+
+    res.json({ message: 'Keys saved successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-module.exports = router;
+export default router;

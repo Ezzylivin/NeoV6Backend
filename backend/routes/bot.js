@@ -1,7 +1,15 @@
-const express = require('express');
-const router = express.Router();
-const { startTradingBot, stopTradingBot } = require('../services/botService');
+// File: backend/routes/bot.js
+import express from 'express';
+import { startTradingBot, stopTradingBot } from '../services/botService.js';
 
+const router = express.Router();
+
+// GET /api/bot/info - Example bot info route
+router.get('/info', (req, res) => {
+  res.json({ bot: 'Bot endpoint is working.' });
+});
+
+// POST /api/bot/start - Start the trading bot
 router.post('/start', async (req, res) => {
   const { userId, symbol, amount, timeframes } = req.body;
   try {
@@ -12,6 +20,7 @@ router.post('/start', async (req, res) => {
   }
 });
 
+// POST /api/bot/stop - Stop the trading bot
 router.post('/stop', (req, res) => {
   const { userId } = req.body;
   try {
@@ -22,4 +31,4 @@ router.post('/stop', (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

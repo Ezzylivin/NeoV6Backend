@@ -1,25 +1,29 @@
-// File: backend/routes/userRoutes.js
 const express = require('express');
 const User = require('../models/userModel');
-const { encrypt } = require('../services/cryptoService');
+const authMiddleware = require('../middleware/authMiddleware');
 const router = express.Router();
 
-// @desc    Save/update user's exchange API keys
-// @route   POST /api/user/keys
-router.post('/keys', async (req, res) => {
-  const { apiKey, apiSecret } = req.body;
-  if (!apiKey || !apiSecret) {
-    return res.status(400).json({ message: 'API Key and Secret are required.' });
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
+  } catch {
+    res.status(500).json({ message: 'Error fetching user info' });
   }
+});
 
-  const user = await User.findById(req.user._id);
-  if (user) {
-    user.exchangeApiKey = encrypt(apiKey);
-    user.exchangeApiSecret = encrypt(apiSecret);
+router.post('/keys', authMiddleware, async (req, res) => {
+  const { apiKey, apiSecret } = req.body;
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    user.apiKey = apiKey;
+    user.apiSecret = apiSecret;
     await user.save();
-    res.json({ message: 'API keys saved securely.' });
-  } else {
-    res.status(404).json({ message: 'User not found.' });
+    res.json({ message: 'API keys saved' });
+  } catch {
+    res.status(500).json({ message: 'Failed to save API keys' });
   }
 });
 

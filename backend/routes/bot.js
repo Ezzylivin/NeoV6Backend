@@ -1,8 +1,21 @@
 // File: backend/routes/botRoutes.js
 import express from 'express';
+
+import { protect } from '../middleware/authMiddleware.js';
+import { authorizeRoles } from '../middleware/roleMiddleware.js';
+import { startBotHandler, stopBotHandler, getBotStatusHandler } from '../services/botService.js';
 import { startTradingBot, stopTradingBot } from '../services/botService.js';
 
 const router = express.Router();
+
+// Roles allowed to manage bots
+const allowedRoles = ['trader', 'admin'];
+
+router.post('/start', protect, authorizeRoles(...allowedRoles), startBotHandler);
+router.post('/stop', protect, authorizeRoles(...allowedRoles), stopBotHandler);
+router.get('/status', protect, authorizeRoles(...allowedRoles), getBotStatusHandler);
+
+
 
 // Example GET /api/bot/info - just to check the route works
 router.get('/info', (req, res) => {

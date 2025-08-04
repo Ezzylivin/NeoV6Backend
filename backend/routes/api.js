@@ -1,14 +1,24 @@
+// File: backend/routes/api.js
 import express from 'express';
+import { protect } from '../middleware/authMiddleware.js';
+
 import authRoutes from './authRoutes.js';
 import userRoutes from './userRoutes.js';
 import botRoutes from './botRoutes.js';
-import backtestRoutes from './backtestRoutes.js';
+import logRoutes from './logRoutes.js';
 
+// Create router instance
 const router = express.Router();
 
+// Public routes
 router.use('/auth', authRoutes);
-router.use('/user', userRoutes);
-router.use('/bot', botRoutes);
-router.use('/backtest', backtestRoutes);
+
+// Protected routes
+router.use('/bot', protect, botRoutes);
+router.use('/user', protect, userRoutes);
+router.use('/logs', protect, logRoutes);
+
+// Optional example of role-based middleware:
+// router.use('/admin', protect, adminMiddleware, adminRoutes);
 
 export default router;

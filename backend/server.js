@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 
 import authRoutes from './routes/authRoutes.js';
-import apiRoutes from './routes/api.js';
+
 import userRoutes from './routes/userRoutes.js';
 import botRoutes from './routes/botRoutes.js';
 import backtestRoutes from './routes/backtestRoutes.js';

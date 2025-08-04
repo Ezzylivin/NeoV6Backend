@@ -1,16 +1,14 @@
-const express = require('express');
-const { protect } = require('../middleware/authMiddleware');
-
-const authRoutes = require('./authRoutes');
-const botRoutes = require('./botRoutes');
-const userRoutes = require('./userRoutes');
-const logRoutes = require('./logRoutes');
+import express from 'express';
+import authRoutes from './authRoutes.js';
+import userRoutes from './userRoutes.js';
+import botRoutes from './botRoutes.js';
+import backtestRoutes from './backtestRoutes.js';
 
 const router = express.Router();
 
 router.use('/auth', authRoutes);
-router.use('/bot', protect, botRoutes);
-router.use('/user', protect, userRoutes);
-router.use('/logs', protect, logRoutes);
+router.use('/user', userRoutes);
+router.use('/bot', botRoutes);
+router.use('/backtest', backtestRoutes);
 
-module.exports = router;
+export default router;

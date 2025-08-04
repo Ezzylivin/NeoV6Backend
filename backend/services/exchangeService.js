@@ -1,11 +1,10 @@
 // File: backend/services/exchangeService.js
-// backend/services/exchangeService.js
-const ccxt = require('ccxt');
+import ccxt from 'ccxt';
 
 class ExchangeService {
   constructor(apiKey, apiSecret /*, mode is no longer needed*/ ) {
     const exchangeId = 'binance';
-    const exchangeClass = ccxt[exchangeId]; // Always use ccxt (no pro)
+    const exchangeClass = ccxt[exchangeId]; // Use ccxt (no pro)
 
     this.exchange = new exchangeClass({
       apiKey,
@@ -31,6 +30,4 @@ class ExchangeService {
   // watchOHLCV removed since it relies on ccxt-pro
 }
 
-module.exports = ExchangeService;
-
-
+export default ExchangeService;

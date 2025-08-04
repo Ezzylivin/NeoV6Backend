@@ -1,5 +1,6 @@
 {
   "name": "ai-trading-bot-backend",
+  "type": "module"
   "version": "1.0.0",
   "description": "Backend server for AI trading bot with Express, MongoDB, WebSocket, and authentication.",
   "main": "server.js",

@@ -6,7 +6,7 @@ import {
   stopTradingBot,
   getBotStatus,
   logToDb
-} from '../services/botService.js';
+} from '../services/loggerService.js';
 
 const router = express.Router();
 

@@ -10,7 +10,7 @@ const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'];
  * Run backtests across multiple timeframes using crossover strategy.
  * Stores results in MongoDB per timeframe if userId is provided.
  */
-export const runBacktest = async (userId = null) => {
+export const runBacktestAndStore = async (userId = timeframe = '1h') => {
   console.log(`[Backtest] Starting across ${TIMEFRAMES.length} timeframes...`);
 
   const exchange = new ExchangeService();

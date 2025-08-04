@@ -1,4 +1,4 @@
-// backend/services/strategyEngine.js
+// File: backend/services/strategyEngine.js
 
 // Calculate the moving average over a given period
 const getMovingAverage = (data, period) => {
@@ -22,9 +22,6 @@ const crossoverStrategy = (ohlcv) => {
   return 'HOLD';
 };
 
-module.exports = {
+export {
   crossoverStrategy
 };
-
-
-

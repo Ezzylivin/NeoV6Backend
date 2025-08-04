@@ -1,7 +1,45 @@
 // File: backend/routes/authRoutes.js
 const express = require('express');
 const User = require('../models/userModel');
+const jwt = require('jsonwebtoken');const express = require('express');
 const jwt = require('jsonwebtoken');
+const User = require('../models/userModel');
+const router = express.Router();
+
+router.post('/register', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    let user = await User.findOne({ email });
+    if (user) return res.status(400).json({ message: 'Email already exists' });
+
+    user = new User({ email, password });
+    await user.save();
+
+    const token = jwt.sign({ _id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    res.json({ access_token: token });
+  } catch (err) {
+    res.status(500).json({ message: 'Registration failed' });
+  }
+});
+
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: 'Invalid email or password' });
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) return res.status(400).json({ message: 'Invalid email or password' });
+
+    const token = jwt.sign({ _id: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    res.json({ access_token: token });
+  } catch (err) {
+    res.status(500).json({ message: 'Login failed' });
+  }
+});
+
+module.exports = router;
+
 const router = express.Router();
 
 // Generates a JWT for the user

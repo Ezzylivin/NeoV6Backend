@@ -1,6 +1,7 @@
 // File: backend/server.js
 import express from 'express';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 import cors from 'cors';
 import http from 'http';
 
@@ -49,10 +50,29 @@ app.use(express.json());
 app.use('/api', apiRoutes);
 app.use('/api/bot', botRoutes);
 
+
 // --- Root route ---
 app.get('/', (req, res) => {
   res.send('API is running...');
 });
+
+
+
+// Connect to MongoDB and start server
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => {
+    console.log('MongoDB connected');
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  })
+  .catch((err) => {
+    console.error('MongoDB connection failed:', err.message);
+    process.exit(1);
+  });
+
 
 // --- Server & WebSocket Setup ---
 

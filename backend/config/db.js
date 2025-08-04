@@ -1,16 +1,20 @@
-//
 // File: backend/config/db.js
-const mongoose = require('mongoose');
-require('dotenv').config();
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.DATABASE_URL,);
+    await mongoose.connect(process.env.DATABASE_URL, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
     console.log('MongoDB Connected');
   } catch (err) {
     console.error(`MongoDB Connection Error: ${err.message}`);
-    process.exit(1); // Exit with failure
+    process.exit(1);
   }
 };
 
-module.exports = connectDB;
+export default connectDB;

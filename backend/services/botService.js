@@ -1,58 +1,98 @@
-const ExchangeService = require('./exchangeService');
-const { decrypt } = require('./cryptoService');
-const { logToDb } = require('./loggerService');
-const User = require('../models/userModel');
+// File: backend/services/botService.js
+import ExchangeService from './exchangeService.js';
+import BotStatus from '../models/botStatusModel.js';
+import Log from '../models/logModel.js';
 
-const activeBots = new Map();
-
-const startTradingBot = async (userId, symbol = 'BTC/USDT', amount = 0.001, timeframes = ['5m']) => {
-  if (activeBots.has(userId)) {
-    await logToDb(userId, 'Bot is already running.');
-    return;
+// Utility function to log messages to MongoDB
+const logToDb = async (userId, message) => {
+  try {
+    await Log.create({ userId, message });
+  } catch (err) {
+    console.error(`[Log Error]: ${err.message}`);
   }
+};
 
-  await logToDb(userId, `[Bot] Initializing in standard mode for ${symbol} with amount ${amount} on timeframes: ${timeframes.join(', ')}`);
+export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m']) => {
+  try {
+    const exchange = new ExchangeService(userId); // uses user’s API keys if available
+
+    await BotStatus.findOneAndUpdate(
+      { userId },
+      { isRunning: true, symbol, amount, timeframes, startedAt: new Date() },
+      { upsert: true, new: true }
+    );
+
+    const message = `🚀 Bot started for ${symbol} with ${amount} units on timeframes: ${timeframes.join(', ')}`;
+    await logToDb(userId, message);
+    console.log(message);
+
+    // Add your bot logic loop here...
+    // For real bots, use worker threads, Bull queues, or PM2-managed services.
+
+  } catch (err) {
+    console.error(`[StartBot Error]: ${err.message}`);
+    await logToDb(userId, `❌ Failed to start bot: ${err.message}`);
+    throw err;
+  }
+};
+
+export const stopTradingBot = async (userId) => {
+  try {
+    await BotStatus.findOneAndUpdate(
+      { userId },
+      { isRunning: false },
+      { new: true }
+    );
+
+    const message = `🛑 Bot stopped by user.`;
+    await logToDb(userId, message);
+    console.log(message);
+  } catch (err) {
+    console.error(`[StopBot Error]: ${err.message}`);
+    await logToDb(userId, `❌ Failed to stop bot: ${err.message}`);
+    throw err;
+  }
+};
+
+export const getBotStatus = async (userId) => {
+  try {
+    const status = await BotStatus.findOne({ userId });
+    return status || { isRunning: false };
+  } catch (err) {
+    console.error(`[BotStatus Error]: ${err.message}`);
+    throw err;
+  }
+};
+
+// Optional Express handler wrapper
+export const startBotHandler = async (req, res) => {
+  const { symbol, amount, timeframes } = req.body;
+  if (!symbol || !amount) {
+    return res.status(400).json({ message: 'symbol and amount are required.' });
+  }
 
   try {
-    const user = await User.findById(userId);
-    if (!user || !user.exchangeApiSecret || !user.exchangeApiKey) throw new Error('API keys are not set for this user.');
-
-    const apiKey = decrypt(user.exchangeApiKey);
-    const apiSecret = decrypt(user.exchangeApiSecret);
-    const exchange = new ExchangeService(apiKey, apiSecret);
-
-    const tradingLoop = setInterval(async () => {
-      if (!activeBots.has(userId)) return clearInterval(tradingLoop);
-
-      for (const tf of timeframes) {
-        try {
-          const data = await exchange.fetchOHLCV(symbol, tf, 100);
-          const lastClose = data[data.length - 1][4];
-          // TODO: Replace with your strategy logic
-          await logToDb(userId, `[Standard ${tf}] Last Close: ${lastClose}`);
-        } catch (err) {
-          await logToDb(userId, `[Standard ${tf}] Error: ${err.message}`);
-        }
-      }
-    }, 60000);
-
-    activeBots.set(userId, { instance: tradingLoop, mode: 'standard' });
+    await startTradingBot(req.user.id, symbol, amount, timeframes);
+    res.json({ status: 'Bot started' });
   } catch (err) {
-    await logToDb(userId, `[Bot] CRITICAL ERROR: ${err.message}`);
-    if (activeBots.has(userId)) activeBots.delete(userId);
+    res.status(500).json({ message: err.message });
   }
 };
 
-const stopTradingBot = async (userId) => {
-  if (!activeBots.has(userId)) {
-    await logToDb(userId, 'Bot is not running.');
-    return;
+export const stopBotHandler = async (req, res) => {
+  try {
+    await stopTradingBot(req.user.id);
+    res.json({ status: 'Bot stopped' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  const botInfo = activeBots.get(userId);
-  clearInterval(botInfo.instance);
-  activeBots.delete(userId);
-  await logToDb(userId, 'Bot has been stopped.');
 };
 
-module.exports = { startTradingBot, stopTradingBot };
+export const getBotStatusHandler = async (req, res) => {
+  try {
+    const status = await getBotStatus(req.user.id);
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

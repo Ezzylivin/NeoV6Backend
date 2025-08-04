@@ -2,10 +2,24 @@
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 import Backtest from '../models/backtestModel.js';
+import { runBacktestAndStore } from '../services/backtestService.js';
 
 const router = express.Router();
 
+// POST /api/backtest/run
+// Run backtest across all timeframes, store results, return summary
+router.post('/run', protect, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const results = await runBacktestAndStore(userId);
+    res.json({ message: 'Backtest run complete', results });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to run backtest', error: err.message });
+  }
+});
+
 // GET /api/backtest/results?timeframe=1h
+// Fetch all backtest results for user, optionally filtered by timeframe
 router.get('/results', protect, async (req, res) => {
   try {
     const { timeframe } = req.query;

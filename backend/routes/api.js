@@ -2,7 +2,7 @@
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 
-import authRoutes from './authRoutes.js';
+import authRoutes from './auth.js';
 import userRoutes from './userRoutes.js';
 import botRoutes from './botRoutes.js';
 import backtestRoutes from './backtestRoutes.js';

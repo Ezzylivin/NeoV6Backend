@@ -1,55 +1,46 @@
 // File: backend/routes/botRoutes.js
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
-import { startBotHandler, stopBotHandler, getBotStatusHandler } from '../services/botService.js';
+import { authorizeRoles } from '../middleware/roleMiddleware.js';
 import {
-  logToDb
-} from '../services/loggerService.js';
+  startBotHandler,
+  stopBotHandler,
+  getBotStatusHandler,
+} from '../services/botService.js';
 
 const router = express.Router();
 
-// POST /api/bot/start
-router.post('/start', protect, async (req, res) => {
-  const { symbol, amount, timeframes } = req.body;
+// Allowed roles for bot actions
+const allowedRoles = ['trader', 'admin'];
 
-  if (!symbol || !amount) {
-    return res.status(400).json({ message: 'symbol and amount are required.' });
-  }
+/**
+ * @route   POST /api/bot/start
+ * @desc    Start the trading bot
+ * @access  Private (trader, admin)
+ */
+router.post('/start', protect, authorizeRoles(...allowedRoles), startBotHandler);
 
-  const tfArray = Array.isArray(timeframes) && timeframes.length > 0
-    ? timeframes
-    : ['5m'];
+/**
+ * @route   POST /api/bot/stop
+ * @desc    Stop the trading bot
+ * @access  Private (trader, admin)
+ */
+router.post('/stop', protect, authorizeRoles(...allowedRoles), stopBotHandler);
 
-  try {
-    await startTradingBot(req.user._id, symbol, amount, tfArray);
-    await logToDb(req.user._id, `Bot started for ${symbol} with ${amount} on ${tfArray.join(', ')}`);
-    res.json({ status: `Bot started for ${symbol} amount ${amount} on ${tfArray.join(', ')}` });
-  } catch (err) {
-    await logToDb(req.user._id, `Error starting bot: ${err.message}`);
-    res.status(500).json({ message: 'Failed to start bot', error: err.message });
-  }
-});
+/**
+ * @route   GET /api/bot/status
+ * @desc    Get bot running status
+ * @access  Private (trader, admin)
+ */
+router.get('/status', protect, authorizeRoles(...allowedRoles), getBotStatusHandler);
 
-// POST /api/bot/stop
-router.post('/stop', protect, async (req, res) => {
-  try {
-    await stopTradingBot(req.user._id);
-    await logToDb(req.user._id, 'Bot stopped');
-    res.json({ status: 'Bot stop command received.' });
-  } catch (err) {
-    await logToDb(req.user._id, `Error stopping bot: ${err.message}`);
-    res.status(500).json({ message: 'Failed to stop bot', error: err.message });
-  }
-});
-
-// GET /api/bot/status
-router.get('/status', protect, async (req, res) => {
-  try {
-    const status = await getBotStatus(req.user._id);
-    res.json(status);
-  } catch (err) {
-    res.status(500).json({ message: 'Could not get bot status', error: err.message });
-  }
+/**
+ * @route   GET /api/bot/info
+ * @desc    Public test endpoint to confirm route works
+ * @access  Public
+ */
+router.get('/info', (req, res) => {
+  res.json({ bot: 'Bot endpoint is working.' });
 });
 
 export default router;

@@ -1,5 +1,5 @@
 // File: backend/middleware/authMiddleware.js
-import User from '../models/user.js';
+import user from '../models/user.js';
 
 export const protect = async (req, res, next) => {
   const authHeader = req.headers.authorization;

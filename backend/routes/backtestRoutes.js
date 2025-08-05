@@ -2,7 +2,7 @@
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 import Backtest from '../models/backtestModel.js';
-import { authorizeRoles } from '../middleware/roleMiddleware.js';
+// import { authorizeRoles } from '../middleware/roleMiddleware.js';
 import { runBacktestAndStore } from '../services/backtestService.js';
 
 const router = express.Router();

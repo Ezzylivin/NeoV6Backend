@@ -11,7 +11,7 @@
     "url": "git+https://github.com/Ezzylivin/NeoV6Backend.git"
   },
   "license": "ISC",
-  "author": "",
+  "author": "ME",
   "type": "module",
   "main": "server.js",
   "scripts": {

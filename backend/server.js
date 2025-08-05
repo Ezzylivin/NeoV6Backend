@@ -11,7 +11,7 @@ connectDB();
 const app = express();
 app.use(express.json());
 
-app.use('./routes', apiRoutes);
+app.use('/routes', apiRoutes);
 
 
 const PORT = process.env.PORT || 8000;

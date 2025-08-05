@@ -1,4 +1,4 @@
-// File: backend/routes/expressRouter.js
+// File: backend/routes/userRoutes.js
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 import { authorizeRoles } from '../middleware/roleMiddleware.js';

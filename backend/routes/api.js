@@ -11,12 +11,12 @@ import logRoutes from './logRoutes.js';
 const router = express.Router();
 
 // Public routes
-router.use('/auth', authRoutes);
+router.use('./authRoutes', authRoutes);
 
 // Protected routes
-router.use('/user', protect, userRoutes);
-router.use('/bot', protect, botRoutes);
-router.use('/backtest', protect, backtestRoutes);
-router.use('/logs', protect, logRoutes);
+router.use('/userRoutes', protect, userRoutes);
+router.use('/botRoutes', protect, botRoutes);
+router.use('/backtestRoutes', protect, backtestRoutes);
+router.use('/logRoutes', protect, logRoutes);
 
 export default router;

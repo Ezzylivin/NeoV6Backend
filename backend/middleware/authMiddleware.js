@@ -1,6 +1,5 @@
 // File: backend/middleware/authMiddleware.js
-import jwt from 'jsonwebtoken';
-import User from '../models/userModel.js';
+import User from '../models/user.js';
 
 export const protect = async (req, res, next) => {
   const authHeader = req.headers.authorization;

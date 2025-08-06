@@ -1,23 +1,27 @@
 // File: backend/routes/apiRoutes.js
 import express from 'express';
-
-import authRoutes from './authRoutes.js';
-import exchangeRoutes from './exchangeRoutes.js';
-import cryptoRoutes from './cryptoRoutes.js';
-import strategyRoutes from './strategyRoutes.js';
-import backtestRoutes from './backtestRoutes.js';
-import botRoutes from './botRoutes.js';
-import logRoutes from './logRoutes.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const router = express.Router();
 
-// Mount route modules
-router.use('/auth', authRoutes);
-router.use('/exchange', exchangeRoutes);
-router.use('/crypto', cryptoRoutes);
-router.use('/strategy', strategyRoutes);
-router.use('/backtest', backtestRoutes);
-router.use('/bot', botRoutes);
-router.use('/logs', logRoutes); // e.g., GET /api/logs
+// Get __dirname equivalent in ESModules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Read all route files in the current folder (excluding this one)
+const files = fs.readdirSync(__dirname).filter(
+  (file) =>
+    file.endsWith('.js') &&
+    file !== 'apiRoutes.js' // avoid self-import
+);
+
+// Dynamically import and mount each route
+for (const file of files) {
+  const routeModule = await import(`./${file}`);
+  const routePath = '/' + file.replace('Routes.js', '').replace('.js', '');
+  router.use(routePath, routeModule.default);
+}
 
 export default router;

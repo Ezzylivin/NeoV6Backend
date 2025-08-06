@@ -3,9 +3,9 @@ import express from 'express';
 //import { protect } from '../middleware/authMiddleware.js';
 //import { authorizeRoles } from '../middleware/roleMiddleware.js';
 import {
-  startBotHandler,
-  stopBotHandler,
-  getBotStatusHandler,
+  startTradingBot,
+  stopTradingBot,
+  getBotStatus,
 } from '../services/botService.js';
 
 const router = express.Router();
@@ -18,21 +18,21 @@ const router = express.Router();
   //@desc    Start the trading bot
   //@access  Private (trader, admin)
  */
-router.post('/start', startBotHandler);
+router.post('/start', startTradingBot);
 
 /*
   @route   POST /api/bot/stop
   @desc    Stop the trading bot
   @access  Private (trader, admin)
  */
-router.post('/stop', stopBotHandler);
+router.post('/stop', stopTradingBot);
 
 /*
   @route   GET /api/bot/status
   @desc    Get bot running status
   @access  Private (trader, admin)
  */
-router.get('/Status', getBotStatusHandler);
+router.get('/Status', getBotStatus);
 
 /*
  @route   GET /api/bot/info

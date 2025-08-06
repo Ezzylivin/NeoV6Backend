@@ -13,31 +13,31 @@ const router = express.Router();
 // Allowed roles for bot actions
 //const allowedRoles = ['trader', 'admin'];
 
-/**
- * @route   POST //
- * @desc    Start the trading bot
- * @access  Private (trader, admin)
+/*
+  @route   POST //
+  @desc    Start the trading bot
+  @access  Private (trader, admin)
  */
 router.post('/startBot', startBotHandler);
 
-/**
- * @route   POST /api/bot/stop
- * @desc    Stop the trading bot
- * @access  Private (trader, admin)
+/*
+  @route   POST /api/bot/stop
+  @desc    Stop the trading bot
+  @access  Private (trader, admin)
  */
 router.post('/stopBot', stopBotHandler);
 
-/**
- * @route   GET /api/bot/status
- * @desc    Get bot running status
- * @access  Private (trader, admin)
+/*
+  @route   GET /api/bot/status
+  @desc    Get bot running status
+  @access  Private (trader, admin)
  */
 router.get('/botStatus', getBotStatusHandler);
 
-/**
- * @route   GET /api/bot/info
- * @desc    Public test endpoint to confirm route works
- * @access  Public
+/*
+ @route   GET /api/bot/info
+  @desc    Public test endpoint to confirm route works
+  @access  Public
  */
 router.get('/info', (req, res) => {
   res.json({ bot: 'Bot endpoint is working.' });

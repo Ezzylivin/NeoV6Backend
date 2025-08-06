@@ -6,7 +6,7 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
 
-export const registerUserService = async (email, password, role = 'user') => {
+export const registerUser = async (email, password, role = 'user') => {
   if (!email || !password) {
     throw new Error('Please enter all fields');
   }

@@ -1,7 +1,7 @@
 // File: backend/routes/authRoutes.js
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import user from '../models/user.js';
+import User from '../dbStructure/user.js';
 
 const router = express.Router();
 

@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import User from '../dbStructure/user.js';
 
 const botSchema = new mongoose.Schema(
   {
@@ -35,17 +34,23 @@ const botSchema = new mongoose.Schema(
       default: 'crossoverStrategy', // Set a default strategy.
     },
     
+    // --- Configuration fields required to run the bot ---
+    amount: {
+      type: Number,
+      required: [true, 'A trade amount is required to run the bot.'],
+    },
+    timeframes: {
+      type: [String], // Defines an array of strings
+      required: [true, 'At least one timeframe is required.'],
+    },
+    // ---------------------------------------------------
+    
     // The timestamp for when the bot was last started.
     // This can be useful for tracking uptime or for display on the frontend.
     startedAt: {
       type: Date,
       default: null, // Default to null when the bot is not running.
     },
-    
-    // You could add more configuration fields here as your bot becomes more complex, such as:
-    // tradeAmount: { type: Number, required: true },
-    // timeframe: { type: String, required: true },
-    
   },
   {
     // This Mongoose option automatically adds two fields to your document:

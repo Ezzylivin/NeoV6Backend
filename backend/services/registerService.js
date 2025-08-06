@@ -1,6 +1,6 @@
 // File: backend/services/registerService.js
 import jwt from 'jsonwebtoken';
-import user from '../dbStructure/user.js';
+import User from '../dbStructure/user.js';
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
@@ -17,10 +17,12 @@ export const registerUser = async (email, password, role = 'user') => {
   }
 
   const newUser = await User.create({ email, password, role });
-  const token = token(newUser._id);
+  
+  
+  const accessToken = generateToken(newUser._id);
 
   return {
-    token,
+    token: accesToken,
     user: {
       id: newUser._id,
       email: newUser.email,

@@ -1,7 +1,7 @@
 // File: backend/services/botService.js
 import ExchangeService from './exchangeService.js';
-import User from '../models/user.jsx
-import BotStatus from '../models/botStatusModel.js';
+import User from '../dbStructure/user.js;
+import Bot from '../dbStructure/bot.js';
 import Log from '../dbStructure/log.js';
 
 // Utility function to log messages to MongoDB
@@ -13,11 +13,21 @@ const logToDb = async (userId, message) => {
   }
 };
 
+
+// To start a bot:
+const Bot = await Bot.create({
+  userId: req.user._id,
+  isRunning: true,
+  symbol: req.body.symbol,
+  startedAt: new Date(),
+});
+
+
 export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m']) => {
   try {
     const exchange = new ExchangeService(userId); // uses user’s API keys if available
 
-    await BotStatus.findOneAndUpdate(
+    await Bot.findOneAndUpdate(
       { userId },
       { isRunning: true, symbol, amount, timeframes, startedAt: new Date() },
       { upsert: true, new: true }
@@ -39,7 +49,7 @@ export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m'
 
 export const stopTradingBot = async (userId) => {
   try {
-    await BotStatus.findOneAndUpdate(
+    await Bot.findOneAndUpdate(
       { userId },
       { isRunning: false },
       { new: true }
@@ -55,9 +65,9 @@ export const stopTradingBot = async (userId) => {
   }
 };
 
-export const getBotStatus = async (userId) => {
+export const Bot = async (userId) => {
   try {
-    const status = await BotStatus.findOne({ userId });
+    const status = await Bot.findOne({ userId });
     return status || { isRunning: false };
   } catch (err) {
     console.error(`[BotStatus Error]: ${err.message}`);

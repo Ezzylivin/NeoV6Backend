@@ -18,21 +18,21 @@ const router = express.Router();
  * @desc    Start the trading bot
  * @access  Private (trader, admin)
  */
-router.post('/start', startBotHandler);
+router.post('/startBot', startBotHandler);
 
 /**
  * @route   POST /api/bot/stop
  * @desc    Stop the trading bot
  * @access  Private (trader, admin)
  */
-router.post('/stop', stopBotHandler);
+router.post('/stopBot', stopBotHandler);
 
 /**
  * @route   GET /api/bot/status
  * @desc    Get bot running status
  * @access  Private (trader, admin)
  */
-router.get('/status', protect, getBotStatusHandler);
+router.get('/botStatus', getBotStatusHandler);
 
 /**
  * @route   GET /api/bot/info

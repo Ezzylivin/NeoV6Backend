@@ -1,32 +1,52 @@
-// Optional Express handler wrapper
-export const startBotHandler = async (req, res) => {
-  const { symbol, amount, timeframes } = req.body;
-  if (!symbol || !amount) {
-    return res.status(400).json({ message: 'symbol and amount are required.' });
-  }
+// File: backend/controllers/botController.js
+import {
+  startTradingBot as startBotService,
+  stopTradingBot as stopBotService,
+  getBotStatus as getBotStatusService,
+} from '../services/botService.js';
 
+export const startBotHandler = async (req, res) => {
   try {
-    await startTradingBot(req.user.id, symbol, amount, timeframes);
-    res.json({ status: 'Bot started' });
+    const userId = req.user?.id || req.body.userId;
+    const { symbol, amount, timeframes } = req.body;
+
+    if (!userId || !symbol || !amount) {
+      return res.status(400).json({ error: 'userId, symbol, and amount are required.' });
+    }
+
+    await startBotService(userId, symbol, amount, timeframes);
+    res.status(200).json({ success: true, message: 'Trading bot started.' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
 export const stopBotHandler = async (req, res) => {
   try {
-    await stopTradingBot(req.user.id);
-    res.json({ status: 'Bot stopped' });
+    const userId = req.user?.id || req.body.userId;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required.' });
+    }
+
+    await stopBotService(userId);
+    res.status(200).json({ success: true, message: 'Trading bot stopped.' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
 export const getBotStatusHandler = async (req, res) => {
   try {
-    const status = await getBotStatus(req.user.id);
-    res.json(status);
+    const userId = req.user?.id || req.query.userId;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required.' });
+    }
+
+    const status = await getBotStatusService(userId);
+    res.status(200).json({ success: true, status });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };

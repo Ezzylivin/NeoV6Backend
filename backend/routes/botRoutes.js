@@ -1,7 +1,7 @@
 // File: backend/routes/botRoutes.js
 import express from 'express';
-import { protect } from '../middleware/authMiddleware.js';
-import { authorizeRoles } from '../middleware/roleMiddleware.js';
+//import { protect } from '../middleware/authMiddleware.js';
+//import { authorizeRoles } from '../middleware/roleMiddleware.js';
 import {
   startBotHandler,
   stopBotHandler,
@@ -11,28 +11,28 @@ import {
 const router = express.Router();
 
 // Allowed roles for bot actions
-const allowedRoles = ['trader', 'admin'];
+//const allowedRoles = ['trader', 'admin'];
 
 /**
- * @route   POST /api/bot/start
+ * @route   POST //
  * @desc    Start the trading bot
  * @access  Private (trader, admin)
  */
-router.post('/start', protect, authorizeRoles(...allowedRoles), startBotHandler);
+router.post('/start', startBotHandler);
 
 /**
  * @route   POST /api/bot/stop
  * @desc    Stop the trading bot
  * @access  Private (trader, admin)
  */
-router.post('/stop', protect, authorizeRoles(...allowedRoles), stopBotHandler);
+router.post('/stop', stopBotHandler);
 
 /**
  * @route   GET /api/bot/status
  * @desc    Get bot running status
  * @access  Private (trader, admin)
  */
-router.get('/status', protect, authorizeRoles(...allowedRoles), getBotStatusHandler);
+router.get('/status', protect, getBotStatusHandler);
 
 /**
  * @route   GET /api/bot/info

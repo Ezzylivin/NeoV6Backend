@@ -2,7 +2,7 @@
 
 import express from 'express';
 import Log from '../dbStructure/log.js';
-import { protect } from '../middleware/authMiddleware.js';
+//import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -11,7 +11,7 @@ const router = express.Router();
  * @desc    Admin sees all logs; users see only their own (latest 100)
  * @access  Private
  */
-router.get('/', protect, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const isAdmin = req.user.role === 'admin';
 
@@ -31,7 +31,7 @@ router.get('/', protect, async (req, res) => {
  * @access  Private
  * @body    { message: "..." }
  */
-router.post('/', protect, async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { message } = req.body;
     if (!message) {

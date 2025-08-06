@@ -1,5 +1,5 @@
 // File: backend/middleware/roleMiddleware.js
-export const authorizeRoles = (...roles) => {
+ const authorizeRoles = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ message: 'Not authenticated' });
@@ -10,3 +10,5 @@ export const authorizeRoles = (...roles) => {
     next();
   };
 };
+
+export {authorizeRoles};

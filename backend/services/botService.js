@@ -15,12 +15,12 @@ const logToDb = async (userId, message) => {
 
 
 // To start a bot:
-const Bot = await Bot.create({
+//const Bot = await Bot.create({
   userId: req.user._id,
   isRunning: true,
   symbol: req.body.symbol,
   startedAt: new Date(),
-});
+});//
 
 
 export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m']) => {

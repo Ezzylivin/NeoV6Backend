@@ -2,9 +2,9 @@
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const user = await User.findOne({ email });
+    const user = await user.findOne({ email });
     if (user && (await user.matchPassword(password))) {
-      res.json({ access_token: generateToken(user._id) });
+      res.json({ access_token: token(user.id) });
     } else {
       res.status(401).json({ message: 'Invalid email or password' });
     }

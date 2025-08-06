@@ -1,6 +1,6 @@
 // File: backend/routes/backtestRoutes.js
 import express from 'express';
-import { protect } from '../middleware/authMiddleware.js';
+// import { protect } from '../middleware/authMiddleware.js';
 // Import the controller functions
 import { runBacktestAndStore } from '../services/backtestService.js';
 

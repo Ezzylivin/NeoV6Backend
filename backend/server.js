@@ -4,7 +4,7 @@ import cors from 'cors';
 import connectDB from './config/db.js';
 
 // VVVV THIS IS THE IMPORT FUNCTION YOU ARE ASKING ABOUT VVVV
-import api from './routes/api.js'; // Import the main API router
+import api from './routes/api.jsx'; // Import the main API router
 
 // --- Initial Server Setup ---
 

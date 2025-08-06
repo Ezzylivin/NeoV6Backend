@@ -1,7 +1,7 @@
 // File: backend/services/botService.js
 import ExchangeService from './exchangeService.js';
 import User from '../dbStructure/user.js;
-import Bot from '../dbStructure/bot.js';
+import BotStatus from '../dbStructure/botStatus.js';
 import Log from '../dbStructure/log.js';
 
 // Utility function to log messages to MongoDB
@@ -14,13 +14,6 @@ const logToDb = async (userId, message) => {
 };
 
 
-// To start a bot:
-//const Bot = await Bot.create({
-  userId: req.user._id,
-  isRunning: true,
-  symbol: req.body.symbol,
-  startedAt: new Date(),
-});//
 
 
 export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m']) => {

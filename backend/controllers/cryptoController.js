@@ -2,17 +2,12 @@
 import ccxt from 'ccxt';
 import User from '../models/userModel.js';
 
-/**
- * Get supported symbols for all exchanges linked to the user
- */
 export const getSupportedSymbols = async (req, res) => {
   const userId = req.user.id;
 
   try {
     const user = await User.findById(userId);
-    if (!user || user.exchangeKeys.length === 0) {
-      return res.status(400).json({ message: 'No exchange keys configured' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     const result = [];
 
@@ -27,8 +22,21 @@ export const getSupportedSymbols = async (req, res) => {
         continue;
       }
 
+      let exchangeInstance;
+
       try {
-        const exchangeInstance = new ExchangeClass({ apiKey, secret: apiSecret });
+        // Try with credentials
+        exchangeInstance = new ExchangeClass({
+          apiKey,
+          secret: apiSecret,
+        });
+        await exchangeInstance.checkRequiredCredentials();
+      } catch (authError) {
+        // Fallback to unauthenticated/public mode
+        exchangeInstance = new ExchangeClass();
+      }
+
+      try {
         const markets = await exchangeInstance.loadMarkets();
         const symbols = Object.keys(markets);
 
@@ -43,7 +51,7 @@ export const getSupportedSymbols = async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    console.error('Error loading user exchanges:', error);
+    console.error('Error loading exchange symbols:', error);
     res.status(500).json({ message: 'Unable to fetch exchange symbols' });
   }
 };

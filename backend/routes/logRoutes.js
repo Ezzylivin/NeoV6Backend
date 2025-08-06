@@ -1,6 +1,6 @@
 // File: backend/routes/logRoutes.js
 import express from 'express';
-import log from '../models/logModel.js';
+import Log from '../models/logModel.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -14,11 +14,11 @@ router.get('/', protect, async (req, res) => {
   try {
     const isAdmin = req.user.role === 'admin';
 
-    const logs = await Log.find(
+    const Logs = await Log.find(
       isAdmin ? {} : { userId: req.user._id }
     ).sort({ createdAt: -1 }).limit(100);
 
-    res.json(logs);
+    res.json(Logs);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch logs' });
   }
@@ -37,7 +37,7 @@ router.post('/', protect, async (req, res) => {
       return res.status(400).json({ message: 'Message is required' });
     }
 
-    const log = await Log.create({
+    const Log = await Log.create({
       userId: req.user._id,
       message,
     });

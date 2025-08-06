@@ -1,4 +1,4 @@
-// File: backend/models/backtestModel.js
+// File: backend/dbStructure/backtest.js
 import mongoose from 'mongoose';
 
 const backtestSchema = new mongoose.Schema({

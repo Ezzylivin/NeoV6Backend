@@ -20,7 +20,7 @@ export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m'
   try {
     const exchange = new ExchangeService(userId); // uses user’s API keys if available
 
-    await Bot.findOneAndUpdate(
+    await startBot.findOneAndUpdate(
       { userId },
       { isRunning: true, symbol, amount, timeframes, startedAt: new Date() },
       { upsert: true, new: true }
@@ -42,7 +42,7 @@ export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m'
 
 export const stopTradingBot = async (userId) => {
   try {
-    await Bot.findOneAndUpdate(
+    await stopBot.findOneAndUpdate(
       { userId },
       { isRunning: false },
       { new: true }
@@ -58,9 +58,9 @@ export const stopTradingBot = async (userId) => {
   }
 };
 
-export const Bot = async (userId) => {
+export const getBotStatus = async (userId) => {
   try {
-    const status = await Bot.findOne({ userId });
+    const status = await BotStatus.findOne({ userId });
     return status || { isRunning: false };
   } catch (err) {
     console.error(`[BotStatus Error]: ${err.message}`);

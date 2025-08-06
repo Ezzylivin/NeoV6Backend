@@ -1,5 +1,6 @@
 // File: backend/services/botService.js
 import ExchangeService from './exchangeService.js';
+import User from '../models/user.jsx
 import BotStatus from '../models/botStatusModel.js';
 import Log from '../dbStructure/log.js';
 

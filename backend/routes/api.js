@@ -2,7 +2,7 @@
 import express from 'express';
 // import { protect } from '../middleware/authMiddleware.js';
 
-import authRoutes from './authRoutes.js';
+// import authRoutes from './authRoutes.js';
 import userRoutes from './userRoutes.js';
 import botRoutes from './botRoutes.js';
 import logRoutes from './logRoutes.js';
@@ -14,9 +14,9 @@ const router = express.Router();
 router.use('/auth', authRoutes);
 
 // Protected routes
-// router.use('/user', protect, userRoutes);
-// router.use('/bot', protect, botRoutes);
-// router.use('/logs', protect, logRoutes);
-// router.use('/backtest', protect, backtestRoutes);
+ router.use('/user',userRoutes);
+ router.use('/bot', botRoutes);
+ router.use('/logs', logRoutes);
+ router.use('/backtest', backtestRoutes);
 
 export default router;

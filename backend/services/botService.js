@@ -1,7 +1,7 @@
 // File: backend/services/botService.js
 import ExchangeService from './exchangeService.js';
 import User from '../dbStructure/user.js;
-import BotStatus from '../dbStructure/botStatus.js';
+// import BotStatus from '../dbStructure/botStatus.js';
 import Log from '../dbStructure/log.js';
 
 // Utility function to log messages to MongoDB

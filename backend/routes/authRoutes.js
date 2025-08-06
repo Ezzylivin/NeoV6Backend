@@ -20,7 +20,7 @@ router.post('/register', async (req, res) => {
 
   try {
     const user = await user.create({ email, password });
-    res.status(201).json({ access_token: generateToken(user._id) });
+    res.status(201).json({ access_token: generateToken(user.id) });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }

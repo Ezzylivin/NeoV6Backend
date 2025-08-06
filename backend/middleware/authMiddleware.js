@@ -1,4 +1,5 @@
 // File: backend/middleware/authMiddleware.js
+import jwt from 'jsonwebtoken';
 import User from '../dbStructure/user.js';
 
 export const protect = async (req, res, next) => {
@@ -12,13 +13,19 @@ export const protect = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const User = await User.findById(decoded.id).select('-password');
+    
+    const user = await User.findById(decoded.id).select('-password'); // ✅ lowercase
 
-    if (!User) {
+    if (!user) {
       return res.status(401).json({ message: 'User not found' });
     }
 
-    req.user = User;
+    req.user = {
+      id: user._id,
+      role: user.role,
+      email: user.email
+    };
+
     next();
   } catch (err) {
     console.error('Auth error:', err.message);

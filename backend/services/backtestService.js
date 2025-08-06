@@ -14,15 +14,17 @@ const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'];
 export const runBacktestAndStore = async (userId) => {
   console.log(`[Backtest] Starting across ${TIMEFRAMES.length} timeframes for user ${userId}...`);
   const exchange = new ExchangeService();
-  const allResults = []; // Use a distinct name for the main array
+  
+  // FIX: Use a clear, distinct name for the array of results.
+  const allResults = []; 
 
   for (const timeframe of TIMEFRAMES) {
     const historicalData = await exchange.fetchOHLCV('BTC/USDT', timeframe, 500);
     
-    // If no data is returned, skip this timeframe
+    // BEST PRACTICE: Add robustness by handling cases where no data is returned.
     if (!historicalData || historicalData.length === 0) {
       console.log(`[Backtest] No historical data found for ${timeframe}. Skipping.`);
-      continue;
+      continue; // Move to the next timeframe
     }
 
     let balance = 10000;
@@ -48,29 +50,30 @@ export const runBacktestAndStore = async (userId) => {
     const finalPrice = historicalData[historicalData.length - 1][4];
     const finalValue = balance + (asset * finalPrice);
 
-    // *** FIX 1: Renamed this object to `result` (singular) ***
+    // FIX: Create a single 'result' object with a distinct name.
     const result = {
       userId,
       timeframe,
       initialBalance: 10000,
+      // BEST PRACTICE: Store numerical data as numbers, not strings.
       finalBalance: parseFloat(finalValue.toFixed(2)),
       totalTrades: trades,
       profit: parseFloat((finalValue - 10000).toFixed(2)),
       candlesTested: historicalData.length,
     };
 
-    // *** FIX 2: Pushed the singular `result` object into the `allResults` array ***
+    // FIX: Push the singular 'result' object into the 'allResults' array.
     allResults.push(result);
 
-    // Store result in DB if userId is provided
     if (userId) {
-      // *** FIX 3: Create the backtest using the singular `result` object ***
+      // FIX: Use the 'result' object to create the database entry.
       await Backtest.create(result);
       await logToDb(userId, `[Backtest] ${timeframe} | Profit: $${result.profit} | Trades: ${result.totalTrades}`);
     }
   }
 
   console.log(`[Backtest] Completed all timeframes for user ${userId}.`);
-  // *** FIX 4: Return the array that contains all the results ***
+  
+  // FIX: Return the correct array containing all the results.
   return allResults;
 };

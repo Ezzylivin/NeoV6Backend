@@ -40,7 +40,7 @@ export const runBacktestAndStore = async (userId) => {
     const finalPrice = historicalData[historicalData.length - 1][4];
     const finalValue = balance + (asset * finalPrice);
 
-    const result = {
+    const results = {
       userId,
       timeframe,
       initialBalance: 10000,
@@ -50,12 +50,12 @@ export const runBacktestAndStore = async (userId) => {
       candlesTested: historicalData.length,
     };
 
-    results.push(result);
+    results.push(results);
 
     // Store result in DB if userId is provided
     if (userId) {
-      await Backtest.create(result);
-      await logToDb(userId, `[Backtest] ${timeframe} | Profit: $${result.profit} | Trades: ${result.totalTrades}`);
+      await Backtest.create(results);
+      await logToDb(userId, `[Backtest] ${timeframe} | Profit: $${results.profit} | Trades: ${results.totalTrades}`);
     }
   }
 

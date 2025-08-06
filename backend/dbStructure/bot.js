@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import User from '../dbStructure/user.js';
 
 const botSchema = new mongoose.Schema(
   {

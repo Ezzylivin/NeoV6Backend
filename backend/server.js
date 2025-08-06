@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import apiRoutes from './routes/api.js';
 import connectDB from './config/db.js';
 
 // VVVV THIS IS THE IMPORT FUNCTION YOU ARE ASKING ABOUT VVVV

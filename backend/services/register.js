@@ -1,4 +1,4 @@
-// File: backend/routes/authRoutes.js
+// File: backend/services/register.js
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import user from '../dbStructure/user.js';

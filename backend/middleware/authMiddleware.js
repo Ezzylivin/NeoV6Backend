@@ -1,5 +1,5 @@
 // File: backend/middleware/authMiddleware.js
-import user from '../models/user.js';
+import User from '../dbStructure/user.js';
 
 export const protect = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -12,13 +12,13 @@ export const protect = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select('-password');
+    const User = await User.findById(decoded.id).select('-password');
 
-    if (!user) {
+    if (!User) {
       return res.status(401).json({ message: 'User not found' });
     }
 
-    req.user = user;
+    req.user = User;
     next();
   } catch (err) {
     console.error('Auth error:', err.message);

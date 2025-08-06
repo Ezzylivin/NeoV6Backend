@@ -1,7 +1,7 @@
 // File: backend/routes/exchangeRoutes.js
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
-import { saveExchangeKey, getExchangeKeys } from '../services/exchangeService.js';
+import { saveExchangeKey, getExchangeKeys } from '../controllers/exchangeController.js';
 
 const router = express.Router();
 

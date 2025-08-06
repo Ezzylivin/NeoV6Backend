@@ -14,9 +14,9 @@ const router = express.Router();
 //const allowedRoles = ['trader', 'admin'];
 
 /*
-  @route   POST //
-  @desc    Start the trading bot
-  @access  Private (trader, admin)
+  //@route   POST //
+  //@desc    Start the trading bot
+  //@access  Private (trader, admin)
  */
 router.post('/startBot', startBotHandler);
 

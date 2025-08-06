@@ -15,13 +15,13 @@ const tradeResultSchema = new Schema(
       enum: ['long', 'short'],
     },
     profit: Number,
-    duration: Number, // in seconds or ms
+    duration: Number,
     result: {
       type: String,
       enum: ['win', 'loss', 'breakeven'],
     },
   },
-  { _id: false } // Prevents Mongoose from auto-generating an _id for each subdocument
+  { _id: false }
 );
 
 const strategyConfigSchema = new Schema(
@@ -32,8 +32,7 @@ const strategyConfigSchema = new Schema(
       default: 'crossoverStrategy',
     },
     parameters: {
-      type: Schema.Types.Mixed, // Accepts any object structure
-      required: false,
+      type: Schema.Types.Mixed,
     },
   },
   { _id: false }
@@ -63,18 +62,15 @@ const backtestSchema = new Schema(
 
     finalBalance: {
       type: Number,
-      required: true,
       min: [0, 'Final balance must be positive'],
     },
 
     profit: {
       type: Number,
-      required: true,
     },
 
     totalTrades: {
       type: Number,
-      required: true,
       min: [0, 'Total trades cannot be negative'],
     },
 
@@ -93,8 +89,20 @@ const backtestSchema = new Schema(
   }
 );
 
-// Useful compound index for fast querying by user + recency
-backtestSchema.index({ userId: 1, createdAt: -1 });
+// Automatically calculate totals before saving
+backtestSchema.pre('save', function (next) {
+  if (Array.isArray(this.tradeBreakdown)) {
+    const totalProfit = this.tradeBreakdown.reduce((sum, trade) => {
+      return sum + (trade.profit || 0);
+    }, 0);
+
+    this.totalTrades = this.tradeBreakdown.length;
+    this.profit = totalProfit;
+    this.finalBalance = this.initialBalance + totalProfit;
+  }
+
+  next();
+});
 
 const Backtest = model('Backtest', backtestSchema);
 

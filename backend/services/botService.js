@@ -33,7 +33,7 @@ export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m'
       { upsert: true, new: true }
     );
 
-    const message = `🚀 Bot started for ${symbol} with ${amount} units on timeframes: ${timeframes.join(', ')}`;
+    const message = `Bot started for ${symbol} with ${amount} units on timeframes: ${timeframes.join(', ')}`;
     await logToDb(userId, message);
     console.log(message);
 
@@ -42,7 +42,7 @@ export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m'
 
   } catch (err) {
     console.error(`[StartBot Error]: ${err.message}`);
-    await logToDb(userId, `❌ Failed to start bot: ${err.message}`);
+    await logToDb(userId, `Failed to start bot: ${err.message}`);
     throw err;
   }
 };
@@ -55,12 +55,12 @@ export const stopTradingBot = async (userId) => {
       { new: true }
     );
 
-    const message = `🛑 Bot stopped by user.`;
+    const message = `Bot stopped by user.`;
     await logToDb(userId, message);
     console.log(message);
   } catch (err) {
     console.error(`[StopBot Error]: ${err.message}`);
-    await logToDb(userId, `❌ Failed to stop bot: ${err.message}`);
+    await logToDb(userId, `Failed to stop bot: ${err.message}`);
     throw err;
   }
 };

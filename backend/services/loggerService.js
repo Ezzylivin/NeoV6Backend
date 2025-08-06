@@ -1,5 +1,5 @@
 // File: backend/services/loggerService.js
-import Log from '../dbstructure/log.js';
+import Log from '../dbStructure/log.js';
 
 export const logToDb = async (userId, message) => {
   try {

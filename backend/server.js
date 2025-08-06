@@ -37,7 +37,7 @@ app.get('/', (req, res) => {
 // VVVV THIS IS WHERE YOU "PLUG IN" YOUR IMPORTED ROUTER VVVV
 // Any request that starts with '/api' will be handled by the 'apiRoutes' router.
 
- //app.use('/api', apiRoutes);
+ app.use('/api', apiRoutes);
 
 
 // --- Error Handling Middleware (Optional but Recommended) ---

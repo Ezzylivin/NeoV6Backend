@@ -1,67 +1,71 @@
+// File: backend/models/Bot.js
+
 import mongoose from 'mongoose';
 
-const botSchema = new mongoose.Schema(
+const { Schema, model } = mongoose;
+
+const botSchema = new Schema(
   {
-    // This creates a direct link to the User who owns this bot instance.
-    // It's a required field because a bot cannot exist without a user.
+    // Links to the User who owns this bot instance
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
+      ref: 'User',
       required: true,
-      ref: 'user', // This tells Mongoose to reference the 'User' model.
-      unique: true, // IMPORTANT: This ensures one user can only have ONE active bot instance record.
-                   // If a user tries to start a second bot, the database will throw a unique index error.
+      unique: true, // Enforces one bot per user
     },
-    
-    // Simple boolean flag to indicate if the bot's trading loop is currently active.
+
+    // Whether the bot's trading loop is currently active
     isRunning: {
       type: Boolean,
+      default: false,
       required: true,
-      default: false, // By default, a bot is not running when its record is created.
     },
-    
-    // The market symbol the bot is trading, e.g., 'BTC/USDT'.
+
+    // Trading market symbol, e.g., 'BTC/USDT'
     symbol: {
       type: String,
       required: true,
-      uppercase: true, // Good practice to store symbols in a consistent format.
+      uppercase: true,
+      trim: true,
     },
-    
-    // The name of the trading strategy the bot is using.
-    // This allows you to support multiple strategies in the future.
+
+    // Trading strategy used by the bot
     strategy: {
       type: String,
       required: true,
-      default: 'crossoverStrategy', // Set a default strategy.
+      default: 'crossoverStrategy',
+      trim: true,
     },
-    
-    // --- Configuration fields required to run the bot ---
+
+    // --- Configuration fields for bot operation ---
     amount: {
       type: Number,
-      required: [true, 'A trade amount is required to run the bot.'],
+      required: [true, 'Trade amount is required to run the bot.'],
+      min: [0, 'Trade amount must be a positive number.'],
     },
     timeframes: {
-      type: [String], // Defines an array of strings
+      type: [String],
       required: [true, 'At least one timeframe is required.'],
+      validate: {
+        validator: arr => arr.length > 0,
+        message: 'Timeframes array cannot be empty.',
+      },
     },
-    // ---------------------------------------------------
-    
-    // The timestamp for when the bot was last started.
-    // This can be useful for tracking uptime or for display on the frontend.
+
+    // When the bot was last started
     startedAt: {
       type: Date,
-      default: null, // Default to null when the bot is not running.
+      default: null,
     },
   },
   {
-    // This Mongoose option automatically adds two fields to your document:
-    // `createdAt`: The timestamp when the document was first created.
-    // `updatedAt`: The timestamp that is updated every time the document is saved.
-    timestamps: true,
+    timestamps: true, // Adds createdAt and updatedAt fields
   }
 );
 
-// This compiles the schema into a model that you can use in your controllers.
-// Mongoose will create a collection named 'bots' (lowercase, plural) in your database.
-const Bot = mongoose.model('Bot', botSchema);
+// Optional: Add an index for faster lookups by userId
+botSchema.index({ userId: 1 });
+
+const Bot = model('Bot', botSchema);
 
 export default Bot;

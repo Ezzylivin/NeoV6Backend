@@ -1,52 +1,13 @@
-// File: backend/routes/logRoutes.js
-
 import express from 'express';
-import Log from '../dbStructure/log.js';
-//import { protect } from '../middleware/authMiddleware.js';
+import { getLogs, createLog } from '../controllers/logController.js';
+import { protect } from '../middleware/authMiddleware.js'; // Make sure this exists
 
 const router = express.Router();
 
-/**
- * @route   GET /api/logs
- * @desc    Admin sees all logs; users see only their own (latest 100)
- * @access  Private
- */
-router.get('/', async (req, res) => {
-  try {
-    const isAdmin = req.user.role === 'admin';
+// GET logs — Admin sees all, user sees only their own
+router.get('/', protect, getLogs);
 
-    const logs = await Log.find(
-      isAdmin ? {} : { userId: req.user.id }
-    ).sort({ createdAt: -1 }).limit(100);
-
-    res.json(logs);
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch logs' });
-  }
-});
-
-/**
- * @route   POST /api/logs
- * @desc    Add a log message
- * @access  Private
- * @body    { message: "..." }
- */
-router.post('/', async (req, res) => {
-  try {
-    const { message } = req.body;
-    if (!message) {
-      return res.status(400).json({ message: 'Message is required' });
-    }
-
-    const newLog = await Log.create({
-      userId: req.user.id,
-      message,
-    });
-
-    res.status(201).json({ message: 'Log created', log: newLog });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to create log' });
-  }
-});
+// POST a new log
+router.post('/', protect, createLog);
 
 export default router;

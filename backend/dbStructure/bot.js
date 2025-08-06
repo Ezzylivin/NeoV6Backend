@@ -7,7 +7,7 @@ const botSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      ref: 'User', // This tells Mongoose to reference the 'User' model.
+      ref: 'user', // This tells Mongoose to reference the 'User' model.
       unique: true, // IMPORTANT: This ensures one user can only have ONE active bot instance record.
                    // If a user tries to start a second bot, the database will throw a unique index error.
     },

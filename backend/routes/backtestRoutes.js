@@ -1,15 +1,14 @@
 // File: backend/routes/backtestRoutes.js
 import express from 'express';
 // import { protect } from '../middleware/authMiddleware.js';
-// Import the controller functions
 import { runBacktestAndStore } from '../services/backtestService.js';
 
 const router = express.Router();
 
-// GET route now just points to the controller function
-router.get('/results', protect, runBacktestAndStore);
+// GET: Fetch stored backtest results
+router.get('/results', runBacktestAndStore);
 
-// POST route for running a new backtest
-router.post('/run', protect, runBacktestAndStore);
+// POST: Run a new backtest and store the result
+router.post('/run', runBacktestAndStore); // You may want a different handler if POST behaves differently
 
 export default router;

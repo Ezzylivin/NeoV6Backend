@@ -2,7 +2,7 @@ import {
   saveStrategyService,
   getStrategiesService,
   runStrategyService
-} from '../services/strategyService.js';
+} from '../services/strategyEngineService.js';
 
 // Controller to save a new strategy
 export const saveStrategyController = async (req, res) => {

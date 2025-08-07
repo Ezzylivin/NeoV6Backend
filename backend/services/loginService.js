@@ -1,11 +1,7 @@
-import jwt from 'jsonwebtoken';
+import generateToken from '../utils/token.js
 import user from '../dbStructure/user.js';
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
-  });
-};
+
 
 export const loginUser = async (email, password) => {
   const existingUser = await user.findOne({ email });

@@ -26,11 +26,11 @@ import User from '../dbStructure/user.js';
       email: user.email
     };
 
-    next();
+    next(); {
    catch (err) {
     console.error('Auth error:', err.message);
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
-};
+  }};
 
 export { protect };

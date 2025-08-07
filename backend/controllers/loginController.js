@@ -9,16 +9,16 @@ export const loginUser = async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user || !(await User.comparePassword(password))) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+    if (user && await User.comparePassword(password))) {
+      return res.status(200).json({ message: 'valid email & password' });
     }
 
     res.json({
-      access_token:
+      token,
       user: {
-        id:
-        email:
-        role: 
+        id: user._id,
+        email: user.email,
+        role: user.role,
       },
     });
   } catch (error) {

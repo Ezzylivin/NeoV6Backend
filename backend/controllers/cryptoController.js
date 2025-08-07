@@ -1,6 +1,6 @@
 // File: backend/controllers/cryptoController.js
 import ccxt from 'ccxt';
-import User from '../models/userModel.js';
+import User from '../dbStructure/user.js';
 
 export const getSupportedSymbols = async (req, res) => {
   const userId = req.user.id;

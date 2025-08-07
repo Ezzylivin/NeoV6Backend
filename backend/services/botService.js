@@ -2,7 +2,7 @@
 
 import ExchangeService from './exchangeService.js';
 import User from '../dbStructure/user.js';
-import Bot from '../models/Bot.js';           // ✅ Import your actual Bot model
+import Bot from '../dbStructure/bot.js';           // ✅ Import your actual Bot model
 import Log from '../dbStructure/log.js';      // ✅ Logger collection
 
 // Utility function to log messages to MongoDB

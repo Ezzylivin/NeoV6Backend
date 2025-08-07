@@ -1,11 +1,5 @@
-import jwt from 'jsonwebtoken';
-import User from '../dbStructure/user.js'; // ✅ make sure this is correct
+import User from '../dbStructure/user.js'; /
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
-  });
-};
 
 // @desc    Login user
 // @route   POST /api/login
@@ -20,11 +14,11 @@ export const loginUser = async (req, res) => {
     }
 
     res.json({
-      access_token: generateToken(user._id),
+      access_token:
       user: {
-        id: user._id,
-        email: user.email,
-        role: user.role,
+        id:
+        email:
+        role: 
       },
     });
   } catch (error) {

@@ -1,6 +1,6 @@
 // Correctly import the Mongoose model from the 'models' directory.
 // The filename is likely 'logModel.js' based on convention.
-import Log from '../models/logModel.js';
+import Log from '../dbStructure/log.js';
 
 /**
  * A reusable service function to create a log entry in the database.

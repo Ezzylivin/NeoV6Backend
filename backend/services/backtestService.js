@@ -1,7 +1,7 @@
 import ExchangeService from './exchangeService.js';
-import { crossoverStrategy } from './strategyEngine.js';
+import { crossoverStrategy } from './strategyEngineService.js';
 import Backtest from '../dbStructure/backtest.js';
-import { logToDb } from './loggerService.js';
+import { logToDb } from './logService.js';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'];
 

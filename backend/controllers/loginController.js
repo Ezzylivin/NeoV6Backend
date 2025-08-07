@@ -1,4 +1,4 @@
-import User from '../dbStructure/user.js'; /
+import user from '../dbStructure/user.js'; /
 
 
 // @desc    Login user
@@ -8,8 +8,8 @@ export const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
-    if (user && await User.comparePassword(password))) {
+    const user = await user.findOne({ email });
+    if (user && await user.comparePassword(password))) {
       return res.status(200).json({ message: 'valid email & password' });
     }
 

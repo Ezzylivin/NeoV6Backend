@@ -1,20 +1,28 @@
-// File: backend/services/loggerService.js
 import Log from '../dbStructure/log.js';
 
-/**
- * Creates a log entry in the database.
- * This is a "fire-and-forget" function; it does not throw errors back to the caller,
- * it just logs them to the console to avoid interrupting the main application flow.
- * @param {string} userId - The ID of the user associated with the log event.
- * @param {string} message - The descriptive message to be logged.
- */
-export const logToDb = async (userId, message) => {
+// An enum for log levels
+const LOG_LEVELS = {
+  INFO: 'INFO',
+  WARN: 'WARN',
+  ERROR: 'ERROR',
+};
+
+const createLogEntry = async (userId, level, message) => {
   try {
-    // Creates a new document in the 'logs' collection.
-    await Log.create({ userId, message });
+    // Assumes your logModel has a 'level' field
+    await Log.create({ userId, level, message });
   } catch (err) {
-    // If logging fails (e.g., database connection issue),
-    // log the error to the server console but don't crash the calling process.
-    console.error(`[Logger Service Error]: Failed to write log to DB. ${err.message}`);
+    console.error(`[Logger Service Error]: ${err.message}`);
   }
 };
+
+export const logger = {
+  info: (userId, message) => createLogEntry(userId, LOG_LEVELS.INFO, message),
+  warn: (userId, message) => createLogEntry(userId, LOG_LEVELS.WARN, message),
+  error: (userId, message) => createLogEntry(userId, LOG_LEVELS.ERROR, message),
+};
+
+// --- How to use the upgraded logger ---
+// import { logger } from '../services/loggerService.js';
+// await logger.info(userId, 'Bot started.');
+// await logger.error(userId, 'Failed to fetch price data.');

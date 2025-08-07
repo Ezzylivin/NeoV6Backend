@@ -1,6 +1,6 @@
 // File: backend/routes/cryptoRoutes.js
 import express from 'express';
-import { getSupportedSymbols } from '../services/cryptoService.js';
+import { getSupportedSymbols } from '../controllers/cryptoController.js';
 
 const router = express.Router();
 

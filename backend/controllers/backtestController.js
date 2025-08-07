@@ -20,7 +20,7 @@ export const runBacktestHandler = async (req, res) => {
       results,
     });
   } catch (err) {
-    console.error('[BacktestController] runBacktestHandler error:', err);
+    console.error('[Backtest] runBacktestHandler error:', err);
     res.status(500).json({ success: false, error: 'Failed to run backtest.' });
   }
 };

@@ -1,6 +1,6 @@
 // File: backend/middleware/authMiddleware.js
 import jwt from 'jsonwebtoken';
-import user from '../dbStructure/user.js';
+import User from '../dbStructure/user.js';
 
   const protect = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -14,7 +14,7 @@ import user from '../dbStructure/user.js';
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    const user = await user.findById(decoded.id).select('-password'); // ✅ lowercase
+    const user = await User.findById(decoded.id).select('-password'); // ✅ lowercase
 
     if (!user) {
       return res.status(401).json({ message: 'User not found' });
@@ -30,11 +30,6 @@ import user from '../dbStructure/user.js';
   } catch (err) {
     console.error('Auth error:', err.message);
     return res.status(401).json({ message: 'Invalid or expired token' });
-  }
-};
-
-  if (!token) {
-    res.status(401).json({ message: 'Not authorized, no token' });
   }
 };
 

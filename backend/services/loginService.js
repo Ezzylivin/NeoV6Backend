@@ -4,18 +4,18 @@ import user from '../dbStructure/user.js';
 
 
 export const loginUser = async (email, password) => {
-  const existingUser = await user.findOne({ email });
+  const User = await user.findOne({ email });
 
-  if (!existingUser || !(await user.comparePassword(password))) {
+  if (!User || !(await existingUser.comparePassword(password))) {
     throw new Error('Invalid email or password');
   }
 
   return {
-    token: generateToken(user._id),
+    token: generateToken(User._id),
     user: {
-      id: user._id,
-      email: user.email,
-      role: user.role,
+      id: User._id,
+      email: User.email,
+      role: User.role,
     },
   };
 };

@@ -27,6 +27,6 @@ const logSchema = new Schema(
 );
 
 // Use PascalCase for model name
-const Log = model('Log', logSchema);
+const log = model('Log', logSchema);
 
-export default Log;
+export default log;

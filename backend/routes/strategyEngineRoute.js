@@ -6,7 +6,7 @@ import {
   saveStrategyController,
   getStrategiesController,
   runStrategyController
-} from '../controllers/strategyController.js';
+} from '../controllers/strategyEngineController.js';
 
 const router = express.Router();
 

@@ -1,6 +1,6 @@
 import express from 'express';
 // Import the specific controller function
-import { registerUser } from '../controllers/registerController.js'; 
+import { registerUser } from '../services/registerService.js'; 
 
 const router = express.Router();
 

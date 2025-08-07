@@ -2,7 +2,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../dbStructure/user.js';
 
-  const protect = async (req, res, next) => {
+const protect = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -13,8 +13,8 @@ import User from '../dbStructure/user.js';
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    const user = await User.findById(decoded.id).select('-password'); // ✅ lowercase
+
+    const user = await User.findById(decoded.id).select('-password');
 
     if (!user) {
       return res.status(401).json({ message: 'User not found' });
@@ -26,11 +26,11 @@ import User from '../dbStructure/user.js';
       email: user.email
     };
 
-    next(); {
-   catch (err) {
+    next();
+  } catch (err) {
     console.error('Auth error:', err.message);
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
-  }};
+};
 
 export { protect };

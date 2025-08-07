@@ -7,8 +7,8 @@ const generateToken = (id) => {
   });
 };
 
-export const loginUserService = async (email, password) => {
-  const user = await User.findOne({ email });
+export const loginUser = async (email, password) => {
+  const existingUser = await User.findOne({ email });
 
   if (!user || !(await user.comparePassword(password))) {
     throw new Error('Invalid email or password');

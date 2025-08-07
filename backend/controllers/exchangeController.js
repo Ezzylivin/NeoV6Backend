@@ -1,5 +1,5 @@
 // File: backend/controllers/exchangeController.js
-import User from '../models/userModel.js';
+import User from '../dbStructure/user.js';
 
 // Save exchange keys to the user's profile
 export const saveExchangeKey = async (req, res) => {

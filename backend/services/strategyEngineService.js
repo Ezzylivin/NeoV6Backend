@@ -1,9 +1,9 @@
-backend/services/strategyEngineService.js
+//backend/services/strategyEngineService.js
 
 
-import Strategy from '../models/strategyModel.js'; // The DB model for strategies
-import { crossoverStrategy } from './strategyEngine.js'; // The pure calculation logic
-import { getMarketData } from './marketDataService.js'; // A service to fetch price data
+import Strategy from '../dbStructure/strategy.js'; // The DB model for strategies
+import { crossoverStrategy } from '../dbStructure/strategy.js'; // The pure calculation logic
+ // A service to fetch price data
 
 export const saveStrategyService = async (userId, strategyData) => {
   return Strategy.create({ userId, ...strategyData });

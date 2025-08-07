@@ -2,7 +2,7 @@
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 import { authorizeRoles } from '../middleware/roleMiddleware.js';
-import user from '../dbStructure/user.js';
+import User from '../dbStructure/user.js';
 
 const router = express.Router();
 
@@ -11,7 +11,7 @@ const router = express.Router();
 // @access  Private/Admin
 router.get('/', protect, authorizeRoles('admin'), async (req, res) => {
   try {
-    const users = await ser.find().select('-password');
+    const authUsers = await User.find().select('-password');
     res.json(users);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch users' });

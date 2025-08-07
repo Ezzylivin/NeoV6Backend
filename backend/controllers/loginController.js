@@ -1,5 +1,5 @@
 // File: backend/controllers/authController.js
-import User from '../dbStructure/user.js';
+import user from '../dbStructure/user.js';
 import generateToken from '../utils/token.js';
 
 export const loginUser = async (req, res) => {
@@ -7,13 +7,13 @@ export const loginUser = async (req, res) => {
     const { email, password } = req.body;
 
     // Find the user by email
-    const user = await User.findOne({ email });
-    if (!user || !(await user.comparePassword(password))) {
+    const User = await user.findOne({ email });
+    if (!User || !(await user.comparePassword(password))) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
     // Generate JWT
-    const token = generateToken(user);
+    const token = generateToken(user._id);
 
     // Respond with token and user info
     res.status(200).json({

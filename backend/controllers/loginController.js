@@ -1,19 +1,22 @@
-import user from '../dbStructure/user.js'; /
+// File: backend/controllers/authController.js
+import User from '../dbStructure/user.js';
+import generateToken from '../utils/token.js';
 
-
-// @desc    Login user
-// @route   POST /api/login
-// @access  Public
 export const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await user.findOne({ email });
-    if (user && await user.comparePassword(password))) {
-      return res.status(200).json({ message: 'valid email & password' });
+    // Find the user by email
+    const user = await User.findOne({ email });
+    if (!user || !(await user.comparePassword(password))) {
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    res.json({
+    // Generate JWT
+    const token = generateToken(user);
+
+    // Respond with token and user info
+    res.status(200).json({
       token,
       user: {
         id: user._id,

@@ -27,7 +27,7 @@ import User from '../dbStructure/user.js';
     };
 
     next();
-  } catch (err) {
+   catch (err) {
     console.error('Auth error:', err.message);
     return res.status(401).json({ message: 'Invalid or expired token' });
   }

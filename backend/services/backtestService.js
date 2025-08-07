@@ -1,5 +1,4 @@
 import ExchangeService from './exchangeService.js';
-import { crossoverStrategy } from './strategyEngineService.js';
 import Backtest from '../dbStructure/backtest.js';
 import { logToDb } from './logService.js';
 

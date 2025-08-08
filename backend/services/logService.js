@@ -1,5 +1,9 @@
-// Correctly import the Mongoose model from the 'models' directory.
-// The filename is likely 'logModel.js' based on convention.
+// File: src/backend/services/logService.js (Corrected Version)
+
+// 1. Import mongoose itself to use its features like `Types`.
+import mongoose from 'mongoose';
+
+// 2. Correctly import the Mongoose model. The import name `Log` is a class, so it should be capitalized.
 import Log from '../dbStructure/log.js';
 
 /**
@@ -13,9 +17,8 @@ import Log from '../dbStructure/log.js';
  */
 export const logToDb = async (userId, message) => {
   try {
-    // This creates a new document in the 'logs' collection
-    // with the provided userId and message.
-    await log.create({ userId, message });
+    // 3. Use the imported model `Log` (uppercase L) to call the static .create() method.
+    await Log.create({ userId, message });
   } catch (err) {
     // If logging to the database fails for any reason (e.g., connection issue),
     // we log the error to the console to avoid crashing the main process

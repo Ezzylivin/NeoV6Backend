@@ -1,25 +1,17 @@
 // File: backend/services/botService.js
 
 import ExchangeService from './exchangeService.js';
-import User from '../dbStructure/user.js';
+import user from '../dbStructure/user.js';
 import Bot from '../dbStructure/bot.js';           // ✅ Import your actual Bot model
-import Log from '../dbStructure/log.js';      // ✅ Logger collection
+import { logToDb } from '../dbStructure/log.js';      // ✅ Logger collection
 
-// Utility function to log messages to MongoDB
-const logToDb = async (userId, message) => {
-  try {
-    await Log.create({ userId, message });
-  } catch (err) {
-    console.error(`[Log Error]: ${err.message}`);
-  }
-};
 
 // ✅ Start the trading bot and store its config
 export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m']) => {
   try {
     const exchange = new ExchangeService(userId); // Connects using user’s API keys (if implemented)
 
-    await Bot.findOneAndUpdate(
+    await bot.findOneAndUpdate(
       { userId },
       {
         isRunning: true,
@@ -46,7 +38,7 @@ export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m'
 // ✅ Stop the trading bot by updating its status
 export const stopTradingBot = async (userId) => {
   try {
-    await Bot.findOneAndUpdate(
+    await bot.findOneAndUpdate(
       { userId },
       { isRunning: false },
       { new: true }
@@ -65,10 +57,10 @@ export const stopTradingBot = async (userId) => {
 // ✅ Get bot status for a user
 export const getBotStatus = async (userId) => {
   try {
-    const bot = await Bot.findOne({ userId });
+    const Bot = await bot.findOne({ userId });
 
     // Return either the bot config or a default "not running" object
-    return bot || {
+    return Bot || {
       userId,
       isRunning: false,
       symbol: null,

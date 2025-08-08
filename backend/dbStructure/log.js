@@ -7,7 +7,7 @@ const logSchema = new Schema(
   {
     userId: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'user',
       required: true,
     },
     message: {
@@ -27,6 +27,6 @@ const logSchema = new Schema(
 );
 
 // Use PascalCase for model name
-const log = model('Log', logSchema);
+const Log = model('log', logSchema);
 
-export default log;
+export default Log;

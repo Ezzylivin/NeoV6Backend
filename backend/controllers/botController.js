@@ -1,11 +1,7 @@
 // File: backend/controllers/botController.js
-import {
-  startTradingBot as startBotService,
-  stopTradingBot as stopBotService,
-  getBotStatus as getBotStatusService,
-} from '../services/botService.js';
+import Bot from '../services/botService.js';
 
-export const startBotHandler = async (req, res) => {
+export const startBotController = async (req, res) => {
   try {
     const userId = req.user?.id || req.body.userId;
     const { symbol, amount, timeframes } = req.body;
@@ -14,14 +10,14 @@ export const startBotHandler = async (req, res) => {
       return res.status(400).json({ error: 'userId, symbol, and amount are required.' });
     }
 
-    await startBotService(userId, symbol, amount, timeframes);
+    await startTradingBot(userId, symbol, amount, timeframes);
     res.status(200).json({ success: true, message: 'Trading bot started.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
-export const stopBotHandler = async (req, res) => {
+export const stopBotController = async (req, res) => {
   try {
     const userId = req.user?.id || req.body.userId;
 
@@ -29,14 +25,14 @@ export const stopBotHandler = async (req, res) => {
       return res.status(400).json({ error: 'userId is required.' });
     }
 
-    await stopBotService(userId);
+    await stopTradingBot(userId);
     res.status(200).json({ success: true, message: 'Trading bot stopped.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
-export const getBotStatusHandler = async (req, res) => {
+export const getBotStatusController = async (req, res) => {
   try {
     const userId = req.user?.id || req.query.userId;
 
@@ -44,7 +40,7 @@ export const getBotStatusHandler = async (req, res) => {
       return res.status(400).json({ error: 'userId is required.' });
     }
 
-    const status = await getBotStatusService(userId);
+    const status = await getBotStatus(userId);
     res.status(200).json({ success: true, status });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

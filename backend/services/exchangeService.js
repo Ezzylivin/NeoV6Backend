@@ -30,4 +30,4 @@ class Exchange {
   // watchOHLCV removed since it relies on ccxt-pro
 }
 
-export default ExchangeService;
+export default router;

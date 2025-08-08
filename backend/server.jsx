@@ -31,14 +31,12 @@ app.use(express.json());
 // --- API Routes ---
 
 // Define a simple root route for health checks or basic info
-app.get('/', (req, res) => {
-  res.send('API is running successfully...');
-});
+
 
 // VVVV THIS IS WHERE YOU "PLUG IN" YOUR IMPORTED ROUTER VVVV
 // Any request that starts with '/api' will be handled by the 'apiRoutes' router.
 
- app.use('/api', apiRoutes);
+ app.use('/api/routes', apiRoutes);
 
 
 // --- Error Handling Middleware (Optional but Recommended) ---

@@ -9,7 +9,7 @@ const botSchema = new Schema(
     // Links to the User who owns this bot instance
     userId: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'user',
       required: true,
       unique: true, // Enforces one bot per user
     },
@@ -66,6 +66,6 @@ const botSchema = new Schema(
 // Optional: Add an index for faster lookups by userId
 botSchema.index({ userId: 1 });
 
-const Bot = model('Bot', botSchema);
+const bot = model('Bot', botSchema);
 
-export default Bot;
+export default bot;

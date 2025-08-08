@@ -8,10 +8,8 @@ export const getLogs = async (req, res) => {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    const isAdmin = req.user.role === 'admin';
-
-    const logs = await Log.find(
-      isAdmin ? {} : { userId: req.user.id }
+    const logs = await log.find(
+       {} : { userId: req.user.id }
     )
       .sort({ createdAt: -1 })
       .limit(100);
@@ -36,7 +34,7 @@ export const createLog = async (req, res) => {
       return res.status(400).json({ message: 'Message is required' });
     }
 
-    const newLog = await Log.create({
+    const newLog = await log.create({
       userId: req.user.id,
       message,
     });

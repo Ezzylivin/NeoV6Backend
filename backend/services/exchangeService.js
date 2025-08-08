@@ -1,7 +1,7 @@
 // File: backend/services/exchangeService.js
 import ccxt from 'ccxt';
 
-class ExchangeService {
+class Exchange {
   constructor(apiKey, apiSecret /*, mode is no longer needed*/ ) {
     const exchangeId = 'binance';
     const exchangeClass = ccxt[exchangeId]; // Use ccxt (no pro)

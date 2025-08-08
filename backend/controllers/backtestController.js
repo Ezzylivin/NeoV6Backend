@@ -1,4 +1,4 @@
-import Backtest from '../dbStructure/Backtest.js';
+import Backtest from '../dbStructure/backtest.js';
 
 // 1. Create and save a new backtest
 export const createBacktest = async (req, res) => {

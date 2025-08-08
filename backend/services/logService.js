@@ -15,7 +15,7 @@ export const logToDb = async (userId, message) => {
   try {
     // This creates a new document in the 'logs' collection
     // with the provided userId and message.
-    await Log.create({ userId, message });
+    await log.create({ userId, message });
   } catch (err) {
     // If logging to the database fails for any reason (e.g., connection issue),
     // we log the error to the console to avoid crashing the main process

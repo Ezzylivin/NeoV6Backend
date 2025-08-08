@@ -1,114 +1,46 @@
-// File: backend/controllers/backtestController.js
+import Backtest from '../dbStructure/Backtest.js';
 
-import { runBacktestAndStore } from '../services/backtestService.js';
-import Backtest from '../dbStructure/backtest.js';
-
-// Run a new backtest for the current user
-export const runBacktestHandler = async (req, res) => {
+// 1. Create and save a new backtest
+export const createBacktest = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.userId;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required to run backtest.' });
-    }
-
-    const results = await runBacktestAndStore(userId);
-    res.status(200).json({
-      success: true,
-      message: 'Backtest completed successfully.',
-      count: results.length,
-      results,
-    });
-  } catch (err) {
-    console.error('[Backtest] runBacktestHandler error:', err);
-    res.status(500).json({ success: false, error: 'Failed to run backtest.' });
-  }
-};
-
-// Fetch all backtest results with optional filters and pagination
-export const getBacktestResultsHandler = async (req, res) => {
-  try {
-    const userId = req.user?.id || req.query.userId;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required.' });
-    }
-
     const {
-      symbol,
+      userId,
       timeframe,
-      startDate,
-      endDate,
-      page = 1,
-      limit = 20,
-    } = req.query;
+      initialBalance,
+      strategy,
+      tradeBreakdown,
+    } = req.body;
 
-    const filter = { userId };
-
-    if (symbol) filter.symbol = symbol.toUpperCase();
-    if (timeframe) filter.timeframe = timeframe;
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) filter.createdAt.$gte = new Date(startDate);
-      if (endDate) filter.createdAt.$lte = new Date(endDate);
-    }
-
-    const skip = (page - 1) * limit;
-
-    const [results, total] = await Promise.all([
-      Backtest.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
-      Backtest.countDocuments(filter),
-    ]);
-
-    res.status(200).json({
-      success: true,
-      total,
-      page: Number(page),
-      pages: Math.ceil(total / limit),
-      results,
+    // Create a new Backtest instance
+    const newBacktest = new Backtest({
+      userId,
+      timeframe,
+      initialBalance,
+      strategy,
+      tradeBreakdown,
     });
-  } catch (err) {
-    console.error('[BacktestController] getBacktestResultsHandler error:', err);
-    res.status(500).json({ success: false, error: 'Failed to fetch backtest results.' });
+
+    // Save to MongoDB (pre-save hook runs here to calculate profit, finalBalance, etc)
+    await newBacktest.save();
+
+    res.status(201).json({ message: 'Backtest saved', backtest: newBacktest });
+  } catch (error) {
+    console.error('[Backtest Save Error]', error);
+    res.status(500).json({ message: 'Failed to save backtest' });
   }
 };
 
-// Fetch a single backtest result by its ID
-export const getBacktestByIdHandler = async (req, res) => {
+// 2. Get all backtests for a specific user (with optional filters)
+export const getBacktestsByUser = async (req, res) => {
   try {
-    const result = await Backtest.findById(req.params.id);
+    const { userId } = req.params;
 
-    if (!result) {
-      return res.status(404).json({ error: 'Backtest result not found.' });
-    }
+    // Find backtests by userId, sorted by creation date (newest first)
+    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
 
-    // Optional: check ownership
-    // if (result.userId.toString() !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
-
-    res.status(200).json({ success: true, result });
-  } catch (err) {
-    console.error('[BacktestController] getBacktestByIdHandler error:', err);
-    res.status(500).json({ success: false, error: 'Failed to fetch result.' });
-  }
-};
-
-// Delete a specific backtest result
-export const deleteBacktestHandler = async (req, res) => {
-  try {
-    const result = await Backtest.findById(req.params.id);
-
-    if (!result) {
-      return res.status(404).json({ error: 'Backtest result not found.' });
-    }
-
-    // Optional: verify user ownership
-    // if (result.userId.toString() !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
-
-    await result.remove();
-
-    res.status(200).json({ success: true, message: 'Backtest result deleted.' });
-  } catch (err) {
-    console.error('[BacktestController] deleteBacktestHandler error:', err);
-    res.status(500).json({ success: false, error: 'Failed to delete result.' });
+    res.status(200).json(backtests);
+  } catch (error) {
+    console.error('[Get Backtests Error]', error);
+    res.status(500).json({ message: 'Failed to retrieve backtests' });
   }
 };

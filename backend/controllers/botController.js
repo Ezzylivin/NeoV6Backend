@@ -1,5 +1,5 @@
 // File: backend/controllers/botController.js
-import Bot from '../services/botService.js';
+import { startTradingBot, stopTradingBot, getBotStatus }  from '../services/botService.js';
 
 export const startBotController = async (req, res) => {
   try {

@@ -3,7 +3,7 @@ import express from 'express';
 // import { protect } from '../middleware/authMiddleware.js';
 // import { authorizeRoles } from '../middleware/roleMiddleware.js';
 
-import Bot from '../controllers/botController.js';
+import {startBotController, stopBotController, getBotStatusController } from '../controllers/botController.js';
 
 const router = express.Router();
 

@@ -82,3 +82,25 @@ export const runAndSaveBacktests = async (req, res) => {
     return res.status(500).json({ message: 'Failed to run backtests' });
   }
 };
+
+/**
+ * Controller to fetch all backtests for a specific user.
+ * Optional: Add filters or pagination as needed.
+ */
+export const getBacktestsByUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
+    // Find all backtests for the user, sorted newest first
+    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
+
+    res.status(200).json(backtests);
+  } catch (error) {
+    console.error('[Get Backtests Error]', error);
+    res.status(500).json({ message: 'Failed to retrieve backtests' });
+  }
+};

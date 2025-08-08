@@ -1,6 +1,6 @@
 // File: backend/controllers/authController.js
 import user from '../dbStructure/user.js';
-import generateToken from '../utils/token.js';
+import {generateToken} from '../utils/token.js';
 
 export const loginUser = async (req, res) => {
   try {

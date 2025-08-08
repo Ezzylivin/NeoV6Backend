@@ -10,3 +10,6 @@ router.post('/create', createBacktest);
 
 // POST: Run a new backtest and store the result
 router.get['/use/:userId', getBacktesByUser);
+
+
+export 

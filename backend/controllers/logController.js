@@ -9,7 +9,7 @@ export const getLogs = async (req, res) => {
     }
 
     const logs = await log.find(
-       {} : { userId: req.user.id }
+       { userId: req.user.id }
     )
       .sort({ createdAt: -1 })
       .limit(100);

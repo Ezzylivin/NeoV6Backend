@@ -3,7 +3,7 @@
 import ExchangeService from './exchangeService.js';
 import User from '../dbStructure/user.js';
 import Bot from '../dbStructure/bot.js';           // ✅ Import your actual Bot model
-import Log from '../services/logService.js
+import Log from '../services/logService.js;
 // ✅ Start the trading bot and store its config
 export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m']) => {
   try {

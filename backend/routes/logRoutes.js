@@ -5,9 +5,9 @@ import { protect } from '../middleware/authMiddleware.js'; // Make sure this exi
 const router = express.Router();
 
 // GET logs — Admin sees all, user sees only their own
-router.get('/', protect, getLogs);
+router.get('/', getLogs);
 
 // POST a new log
-router.post('/', protect, createLog);
+router.post('/', createLog);
 
 export default router;

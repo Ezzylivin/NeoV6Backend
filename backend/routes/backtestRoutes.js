@@ -1,11 +1,13 @@
 // File: backend/routes/backtestRoutes.js
 import express from 'express';
-// import { protect } from '../middleware/authMiddleware.js';
-import { runAndSaveBacktests  } from '../controllers/backtestController.js';
+import { runAndSaveBacktests, getBacktestsByUser } from '../controllers/backtestController.js';
 
 const router = express.Router();
 
-// GET: Fetch stored backtest results
+// POST: Run backtests and save results
 router.post('/api/backtests', runAndSaveBacktests);
+
+// GET: Fetch saved backtest results, optionally filtered by userId and timeframe
+router.get('/api/backtests/results', getBacktestsByUser);
 
 export default router;

@@ -66,6 +66,6 @@ const botSchema = new Schema(
 // Optional: Add an index for faster lookups by userId
 botSchema.index({ userId: 1 });
 
-const bot = model('Bot', botSchema);
+const Bot = model('bot', botSchema);
 
-export default bot;
+export default Bot;

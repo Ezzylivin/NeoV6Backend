@@ -1,76 +1,59 @@
+// File: src/backend/server.js (Corrected and Final Version)
+
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import apiRoutes from './routes/apiRoutes.js';
 import connectDB from './config/db.js';
 
-// VVVV THIS IS THE IMPORT FUNCTION YOU ARE ASKING ABOUT VVVV
-// import api from './routes/api.js'; // Import the main API router
+// Import the main switchboard for all API routes
+import apiRoutes from './routes/apiRoutes.js';
 
 // --- Initial Server Setup ---
-
-// Load environment variables from .env file
 dotenv.config();
-
-// Connect to the MongoDB database
 connectDB();
-
-// Create the Express app instance
 const app = express();
 
 
 // --- Middleware Configuration ---
 
-// --- Middleware Configuration ---
+// 1. Define the list of allowed origins (your frontend URLs).
+const whitelist = [
+  'http://localhost:3000', // For local development (Vite's default port)
+  'http://localhost:5173', // Vite's other common port
+  'https://neov6.vercel.app' // Your deployed production frontend
+];
 
-// Whitelist the specific URL of your deployed frontend
-const corsOptions = {
-  // IMPORTANT: Do not include a trailing slash '/' at the end of the URL
-  origin: 'https://neov6.vercel.app', 
-  optionsSuccessStatus: 200 // For legacy browser support
-};
-
-// Enable Cross-Origin Resource Sharing with your specific options
-app.use(cors(corsOptions));
-
-// To handle both development and production, you can use an array:
-const whitelist = ['http://localhost:8000', 'https://neov6.vercel.app'];
+// 2. Create the dynamic CORS options object.
 const dynamicCorsOptions = {
   origin: function (origin, callback) {
-    if (whitelist.indexOf(origin) !== -1 || !origin) { // !origin allows same-origin requests
-      callback(null, true)
+    // Check if the incoming origin is in our whitelist.
+    // The '!origin' part allows requests with no origin (like from Postman or server-to-server).
+    if (whitelist.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'))
+      // If the origin is not in the whitelist, reject the request.
+      callback(new Error('This origin is not allowed by CORS'));
     }
-  }
-}
+  },
+  optionsSuccessStatus: 200
+};
+
+// 3. Use the single, dynamic CORS middleware for all requests.
 app.use(cors(dynamicCorsOptions));
 
-// ... rest of your file
-
-// Enable the Express built-in middleware to parse incoming JSON payloads
+// 4. Enable the middleware to parse incoming JSON payloads.
+//    This should generally come AFTER your CORS configuration.
 app.use(express.json());
 
 
 // --- API Routes ---
 
-// Define a simple root route for health checks or basic info
-
-
-// VVVV THIS IS WHERE YOU "PLUG IN" YOUR IMPORTED ROUTER VVVV
-// Any request that starts with '/api' will be handled by the 'apiRoutes' router.
-
- app.use('/api/routes', apiRoutes);
-
-
-// --- Error Handling Middleware (Optional but Recommended) ---
-// You would add your custom notFound and errorHandler middleware here
+// 5. Mount the main API switchboard. (Using /api is recommended over /api/routes).
+app.use('/api', apiRoutes);
 
 
 // --- Start the Server ---
-
 const PORT = process.env.PORT || 8000;
-
 app.listen(PORT, () => {
   console.log(`Server is running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });

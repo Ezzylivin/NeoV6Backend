@@ -5,7 +5,7 @@ import { registerUser } from '../services/registerService.js';
 const router = express.Router();
 
 // The route now just points to the imported controller function
-router.post('/register', registerUser);
+router.post('/api', registerUser);
 
 // You could add a login route here pointing to a 'loginUser' controller
 // router.post('/login', loginUser);

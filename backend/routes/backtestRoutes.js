@@ -5,9 +5,9 @@ import { runAndSaveBacktests, getBacktestsByUser } from '../controllers/backtest
 const router = express.Router();
 
 // POST: Run backtests and save results
-router.post('/api', runAndSaveBacktests);
+router.post('/', runAndSaveBacktests);
 
 // GET: Fetch saved backtest results, optionally filtered by userId and timeframe
-router.get('/api', getBacktestsByUser);
+router.get('/', getBacktestsByUser);
 
 export default router;

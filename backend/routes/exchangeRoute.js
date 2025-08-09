@@ -6,9 +6,9 @@ import { saveExchangeKey, getExchangeKeys } from '../controllers/exchangeControl
 const router = express.Router();
 
 // Save user's exchange keys
-router.post('/', protect, saveExchangeKey);
+router.post('/keys', protect, saveExchangeKey);
 
 // Get user's exchange keys
-router.get('/', protect, getExchangeKeys);
+router.get('/keys', protect, getExchangeKeys);
 
 export default router;

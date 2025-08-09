@@ -8,6 +8,6 @@ const router = express.Router();
 router.post('/backtests/run', runAndSaveBacktests);
 
 // GET: Fetch saved backtest results, optionally filtered by userId and timeframe
-router.get('/backtests/get', getBacktestsByUser);
+router.get('/backtests/results', getBacktestsByUser);
 
 export default router;

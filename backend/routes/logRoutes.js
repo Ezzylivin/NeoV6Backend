@@ -8,6 +8,6 @@ const router = express.Router();
 router.get('/api', getLogs);
 
 // POST a new log
-router.post('/', createLog);
+router.post('/api', createLog);
 
 export default router;

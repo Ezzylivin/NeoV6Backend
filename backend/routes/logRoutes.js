@@ -5,7 +5,7 @@ import { getLogs, createLog } from '../controllers/logController.js';
 const router = express.Router();
 
 // GET logs — Admin sees all, user sees only their own
-router.get('/logs', getLogs);
+router.get('/api', getLogs);
 
 // POST a new log
 router.post('/', createLog);

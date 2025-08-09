@@ -26,7 +26,7 @@ const app = express();
 // Whitelist the specific URL of your deployed frontend
 const corsOptions = {
   // IMPORTANT: Do not include a trailing slash '/' at the end of the URL
-  origin: 'https://your-frontend-app.vercel.app', 
+  origin: 'http://neov6.vercel.app', 
   optionsSuccessStatus: 200 // For legacy browser support
 };
 
@@ -34,7 +34,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // To handle both development and production, you can use an array:
-const whitelist = ['http://localhost:3000', 'https://your-frontend-app.vercel.app'];
+const whitelist = ['http://localhost:8000', 'http://neov6.vercel.app'];
 const dynamicCorsOptions = {
   origin: function (origin, callback) {
     if (whitelist.indexOf(origin) !== -1 || !origin) { // !origin allows same-origin requests

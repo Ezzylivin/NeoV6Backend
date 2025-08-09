@@ -21,8 +21,32 @@ const app = express();
 
 // --- Middleware Configuration ---
 
-// Enable Cross-Origin Resource Sharing (CORS) so your frontend can make requests cors() not good
-app.use(cors());
+// --- Middleware Configuration ---
+
+// Whitelist the specific URL of your deployed frontend
+const corsOptions = {
+  // IMPORTANT: Do not include a trailing slash '/' at the end of the URL
+  origin: 'https://your-frontend-app.vercel.app', 
+  optionsSuccessStatus: 200 // For legacy browser support
+};
+
+// Enable Cross-Origin Resource Sharing with your specific options
+app.use(cors(corsOptions));
+
+// To handle both development and production, you can use an array:
+const whitelist = ['http://localhost:3000', 'https://your-frontend-app.vercel.app'];
+const dynamicCorsOptions = {
+  origin: function (origin, callback) {
+    if (whitelist.indexOf(origin) !== -1 || !origin) { // !origin allows same-origin requests
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  }
+}
+app.use(cors(dynamicCorsOptions));
+
+// ... rest of your file
 
 // Enable the Express built-in middleware to parse incoming JSON payloads
 app.use(express.json());

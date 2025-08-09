@@ -104,6 +104,6 @@ backtestSchema.pre('save', function (next) {
   next();
 });
 
-const Backtest = model('Backtest', backtestSchema);
+const Backtest = model('backtest', backtestSchema);
 
 export default Backtest;

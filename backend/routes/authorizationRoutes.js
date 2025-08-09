@@ -9,7 +9,7 @@ const router = express.Router();
 // @route   GET /api/users
 // @desc    Admin-only: Get all users (without passwords)
 // @access  Private/Admin
-router.get('/', protect, authorizeRoles('admin'), async (req, res) => {
+router.get('/users/', protect, authorizeRoles('admin'), async (req, res) => {
   try {
     const authUsers = await User.find().select('-password');
     res.json(users);
@@ -21,7 +21,7 @@ router.get('/', protect, authorizeRoles('admin'), async (req, res) => {
 // @route   POST /api/users/keys
 // @desc    Save or update exchange API keys
 // @access  Private
-router.post('/keys', protect, async (req, res) => {
+router.post('/users/keys', protect, async (req, res) => {
   const { apiKey, apiSecret } = req.body;
   try {
     const user = await User.findById(req.user.id);

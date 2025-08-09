@@ -21,6 +21,7 @@ const whitelist = [
   'http://localhost:3000', // For local development (Vite's default port)
   'http://localhost:5173', // Vite's other common port
   'https://neov6.vercel.app' // Your deployed production frontend
+  'https://fascinating-tapioca-a1e105.netlify.app'
 ];
 
 // 2. Create the dynamic CORS options object.

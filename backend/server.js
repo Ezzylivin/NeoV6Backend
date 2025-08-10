@@ -4,7 +4,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
-
+import authRoutes from './routes/authRoutes.js';
 // Import the main switchboard for all API routes
 import apiRoutes from './routes/apiRoutes.js';
 
@@ -50,7 +50,8 @@ app.use(express.json());
 // --- API Routes ---
 
 // 5. Mount the main API switchboard. (Using /api is recommended over /api/routes).
-app.use('/home', apiRoutes);
+app.use('/api', apiRoutes);
+app.use('/home', authRoutes);
 
 
 // --- Start the Server ---

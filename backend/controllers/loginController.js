@@ -7,8 +7,8 @@ export const loginUser = async (req, res) => {
     const { username, password } = req.body;
 
     // Find the user by email
-    const User = await user.findOne({ email });
-    if (!User || !(await user.comparePassword(password))) {
+    const user = await User.findOne({ email });
+    if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 

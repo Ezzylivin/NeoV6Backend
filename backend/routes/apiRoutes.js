@@ -20,7 +20,7 @@ const files = fs.readdirSync(__dirname).filter(
 // Dynamically import and mount each route
 for (const file of files) {
   const routeModule = await import(`./${file}`);
-  const routePath = '/' + file.replace('Route.js', '').replace('.js', '');
+  const routePath = '/' + file.replace('Routes.js', '').replace('.js', '');
   router.use(routePath, routeModule.default);
 }
 

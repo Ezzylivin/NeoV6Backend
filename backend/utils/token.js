@@ -8,3 +8,5 @@ export const token = (user) => {
     { expiresIn: '30d' }
   );
 };
+
+export default token;

@@ -1,7 +1,7 @@
 // File: backend/services/registerService.js
 import bcrypt from "bcryptjs";
 import User from "../dbStructure/user.js";
-import { token as generateToken } from "../utils/token.js";
+import token from "../utils/token.js";
 
 export const registerUser = async (username, email, password) => {
   // Check if user already exists
@@ -22,7 +22,7 @@ export const registerUser = async (username, email, password) => {
   });
 
   // Generate JWT including both id and username
-  const jwtToken = generateToken({
+  const jwtToken = token({
     _id: newUser._id,
     username: newUser.username,
   });

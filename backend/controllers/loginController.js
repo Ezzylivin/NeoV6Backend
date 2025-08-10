@@ -4,7 +4,7 @@ import {generateToken} from '../utils/token.js';
 
 export const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { username, password } = req.body;
 
     // Find the user by email
     const User = await user.findOne({ email });

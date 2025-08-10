@@ -1,6 +1,6 @@
 // File: backend/controllers/authController.js
 import User from '../dbStructure/user.js';
-import {generateToken} from '../utils/token.js';
+import token from '../utils/token.js';
 
 export const loginUser = async (req, res) => {
   try {
@@ -13,7 +13,7 @@ export const loginUser = async (req, res) => {
     }
 
     // Generate JWT
-    const token = generateToken(user._id);
+    const token = token(user._id);
 
     // Respond with token and user info
     res.status(200).json({

@@ -1,36 +1,34 @@
-// File: backend/services/registerService.js
+// File: backend/services/registerService.js (Corrected)
+
 import bcrypt from "bcryptjs";
 import User from "../dbStructure/user.js";
-import token from "../utils/token.js";
+import token from "../utils/token.js"; // Assuming token.js has a NAMED export
 
 export const registerUser = async (username, email, password) => {
-  // Check if user already exists
   const existingUser = await User.findOne({ email });
   if (existingUser) {
-    throw new Error("User already exists");
+    throw new Error("User with that email already exists");
   }
 
-  // Hash the password
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(password, salt);
 
-  // Create the user
   const newUser = await User.create({
     username,
     email,
     password: hashedPassword,
   });
 
-  // Generate JWT including both id and username
-  const jwtToken = token({
-    _id: newUser._id,
-    username: newUser.username,
-  });
+  // Generate a token for the new user
+  const token = generateToken(newUser._id);
 
+  // Return the new user object and the token
   return {
-    token: token(newUser._id),
-    _id: newUser._id,
-    username: newUser.username,
-    email: newUser.email,
+    token,
+    user: {
+      id: newUser._id,
+      username: newUser.username,
+      email: newUser.email,
+    }
   };
 };

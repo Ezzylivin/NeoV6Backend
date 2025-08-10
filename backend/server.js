@@ -1,10 +1,9 @@
-// File: src/backend/server.js (Corrected and Final Version)
+// File: src/backend/server.js (With Wildcard Subdomain CORS)
 
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
-// Import the main switchboard for all API routes
 import apiRoutes from './routes/apiRoutes.js';
 
 // --- Initial Server Setup ---
@@ -12,44 +11,49 @@ dotenv.config();
 connectDB();
 const app = express();
 
-
 // --- Middleware Configuration ---
 
-// 1. Define the list of allowed origins (your frontend URLs).
-const whitelist = [
-  'http://localhost:3000', // For local development (Vite's default port)
-  'http://localhost:5173', // Vite's other common port
-  'https://*.vercel.app', // Your deployed production frontend
-  /^https:\/\/.*\.vercel\.app$/
-];
-
-// 2. Create the dynamic CORS options object.
-const dynamicCorsOptions = {
+// 1. Define the dynamic CORS options object.
+const corsOptions = {
+  /**
+   * The origin property is a function that determines if a request's
+   * origin is allowed.
+   * @param {string} origin - The 'Origin' header from the incoming request.
+   * @param {function} callback - The function to call when we're done.
+   */
   origin: function (origin, callback) {
-    // Check if the incoming origin is in our whitelist.
-    // The '!origin' part allows requests with no origin (like from Postman or server-to-server).
-    if (whitelist.indexOf(origin) !== -1 || !origin) {
-      callback(null, true);
-    } else {
-      // If the origin is not in the whitelist, reject the request.
-      callback(new Error('This origin is not allowed by CORS'));
+    // Case 1: Allow requests that have no origin (e.g., Postman, mobile apps, server-to-server)
+    if (!origin) {
+      return callback(null, true);
     }
+
+    // Case 2: Allow your specific local development URLs
+    if (origin === 'http://localhost:3000' || origin === 'http://localhost:5173') {
+      return callback(null, true);
+    }
+
+    // Case 3: Check if the origin is a .vercel.app subdomain using a Regular Expression
+    // This will match https://anything-here.vercel.app
+    const vercelRegex = /^https:\/\/.*\.vercel\.app$/;
+    if (vercelRegex.test(origin)) {
+      return callback(null, true); // The origin matches the pattern, so allow it.
+    }
+
+    // Case 4: If none of the above conditions are met, reject the request.
+    return callback(new Error('This origin is not allowed by CORS'));
   },
   optionsSuccessStatus: 200
 };
 
-// 3. Use the single, dynamic CORS middleware for all requests.
-app.use(cors(dynamicCorsOptions));
+// 2. Use the single, dynamic CORS middleware for all requests.
+app.use(cors(corsOptions));
 
-// 4. Enable the middleware to parse incoming JSON payloads.
-//    This should generally come AFTER your CORS configuration.
+// 3. Enable the middleware to parse incoming JSON payloads.
 app.use(express.json());
 
 
 // --- API Routes ---
-
-// 5. Mount the main API switchboard. (Using /api is recommended over /api/routes).
-app.use('/auth', apiRoutes);
+app.use('/api', apiRoutes);
 
 
 // --- Start the Server ---

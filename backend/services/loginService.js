@@ -10,7 +10,7 @@ export const loginUser = async (email, password) => {
   }
 
   return {
-    token: generateToken(user._id),
+    token: token(user._id),
     user: {
       id: user._id,
       username: user.username,

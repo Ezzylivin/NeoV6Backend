@@ -8,10 +8,10 @@ const router = express.Router();
 // @route   POST /api/auth/register
 // @desc    Register a new user and return JWT token
 // @access  Public
-router.post('/auth/register', async (req, res) => {
+router.post('/register', async (req, res) => {
   try {
-    const { email, password, role } = req.body;
-    const result = await registerUser(email, password, role);
+    const { username, email, password } = req.body;
+    const result = await registerUser(username, email, password);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -21,10 +21,10 @@ router.post('/auth/register', async (req, res) => {
 // @route   POST /api/auth/login
 // @desc    Login existing user and return JWT token
 // @access  Public
-router.post('/auth/login', async (req, res) => {
+router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const result = await loginUser(email, password);
+    const { username , password } = req.body;
+    const result = await loginUser(username,password);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });

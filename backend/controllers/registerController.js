@@ -1,7 +1,7 @@
 // File: backend/controllers/authController.js
 import User from '../dbStructure/user.js';
-import { generateToken } from '../utils/token.js';
-import registerUser from '..services/registerService';
+import token from '../utils/token.js';
+import registerUser from '../services/registerService';
 
 export const registerUser = async (req, res) => {
   try {
@@ -20,7 +20,7 @@ export const registerUser = async (req, res) => {
     await newUser.save();
 
     // Generate JWT token for the new user
-    const token = generateToken(newUser._id);
+    const token = token(newUser._id);
 
     // Return token and user info (omit sensitive info)
     res.status(201).json({

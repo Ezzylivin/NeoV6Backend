@@ -1,7 +1,7 @@
 // File: backend/utils/token.js
 import jwt from 'jsonwebtoken';
 
-export const GenerateToken = (user) => {
+export const token = (user) => {
   return jwt.sign(
     { id: user._id, username: user.username },
     process.env.JWT_SECRET,

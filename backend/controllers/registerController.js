@@ -1,6 +1,7 @@
 // File: backend/controllers/authController.js
 import User from '../dbStructure/user.js';
 import { generateToken } from '../utils/token.js';
+import registerUser from '..services/registerService';
 
 export const registerUser = async (req, res) => {
   try {

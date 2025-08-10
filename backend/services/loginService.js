@@ -1,21 +1,21 @@
-import generateToken from '../utils/token.js
-import user from '../dbStructure/user.js';
+import generateToken from '../utils/token.js;'
+import User from '../dbStructure/user.js';
 
 
 
 export const loginUser = async (email, password) => {
-  const User = await user.findOne({ email });
+  const user = await User.findOne({ email });
 
-  if (!User || !(await existingUser.comparePassword(password))) {
+  if (!user || !(await existingUser.comparePassword(password))) {
     throw new Error('Invalid email or password');
   }
 
   return {
-    token: generateToken(User._id),
+    token: generateToken(user._id),
     user: {
-      id: User._id,
-      email: User.email,
-      role: User.role,
+      id: user._id,
+      email: user.email,
+      role: user.role,
     },
   };
 };

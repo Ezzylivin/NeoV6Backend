@@ -1,4 +1,4 @@
-import generateToken from '../utils/token.js;'
+import token from '../utils/token.js;'
 import User from '../dbStructure/user.js';
 
 

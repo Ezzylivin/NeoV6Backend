@@ -28,7 +28,7 @@ export const registerUser = async (username, email, password) => {
   });
 
   return {
-    token: token(user._id),
+    token: token(newUser._id),
     _id: newUser._id,
     username: newUser.username,
     email: newUser.email,

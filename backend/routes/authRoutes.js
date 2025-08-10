@@ -1,34 +1,19 @@
-// backend/routes/authRoutes.js
+// File: backend/routes/authRoutes.js (Corrected)
+
 import express from 'express';
-import { registerUser } from '../services/registerService.js';
-import { loginUser } from '../services/loginService.js';
+// Import the CONTROLLER functions, not the services
+import { registerUser, loginUser } from '../controllers/authController.js';
 
 const router = express.Router();
 
 // @route   POST /api/auth/register
-// @desc    Register a new user and return JWT token
+// @desc    Register a new user
 // @access  Public
-router.post('/register', async (req, res) => {
-  try {
-    const { username, email, password } = req.body;
-    const result = await registerUser(username, email, password);
-    res.json(result);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
+router.post('/register', registerUser);
 
 // @route   POST /api/auth/login
-// @desc    Login existing user and return JWT token
+// @desc    Login existing user
 // @access  Public
-router.post('/login', async (req, res) => {
-  try {
-    const { username , password } = req.body;
-    const result = await loginUser(username,password);
-    res.json(result);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
+router.post('/login', loginUser);
 
 export default router;

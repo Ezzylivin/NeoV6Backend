@@ -50,7 +50,7 @@ app.use(express.json());
 // --- API Routes ---
 
 // 5. Mount the main API switchboard. (Using /api is recommended over /api/routes).
-app.use('/api', apiRoutes);
+app.use('/home', apiRoutes);
 
 
 // --- Start the Server ---

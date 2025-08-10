@@ -28,9 +28,9 @@ export const registerUser = async (username, email, password) => {
   });
 
   return {
+    token: generateToken(user._id),
     _id: newUser._id,
     username: newUser.username,
     email: newUser.email,
-    token: jwtToken,
   };
 };

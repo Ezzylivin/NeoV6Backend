@@ -14,7 +14,7 @@ const app = express();
 // --- Middleware Configuration ---
 
 // 1. Define the dynamic CORS options object.
-app.options('*', corsOptions = {
+ const corsOptions = {
   /**
    * The origin property is a function that determines if a request's
    * origin is allowed.
@@ -28,7 +28,7 @@ app.options('*', corsOptions = {
     }
 
     // Case 2: Allow your specific local development URLs
-    if (origin === 'http://localhost:3000' || origin === 'http://localhost:5173') {
+    if (origin === 'http://localhost:8000' || origin === 'http://localhost:5173') {
       return callback(null, true);
     }
 
@@ -44,8 +44,10 @@ app.options('*', corsOptions = {
   },
   optionsSuccessStatus: 200
 };
-
 // 2. Use the single, dynamic CORS middleware for all requests.
+app.options('*', cors(corsOptions));
+
+
 app.use(cors(corsOptions));
 
 // 3. Enable the middleware to parse incoming JSON payloads.

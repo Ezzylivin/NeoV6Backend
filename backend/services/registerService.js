@@ -2,7 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import User from "../dbStructure/user.js";
-import {token} from "../utils/token.js"; // Assuming token.js has a NAMED export
+import token from "../utils/token.js"; // Assuming token.js has a NAMED export
 
 export const registerUser = async (username, email, password) => {
   const existingUser = await User.findOne({ email });

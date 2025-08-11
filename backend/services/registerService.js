@@ -20,11 +20,11 @@ export const registerUser = async (username, email, password) => {
   });
 
   // Generate a token for the new user
-  const token = token(newUser._id);
+  const token = generateToken(newUser._id);
 
   // Return the new user object and the token
   return {
-    token,
+    token: jwtToken,
     user: {
       id: newUser._id,
       username: newUser.username,

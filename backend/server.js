@@ -14,7 +14,7 @@ const app = express();
 // --- Middleware Configuration ---
 
 // 1. Define the dynamic CORS options object.
-app.options('*', const corsOptions = {
+app.options('*', corsOptions = {
   /**
    * The origin property is a function that determines if a request's
    * origin is allowed.

@@ -1,6 +1,6 @@
 // File: backend/routes/authorizationRoutes.js
 import express from 'express';
-import { protect } from '../middleware/authMiddleware.js';
+import { verifyToken } from '../middleware/authMiddleware.js';
 import { authorizeRoles } from '../middleware/roleMiddleware.js';
 import User from '../dbStructure/user.js';
 

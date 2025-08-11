@@ -4,7 +4,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
-// import apiRoutes from './routes/apiRoutes.js';
+import apiRoutes from './routes/apiRoutes.js';
 
 // --- Initial Server Setup ---
 dotenv.config();
@@ -56,11 +56,11 @@ app.use(express.json());
 
 
 // --- API Routes ---
-// app.use('/api', apiRoutes);
+app.use('/api', apiRoutes);
 
 
 // --- Start the Server ---
 const PORT = process.env.PORT || 8000;
-// app.listen(PORT, () => {
- // console.log(`Server is running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+app.listen(PORT, () => {
+  console.log(`Server is running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });

@@ -12,6 +12,7 @@ connectDB();
 const app = express();
 
 // --- Middleware Configuration ---
+app.options('*', cors(corsOptions));
 
 // 1. Define the dynamic CORS options object.
  const corsOptions = {
@@ -45,7 +46,7 @@ const app = express();
   optionsSuccessStatus: 200
 };
 // 2. Use the single, dynamic CORS middleware for all requests.
-app.options('*', cors(corsOptions));
+
 
 
 app.use(cors(corsOptions));

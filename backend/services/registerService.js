@@ -2,7 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import User from "../dbStructure/user.js";
-import token from "../utils/token.js"; // Assuming token.js has a NAMED export
+import {token} from "../utils/token.js"; // Assuming token.js has a NAMED export
 
 export const registerUser = async (username, email, password) => {
   const existingUser = await User.findOne({ email });
@@ -20,7 +20,7 @@ export const registerUser = async (username, email, password) => {
   });
 
   // Generate a token for the new user
-  const token = generateToken(newUser._id);
+  const token = token(newUser._id);
 
   // Return the new user object and the token
   return {

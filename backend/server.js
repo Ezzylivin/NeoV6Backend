@@ -53,7 +53,7 @@ app.use(express.json());
 
 
 // --- API Routes ---
-app.use('/api', apiRoutes);
+app.use('/user', apiRoutes);
 
 
 // --- Start the Server ---

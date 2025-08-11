@@ -20,7 +20,7 @@ for (const file of routeFiles) {
     
     // --- THIS IS THE CORRECTED LINE ---
     // It now correctly creates a plural path, e.g., 'userRoutes.js' -> '/users'
-    const routePath = '/' + file.replace('Routes.js', '') + 's';
+    const routePath = '/' + file.replace('Routes.js', '') + 's');
 
     if (routeModule.default) {
       router.use(routePath, routeModule.default);

@@ -30,7 +30,7 @@ for (const file of routeFiles) {
     
     // Generate the URL path from the filename
     // e.g., 'userRoutes.js' becomes '/users'
-    const routePath = '/' + file.replace('Routes.js', '').toLowerCase() + 's';
+    const routePath = '/' + file.replace('Routes.js', '');
 
     // Check if the imported module has a default export (the router)
     if (routeModule.default) {

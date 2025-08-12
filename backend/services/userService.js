@@ -12,7 +12,7 @@ import { generateToken } from "../utils/token.js";
  * @param {string} password - The new user's plain-text password.
  * @returns {Promise<object>} An object containing the new user and their JWT.
  */
-export const registerUser = async (username, email, password) => {
+export const RegisterUser = async (username, email, password) => {
   // Check if a user with this email already exists
   const existingUser = await User.findOne({ email });
   if (existingUser) {
@@ -50,7 +50,7 @@ export const registerUser = async (username, email, password) => {
  * @param {string} password - The user's plain-text password for login.
  * @returns {Promise<object>} An object containing the logged-in user and their JWT.
  */
-export const loginUser = async (email, password) => {
+export const LoginUser = async (email, password) => {
   // 2. The function correctly receives 'email', not 'username'.
   const user = await User.findOne({ email });
 

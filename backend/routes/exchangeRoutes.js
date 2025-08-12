@@ -1,14 +1,14 @@
 // File: backend/routes/exchangeRoutes.js
 import express from 'express';
-import { VerifyToken } from '../middleware/authMiddleware.js';
+import { verifyToken } from '../middleware/authMiddleware.js';
 import { saveExchangeKey, getExchangeKeys } from '../controllers/exchangeController.js';
 
 const router = express.Router();
 
 // Save user's exchange keys
-router.post('/keys', protect, saveExchangeKey);
+router.post('/keys',  verifyToken, saveExchangeKey);
 
 // Get user's exchange keys
-router.get('/keys', protect, getExchangeKeys);
+router.get('/keys',  verifyToken, getExchangeKeys);
 
 export default router;

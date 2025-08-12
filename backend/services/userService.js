@@ -56,7 +56,7 @@ export const loginUser = async (loginIdentifier, password) => {
   const user = await User.findOne({
     $or: [
       { email: loginIdentifier },
-      { username: loginIdentifier }
+      { username: loginIdentifier },
     ]
   });
 
@@ -73,7 +73,7 @@ export const loginUser = async (loginIdentifier, password) => {
     user: {
       id: user._id,
       username: user.username,
-      email: user.email
+      email: user.email,
     }
   };
 };

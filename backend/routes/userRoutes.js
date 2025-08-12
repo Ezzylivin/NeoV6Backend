@@ -19,7 +19,7 @@ router.post('/login', loginUser);
 
 // --- Protected Route ---
 // GET /api/users/me
-router.get('/me', verifyToken, getMe);
+router.get('/me', getMe);
 
 
 // 3. Export the fully configured router. This line is now syntactically correct.

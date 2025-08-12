@@ -1,7 +1,7 @@
 // File: backend/controllers/authController.js (Corrected)
 
 // Import the service worker function
-import { RegisterUser, LoginUser } from '../services/userService.js';
+import { RegisterUser, LoginUser, GetMe } from '../services/userService.js';
 
 
 // Controller for the REGISTER route

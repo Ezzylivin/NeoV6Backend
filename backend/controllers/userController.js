@@ -17,8 +17,9 @@ export const registerUser = async (req, res) => {
 // Controller for the LOGIN route
 export const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const result = await loginUserService(email, password);
+    // It's a good idea to rename this variable for clarity.
+    const { loginIdentifier, password } = req.body;
+    const result = await loginUserService(loginIdentifier, password);
     res.status(200).json(result);
   } catch (error) {
     res.status(401).json({ message: error.message });

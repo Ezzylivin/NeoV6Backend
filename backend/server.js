@@ -36,7 +36,7 @@ app.use(express.json());       // Parse JSON bodies
 
 // --- API Routes ---
 // This comes AFTER all the global middleware.
-app.use('/home', apiRoutes); // Or '/home' if you prefer that prefix
+app.use('/api', apiRoutes); // Or '/home' if you prefer that prefix
 
 
 // --- Start the Server ---

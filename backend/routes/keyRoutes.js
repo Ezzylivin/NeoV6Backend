@@ -1,27 +1,16 @@
 // File: backend/routes/authorizationRoutes.js
 import express from 'express';
 import { verifyToken } from '../middleware/authMiddleware.js';
-import { authorizeRoles } from '../middleware/roleMiddleware.js';
 import User from '../dbStructure/user.js';
 
 const router = express.Router();
 
-// @route   GET /api/users
-// @desc    Admin-only: Get all users (without passwords)
-// @access  Private/Admin
-router.get('/users/', protect, authorizeRoles('admin'), async (req, res) => {
-  try {
-    const authUsers = await User.find().select('-password');
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch users' });
-  }
-});
+
 
 // @route   POST /api/users/keys
 // @desc    Save or update exchange API keys
 // @access  Private
-router.post('/users/keys', protect, async (req, res) => {
+router.post('/keys', verifyToken, async (req, res) => {
   const { apiKey, apiSecret } = req.body;
   try {
     const user = await User.findById(req.user.id);

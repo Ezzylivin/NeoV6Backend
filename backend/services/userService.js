@@ -6,7 +6,7 @@ import { generateToken } from "../utils/token.js";
 
 // Renamed to camelCase: registerUser
 export const registerUser = async (username, email, password) => {
-  const existingUser = await User.findOne({ email });
+  const existingUser = await User.findOne({ username, email });
   if (existingUser) {
     throw new Error("User with this email already exists");
   }
@@ -18,19 +18,39 @@ export const registerUser = async (username, email, password) => {
 };
 
 // Renamed to camelCase: loginUser
-export const loginUser = async (email, password) => {
-  const user = await User.findOne({ email });
-  if (!user || !(await bcrypt.compare(password, user.password))) {
-    throw new Error('Invalid email or password');
-  }
-  const token = generateToken(user._id);
-  return { token, user: { id: user._id, username: user.username, email: user.email } };
-};
+ * @param {string} loginIdentifier - The user's email OR username for login.
+ * @param {string} password - The user's plain-text password for login.
+ * @returns {Promise<object>} An object containing the logged-in user and their JWT.
+ */
+export const loginUser = async (loginIdentifier, password) => {
+  // 1. Find a user in the database where EITHER the 'email' field OR
+  //    the 'username' field matches the provided loginIdentifier.
+  //    The `$or` operator takes an array of query conditions.
+  const user = await User.findOne({
+    $or: [
+      { email: loginIdentifier },
+      { username: loginIdentifier }
+    ]
+  });
 
-// Renamed to camelCase: getMe
-export const getMe = (user) => {
-  if (!user) {
-    throw new Error('User not found or not authenticated.');
+  // 2. Securely compare the provided password with the hashed password from the database.
+  //    This check remains the same. It handles both a non-existent user and an incorrect password.
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+    // We use a generic error message for security.
+    // We don't want to tell an attacker whether they got the username right or the password wrong.
+    throw new Error('Invalid credentials');
   }
-  return { id: user._id, username: user.username, email: user.email };
+
+  // 3. If the password is correct, generate a new token.
+  const token = generateToken(user._id);
+
+  // 4. Return the user data and the new token.
+  return {
+    token,
+    user: {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+    },
+  };
 };

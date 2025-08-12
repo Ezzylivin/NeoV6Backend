@@ -1,6 +1,8 @@
 // File: src/backend/controllers/userController.js
 
 import * as userService from "../services/userService.js";
+import { generateToken } from '../utils/token.js';
+import bcrypt from 'bcryptjs';
 
 /**
  * @desc Register a new user

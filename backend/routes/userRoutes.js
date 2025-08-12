@@ -16,4 +16,6 @@ router.post('/register', registerUser);
 // @access  Public
 router.post('/login', loginUser);
 
+router.get('/me', verifyToken, getMe);
+
 export default router;

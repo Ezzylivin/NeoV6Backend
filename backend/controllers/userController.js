@@ -29,4 +29,19 @@ export const loginUser = async (req, res) => {
   } catch (error) {
     res.status(401).json({ message: error.message }); // 401 for bad credentials
   }
+  
+  export const getMe = (req, res) => {
+  try {
+    // 2. The `verifyToken` middleware has already placed the full user object on `req.user`.
+    //    We pass this object directly to our service function.
+    const userProfile = getMeService(req.user);
+    
+    // 3. Send the formatted profile from the service as the response.
+    res.status(200).json(userProfile);
+  } catch (error) {
+    // This will catch the "User not found" error from the service if req.user was somehow missing.
+    res.status(401).json({ message: error.message });
+  }
+};
+  }
 };

@@ -16,7 +16,7 @@ const app = express();
 
 // --- API Routing ---
 // This is the ONLY app.use() for routing you should have here.
-app.use('/api', apiRoutes);
+app.use('/home', apiRoutes);
 
 // --- Start the Server ---
 const PORT = process.env.PORT || 8000;

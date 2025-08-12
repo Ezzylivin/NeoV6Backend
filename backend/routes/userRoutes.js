@@ -2,7 +2,7 @@
 
 import express from 'express';
 // Import the CONTROLLER functions, not the services
-import { registerUser, loginUser } from '../controllers/authController.js';
+import { registerUser, loginUser } from '../controllers/userController.js';
 
 const router = express.Router();
 

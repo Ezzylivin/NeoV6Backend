@@ -3,7 +3,7 @@
 import express from 'express';
 // Import the correct controller functions and middleware
 import { registerUser, loginUser, getMe } from '../controllers/userController.js';
-import { verifyToken } from '../middleware/authMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -13,6 +13,6 @@ router.post('/login', loginUser);
 
 // --- Protected Route ---
 // The '/me' route is now correctly protected by the verifyToken middleware.
-router.get('/me', verifyToken, getMe);
+router.get('/me', protect, getMe);
 
 export default router;

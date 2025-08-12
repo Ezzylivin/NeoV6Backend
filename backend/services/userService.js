@@ -70,8 +70,31 @@ export const LoginUser = async (email, password) => {
       id: user._id,
       username: user.username,
       email: user.email,
+    }
       // You can include other non-sensitive user data here if needed
       // role: user.role, 
+      /**
+ * Handles the business logic for retrieving the current user's profile.
+ * It assumes the user has already been fetched and verified by middleware.
+ * @param {object} user - The user object attached to the request by middleware (req.user).
+ * @returns {object} A clean user profile object, ready to be sent as a response.
+ */
+export const GetMe = (user) => {
+  // The 'user' object is passed in directly from the controller.
+  // We check if it exists as a safeguard.
+  if (!user) {
+    throw new Error('User not found or not authenticated.');
+  }
+
+  // We are not returning a token here, just the user's profile data.
+  return {
+    id: user._id,
+    username: user.username,
+    email: user.email,
+    // You could add other fields here, like:
+    // createdAt: user.createdAt,
+  };
+};
     },
   };
 };

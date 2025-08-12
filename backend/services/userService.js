@@ -71,8 +71,8 @@ export const loginUser = async (loginIdentifier, password) => {
   return {
     token,
     user: {
-      id: user._id,
       username: user.username,
+      id: user._id,
       email: user.email,
     }
   };

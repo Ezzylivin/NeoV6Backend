@@ -1,37 +1,67 @@
-// File: src/backend/controllers/userController.js (Corrected)
+// File: src/backend/controllers/userController.js
 
-// Import the camelCase service functions
-import { registerUser as registerUserService, loginUser as loginUserService, getMe as getMeService } from '../services/userService.js';
+import * as userService from "../services/userService.js";
 
-// Controller for the REGISTER route
+/**
+ * @desc Register a new user
+ * @route POST /api/users/register
+ * @access Public
+ */
 export const registerUser = async (req, res) => {
+  const { username, email, password } = req.body;
+
   try {
-    const { username, email, password } = req.body;
-    const result = await registerUserService(username, email, password);
-    res.status(201).json(result);
+    const result = await userService.registerUser(username, email, password);
+
+    res.status(201).json({
+      message: "User registered successfully",
+      token: result.token,
+      user: result.user
+    });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({ message: error.message || "Registration failed" });
   }
 };
 
-// Controller for the LOGIN route
+/**
+ * @desc Login a user
+ * @route POST /api/users/login
+ * @access Public
+ */
 export const loginUser = async (req, res) => {
+  const { loginIdentifier, password } = req.body;
+
   try {
-    // It's a good idea to rename this variable for clarity.
-    const { loginIdentifier, password } = req.body;
-    const result = await loginUserService(loginIdentifier, password);
-    res.status(200).json(result);
+    const result = await userService.loginUser(loginIdentifier, password);
+
+    res.status(200).json({
+      message: "Login successful",
+      token: result.token,
+      user: result.user
+    });
   } catch (error) {
-    res.status(401).json({ message: error.message });
+    res.status(401).json({ message: error.message || "Login failed" });
   }
 };
 
-// Controller for the GET ME route (now correctly defined)
-export const getMe = (req, res) => {
+/**
+ * @desc Get current logged-in user
+ * @route GET /api/users/me
+ * @access Private
+ */
+export const getMe = async (req, res) => {
   try {
-    const userProfile = getMeService(req.user);
-    res.status(200).json(userProfile);
+    const user = req.user; // Provided by verifyToken middleware
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      id: user._id,
+      username: user.username,
+      email: user.email
+    });
   } catch (error) {
-    res.status(401).json({ message: error.message });
+    res.status(500).json({ message: "Unable to fetch user profile" });
   }
 };

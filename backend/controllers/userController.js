@@ -1,8 +1,8 @@
 // File: backend/controllers/authController.js (Corrected)
 
 // Import the service worker function
-import { registerUser as registerUserService } from '../services/registerService.js';
-import { loginUser as loginUserService } from '../services/loginService.js';
+import { registerUser as registerUserService, loginUser as loginUserService } from '../services/userService.js';
+
 
 // Controller for the REGISTER route
 export const registerUser = async (req, res) => {

@@ -1,5 +1,5 @@
 import express from 'express';
-import { verifyToken } from '../middleware/authMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
 
 // Import the new controller functions
 import {

@@ -7,6 +7,20 @@ import { fileURLToPath } from 'url';
 
 const router = express.Router();
 
+// VVVV  ADD THIS BLOCK OF CODE HERE  VVVV
+
+/**
+ * @route   GET /api/
+ * @desc    API health check / root endpoint.
+ * @access  Public
+ */
+router.get('/', (req, res) => {
+  res.status(200).json({
+    message: 'Welcome to the NeoV6 API! The server is online and running.',
+    status: 'OK',
+  });
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 

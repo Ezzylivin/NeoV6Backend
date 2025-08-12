@@ -9,4 +9,3 @@ export const generateToken = (id) => {
   );
 };
 
-export default token;

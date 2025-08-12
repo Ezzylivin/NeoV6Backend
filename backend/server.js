@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
 import apiRoutes from './routes/apiRoutes.js';
+import userRoutes from './userRoutes.js';
+
+
 
 // --- Initial Server Setup ---
 dotenv.config();
@@ -57,7 +60,7 @@ app.use(express.json());
 
 // --- API Routes ---
 app.use('/api', apiRoutes);
-
+router.use('/users', userRoutes);
 
 
 // --- Start the Server ---

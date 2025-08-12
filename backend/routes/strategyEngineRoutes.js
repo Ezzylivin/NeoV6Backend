@@ -15,16 +15,16 @@ const router = express.Router();
 // @route   POST /api/strategy
 // @desc    Save a new strategy configuration
 // @access  Private
-router.post('/strategy', verifyToken, saveStrategyController);
+router.post('/strategy', protect, saveStrategyController);
 
 // @route   GET /api/strategy
 // @desc    Get all strategies for the logged-in user
 // @access  Private
-router.get('/strategy', verifyToken, getStrategiesController);
+router.get('/strategy', protect, getStrategiesController);
 
 // @route   POST /api/strategy/run
 // @desc    Run a specific strategy to get a decision
 // @access  Private
-router.post('/strategy/run', verifyToken, runStrategyController);
+router.post('/strategy/run', protect, runStrategyController);
 
 export default router;

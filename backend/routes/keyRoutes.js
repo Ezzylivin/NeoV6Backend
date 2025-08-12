@@ -10,7 +10,7 @@ const router = express.Router();
 // @route   POST /api/users/keys
 // @desc    Save or update exchange API keys
 // @access  Private
-router.post('/keys', verifyToken, async (req, res) => {
+router.post('/keys', protect, async (req, res) => {
   const { apiKey, apiSecret } = req.body;
   try {
     const user = await User.findById(req.user.id);

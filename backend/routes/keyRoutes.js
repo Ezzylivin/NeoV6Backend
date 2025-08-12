@@ -1,6 +1,6 @@
 // File: backend/routes/authorizationRoutes.js
 import express from 'express';
-import { verifyToken } from '../middleware/authMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
 import User from '../dbStructure/user.js';
 
 const router = express.Router();

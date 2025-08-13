@@ -51,14 +51,9 @@ export const registerUser = async (username, email, password) => {
  * @param {string} password - The user's plain-text password.
  * @returns {Promise<object>} An object containing the logged-in user and their JWT.
  */
-export const loginUser = async (loginIdentifier, password) => {
+export const loginUser = async (email, password) => {
   // Find user by either email or username
-  const user = await User.findOne({
-    $or: [
-      { email: loginIdentifier },
-      { username: loginIdentifier },
-    ]
-  });
+  const user = await User.findOne( email );
 
   // Validate credentials
   if (!user || !(await bcrypt.compare(password, user.password))) {
@@ -71,7 +66,6 @@ export const loginUser = async (loginIdentifier, password) => {
   return {
     token,
     user: {
-      username: user.username,
       id: user._id,
       email: user.email,
     }

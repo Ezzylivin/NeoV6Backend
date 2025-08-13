@@ -14,7 +14,7 @@ import { generateToken } from "../utils/token.js";
 export const registerUser = async (username, email, password) => {
   // Check if a user already exists with the same email OR username
   const existingUser = await User.findOne({
-    $or: [{ email }, { username }]
+    $or: [{ email: email }, { username: username }]
   });
 
   if (existingUser) {
@@ -53,7 +53,7 @@ export const registerUser = async (username, email, password) => {
  */
 export const loginUser = async (email, password) => {
   // Find user by either email or username
-  const user = await User.findOne( email );
+  const user = await User.findOne{ email: email };
 
   // Validate credentials
   if (!user || !(await bcrypt.compare(password, user.password))) {

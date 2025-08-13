@@ -8,7 +8,11 @@ export const registerUser = async (req, res) => {
   const { username, email, password } = req.body;
   try {
     const result = await userService.registerUser(username, email, password);
-    res.status(201).json(result);
+    res.status(201).json( _id: user.id,
+  username: user.username,
+  email: user.email,
+  token: generateToken(user.id),
+});
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -20,7 +24,11 @@ export const loginUser = async (req, res) => {
   try {
     // It delegates EVERYTHING to the service. No 'User.findOne' here.
     const result = await userService.loginUser({email, password});
-    res.status(200).json(result);
+    res.status(200).json( _id: user.id,
+  username: user.username,
+  email: user.email,
+  token: generateToken(user.id),
+});
   } catch (error) {
     res.status(401).json({ message: error.message });
   }

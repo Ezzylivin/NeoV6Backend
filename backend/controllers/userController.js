@@ -16,10 +16,10 @@ export const registerUser = async (req, res) => {
 
 // Controller for Login
 export const loginUser = async (req, res) => {
-  const { loginIdentifier, password } = req.body;
+  const { email , password } = req.body;
   try {
     // It delegates EVERYTHING to the service. No 'User.findOne' here.
-    const result = await userService.loginUser(loginIdentifier, password);
+    const result = await userService.loginUser(email, password);
     res.status(200).json(result);
   } catch (error) {
     res.status(401).json({ message: error.message });

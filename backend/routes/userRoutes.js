@@ -4,7 +4,7 @@ import express from 'express';
 
 // 1. Import your controller functions and security middleware.
 import { registerUser, loginUser, getMe } from '../controllers/userController.js';
-import { verifyToken } from '../middleware/authMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -22,7 +22,7 @@ router.post('/login', loginUser);
 
 // Handles GET /api/users/me
 // The `verifyToken` middleware runs first to protect this route.
-router.get('/me', verifyToken, getMe);
+router.get('/me', protect, getMe);
 
 
 // --- Export the Router ---

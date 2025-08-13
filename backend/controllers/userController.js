@@ -33,18 +33,28 @@ export const loginUser = async (req, res) => {
   const { loginIdentifier, password } = req.body;
 
   try {
-    const result = await userService.loginUser(loginIdentifier, password);
-
-    res.status(200).json({
-      message: "Login successful",
-      token: result.token,
-      user: result.user
+    const user = await User.findOne({
+      $or: [
+        { email: loginIdentifier },
+        { username: loginIdentifier }
+      ]
     });
+
+    if (user && (await bcrypt.compare(password, user.password))) {
+      res.json({
+        _id: user.id,
+        username: user.username,
+        email: user.email,
+        token: generateToken(user.id),
+      });
+    } else {
+      res.status(401).json({ message: 'Invalid credentials' });
+    }
   } catch (error) {
-    res.status(401).json({ message: error.message || "Login failed" });
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };
-
 /**
  * @desc Get current logged-in user
  * @route GET /api/users/me

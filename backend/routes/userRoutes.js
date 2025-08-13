@@ -1,19 +1,29 @@
-// File: src/backend/routes/userRoutes.js (Corrected)
+// File: src/backend/routes/userRoutes.js (The Gold Standard Version)
 
 import express from 'express';
-// Import the correct controller functions and middleware
+
+// 1. Import your controller functions and security middleware.
 import { registerUser, loginUser, getMe } from '../controllers/userController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { verifyToken } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// --- Public Routes ---
+
+// --- Public Routes (No token required) ---
+
+// Handles POST /api/users/register
 router.post('/register', registerUser);
-router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
 
-// --- Protected Route ---
-// The '/me' route is now correctly protected by the verifyToken middleware.
-router.get('/me', protect, getMe);
+// Handles POST /api/users/login
+router.post('/login', loginUser);
 
+
+// --- Protected Route (Token IS required) ---
+
+// Handles GET /api/users/me
+// The `verifyToken` middleware runs first to protect this route.
+router.get('/me', verifyToken, getMe);
+
+
+// --- Export the Router ---
 export default router;

@@ -16,26 +16,27 @@ const app = express();
 const corsOptions = {
   origin: function (origin, callback) {
     const whitelist = ['http://localhost:3000', 'http://localhost:5173'];
-    const vercelRegex = /^https:\/\/.*\.vercel\.app$/;
-    const netlifyRegex = /^https:\/\/.*\.netlify\.app$/;
+    const vercelRegex = /^https:\/\/.*\.vercel\.app$/; // This will match your preview URL
 
-    if (!origin || whitelist.indexOf(origin) !== -1 || vercelRegex.test(origin) || netlifyRegex.test(origin)) {
+    if (!origin || whitelist.indexOf(origin) !== -1 || vercelRegex.test(origin)) {
       callback(null, true);
     } else {
       callback(new Error('This origin is not allowed by CORS'));
     }
-  },
-  optionsSuccessStatus: 200
+  }
 };
 
-// This is the correct order for your middleware
-app.options('*', cors(corsOptions)); // Handle pre-flight requests
-app.use(cors(corsOptions));     // Handle all other requests
-app.use(express.json());       // Parse JSON bodies
+// THIS IS THE CRUCIAL ORDER
+// 1. Handle pre-flight requests for all routes
+app.options('*', cors(corsOptions));
 
+// 2. Handle all other requests
+app.use(cors(corsOptions));
 
-// --- API Routes ---
-// This comes AFTER all the global middleware.
+// 3. The JSON parser comes AFTER CORS
+app.use(express.json());
+
+// 4. Your API routes are last
 app.use('/api', apiRoutes); // Or '/home' if you prefer that prefix
 
 

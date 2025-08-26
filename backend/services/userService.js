@@ -10,6 +10,8 @@ import { generateToken } from "../utils/token.js";
  * @returns {Promise<object>} An object containing the new user's _id, username, email and JWT token.
  */
 export const registerUser = async (username, email, password) => {
+  console.log("NEW USER CREATED:", newUser);
+
   // Check if a user already exists with the same email OR username
   const existingUser = await User.findOne({
     $or: [{ email: email }, { username: username }]

@@ -5,6 +5,7 @@ import { generateToken } from "../utils/token.js"; // make sure this exists
 
 // Controller for Register
 export const registerUser = async (req, res) => {
+  console.log("REQ.BODY:", req.body); 
   const { username, email, password } = req.body;
   try {
     const user = await userService.registerUser(username, email, password);

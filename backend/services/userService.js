@@ -1,5 +1,3 @@
-// File: src/backend/services/userService.js
-
 import bcrypt from "bcryptjs";
 import User from "../dbStructure/user.js";
 import { generateToken } from "../utils/token.js";
@@ -9,7 +7,7 @@ import { generateToken } from "../utils/token.js";
  * @param {string} username - The user's chosen username.
  * @param {string} email - The user's email address.
  * @param {string} password - The user's plain-text password.
- * @returns {Promise<object>} An object containing the new user and their JWT.
+ * @returns {Promise<object>} An object containing the new user's _id, username, email and JWT token.
  */
 export const registerUser = async (username, email, password) => {
   // Check if a user already exists with the same email OR username
@@ -35,28 +33,34 @@ export const registerUser = async (username, email, password) => {
   // Generate JWT
   const token = generateToken(newUser._id);
 
+  // Return final shape expected by controllers (Option A: service returns ready-to-send object)
   return {
-    token,
-    user: {
-      id: newUser._id,
-      username: newUser.username,
-      email: newUser.email
-    }
+    _id: newUser._id,
+    username: newUser.username,
+    email: newUser.email,
+    token
   };
 };
 
 /**
  * Logs in an existing user.
- * @param {string} loginIdentifier - The user's email OR username.
+ * Accepts either an email or a username as the identifier.
+ * @param {string} identifier - The user's email OR username.
  * @param {string} password - The user's plain-text password.
- * @returns {Promise<object>} An object containing the logged-in user and their JWT.
+ * @returns {Promise<object>} An object containing the user's _id, username, email and JWT token.
  */
-export const loginUser = async (email, password) => {
+export const loginUser = async (identifier, password) => {
   // Find user by either email or username
-  const user = await User.findOne({ email: email });
+  const user = await User.findOne({
+    $or: [{ email: identifier }, { username: identifier }]
+  });
 
   // Validate credentials
-  if (!user || !(await bcrypt.compare(password, user.password))) {
+  if (!user) {
+    throw new Error("Invalid credentials");
+  }
+  const passwordMatches = await bcrypt.compare(password, user.password);
+  if (!passwordMatches) {
     throw new Error("Invalid credentials");
   }
 
@@ -64,11 +68,9 @@ export const loginUser = async (email, password) => {
   const token = generateToken(user._id);
 
   return {
-    token,
-    user: {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-    }
+    _id: user._id,
+    username: user.username,
+    email: user.email,
+    token
   };
 };

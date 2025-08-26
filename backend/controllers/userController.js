@@ -1,7 +1,7 @@
 // File: src/backend/controllers/userController.js
 
 import * as userService from "../services/userService.js";
-import { generateToken } from "../utils/generateToken.js"; // make sure this exists
+import { generateToken } from "../utils/token.js"; // make sure this exists
 
 // Controller for Register
 export const registerUser = async (req, res) => {

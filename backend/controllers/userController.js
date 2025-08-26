@@ -8,12 +8,13 @@ export const registerUser = async (req, res) => {
   const { username, email, password } = req.body;
   try {
     const user = await userService.registerUser(username, email, password);
-    res.status(201).json({
-      _id: user.id,
-      username: user.username,
-      email: user.email,
-      token: generateToken(user.id),
-    });
+  res.status(201).json({
+  _id: user.id,
+  username: user.username,
+  email: user.email,
+  token: generateToken(user.id),
+});
+
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

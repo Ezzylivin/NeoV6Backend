@@ -23,7 +23,7 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
   const { email, password } = req.body;
   try {
-    const user = await userService.loginUser({ email, password });
+    const user = await userService.loginUser( email, password );
     res.status(200).json({
       _id: user.id,
       username: user.username,

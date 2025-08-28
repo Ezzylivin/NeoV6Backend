@@ -9,9 +9,9 @@ const router = express.Router();
 
 // const allowedRoles = ['trader', 'admin'];
 
-router.post('/bots/start' , /* protect, authorizeRoles(allowedRoles), */ startBotController);
-router.post('/bots/stop', /* protect, authorizeRoles(allowedRoles), */ stopBotController);
-router.get('/bots/status', /* protect, authorizeRoles(allowedRoles), */ getBotStatusController);
+router.post('/start' , /* protect, authorizeRoles(allowedRoles), */ startBotController);
+router.post('/stop', /* protect, authorizeRoles(allowedRoles), */ stopBotController);
+router.get('/status', /* protect, authorizeRoles(allowedRoles), */ getBotStatusController);
 
 // Test route (public)
 router.get('/test', (req, res) => {

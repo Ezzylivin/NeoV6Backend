@@ -1,73 +1,79 @@
 // File: backend/services/botService.js
-
 import ExchangeService from './exchangeService.js';
-import User from '../dbStructure/user.js';
-import Bot from '../dbStructure/bot.js';           // ✅ Import your actual Bot model
-import {logToDb} from './logService.js';
-// ✅ Start the trading bot and store its config
-export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m']) => {
+import Bot from '../dbStructure/bot.js';
+import { logToDb } from './logService.js';
+
+export const startTradingBot = async ({
+  userId,
+  symbol,
+  amount = 10000,
+  timeframes = ['5m'],
+  strategy = 'default',
+  risk = 'medium'
+}) => {
+  if (!userId || !symbol) throw new Error('userId and symbol are required');
+
   try {
-    const exchange = new ExchangeService(userId); // Connects using user’s API keys (if implemented)
+    const exchange = new ExchangeService(userId);
 
-    await Bot.findOneAndUpdate(
-      { userId },
-      {
-        isRunning: true,
-        symbol,
-        amount,
-        timeframes,
-        startedAt: new Date(),
-      },
-      { upsert: true, new: true }
-    );
+    const botData = {
+      isRunning: true,
+      userId,
+      symbol,
+      amount,
+      timeframes,
+      strategy,
+      risk,
+      startedAt: new Date()
+    };
 
-    const message = `Bot started for ${symbol} with $${amount} on: ${timeframes.join(', ')}`;
+    await Bot.findOneAndUpdate({ userId }, botData, { upsert: true, new: true });
+
+    const message = `[BotService] Bot started for ${symbol} with $${amount} on ${timeframes.join(', ')} | Strategy: ${strategy} | Risk: ${risk}`;
+    console.log(message);
     await logToDb(userId, message);
-    console.log(`[BotService] ${message}`);
 
-    // 🔁 TODO: Run bot logic loop here using cron/queue/worker
+    // 🔁 TODO: Add bot execution loop (cron/worker)
+    return botData;
   } catch (err) {
-    console.error(`[StartBot Error]: ${err.message}`);
+    console.error(`[StartBot Error] ${err.message}`);
     await logToDb(userId, `Failed to start bot: ${err.message}`);
     throw err;
   }
 };
 
-// ✅ Stop the trading bot by updating its status
 export const stopTradingBot = async (userId) => {
-  try {
-    await Bot.findOneAndUpdate(
-      { userId },
-      { isRunning: false },
-      { new: true }
-    );
+  if (!userId) throw new Error('userId is required');
 
-    const message = `Bot stopped by user.`;
+  try {
+    await Bot.findOneAndUpdate({ userId }, { isRunning: false }, { new: true });
+    const message = `[BotService] Bot stopped by user ${userId}`;
+    console.log(message);
     await logToDb(userId, message);
-    console.log(`[BotService] ${message}`);
   } catch (err) {
-    console.error(`[StopBot Error]: ${err.message}`);
+    console.error(`[StopBot Error] ${err.message}`);
     await logToDb(userId, `Failed to stop bot: ${err.message}`);
     throw err;
   }
 };
 
-// ✅ Get bot status for a user
 export const getBotStatus = async (userId) => {
+  if (!userId) throw new Error('userId is required');
+
   try {
     const bot = await Bot.findOne({ userId });
-
-    // Return either the bot config or a default "not running" object
     return bot || {
       userId,
       isRunning: false,
       symbol: null,
       amount: 0,
       timeframes: [],
-      startedAt: null,
+      strategy: null,
+      risk: null,
+      startedAt: null
     };
   } catch (err) {
-    console.error(`[BotStatus Error]: ${err.message}`);
+    console.error(`[BotStatus Error] ${err.message}`);
     throw err;
   }
 };

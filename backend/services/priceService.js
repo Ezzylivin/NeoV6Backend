@@ -1,9 +1,9 @@
 // backend/services/priceService.js
 import WebSocket from "ws";
-import Price from "../models/Price.js"; // <-- new Price model (create it if you haven’t)
-import mongoose from "mongoose";
+import Price from "../models/Price.js";
 
 let prices = {};
+let lastSaved = {}; // tracks last DB save time per symbol
 
 export const startPriceFeed = () => {
   const ws = new WebSocket("wss://stream.binance.com:9443/ws/!ticker@arr");
@@ -15,12 +15,14 @@ export const startPriceFeed = () => {
       for (const ticker of data) {
         const symbol = ticker.s; // e.g. BTCUSDT
         const price = parseFloat(ticker.c);
-
-        // 1. Keep it in memory for fast frontend requests
         prices[symbol] = price;
 
-        // 2. Save into DB (optional throttle: only every 5s per symbol)
-        await Price.create({ symbol, price });
+        // --- Throttling: only save every 10 seconds per symbol ---
+        const now = Date.now();
+        if (!lastSaved[symbol] || now - lastSaved[symbol] >= 10_000) {
+          await Price.create({ symbol, price });
+          lastSaved[symbol] = now;
+        }
       }
     } catch (err) {
       console.error("❌ Error processing price feed:", err.message);
@@ -37,7 +39,6 @@ export const startPriceFeed = () => {
   });
 };
 
-// Still used for frontend fetching
 export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT"]) => {
   let result = {};
   symbols.forEach((s) => {

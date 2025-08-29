@@ -45,7 +45,7 @@ mongoose.connect(process.env.MONGO_URI)
     console.log("MongoDB connected");
 
     // Start Binance live price feed
-    startPriceFeed();
+    startPricePolling();
 
     // Start Express server
     app.listen(PORT, () => {

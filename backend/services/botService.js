@@ -9,7 +9,7 @@ export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m'
   try {
     const exchange = new ExchangeService(userId); // Connects using user’s API keys (if implemented)
 
-    await bot.findOneAndUpdate(
+    await Bot.findOneAndUpdate(
       { userId },
       {
         isRunning: true,
@@ -36,7 +36,7 @@ export const startTradingBot = async (userId, symbol, amount, timeframes = ['5m'
 // ✅ Stop the trading bot by updating its status
 export const stopTradingBot = async (userId) => {
   try {
-    await bot.findOneAndUpdate(
+    await Bot.findOneAndUpdate(
       { userId },
       { isRunning: false },
       { new: true }
@@ -55,10 +55,10 @@ export const stopTradingBot = async (userId) => {
 // ✅ Get bot status for a user
 export const getBotStatus = async (userId) => {
   try {
-    const Bot = await bot.findOne({ userId });
+    const bot = await Bot.findOne({ userId });
 
     // Return either the bot config or a default "not running" object
-    return Bot || {
+    return bot || {
       userId,
       isRunning: false,
       symbol: null,

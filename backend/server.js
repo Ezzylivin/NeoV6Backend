@@ -1,23 +1,25 @@
-// File: src/backend/server.js (The Complete and Final Version)
-
-import express from 'express';
+// File: src/backend/server.js
 import dotenv from 'dotenv';
+import express from 'express';
 import cors from 'cors';
-import connectDB from './config/db.js';
-import { startPriceFeed } from "./services/priceService.js";
-import apiRoutes from './routes/apiRoutes.js';
+import mongoose from 'mongoose';
 
-// --- Initial Server Setup ---
+import userRoutes from './routes/userRoutes.js';
+import botRoutes from './routes/botRoutes.js';
+import backtestRoutes from './routes/backtestRoutes.js';
+import priceRoutes from './routes/priceRoutes.js';
+import { startPriceFeed } from './services/priceService.js';
+
 dotenv.config();
-connectDB();
+
+// --- Express App ---
 const app = express();
 
-// --- Middleware Configuration ---
-
+// --- Middleware ---
 const corsOptions = {
   origin: function (origin, callback) {
     const whitelist = ['http://localhost:3000', 'http://localhost:5173'];
-    const vercelRegex = /^https:\/\/.*\.vercel\.app$/; // This will match your preview URL
+    const vercelRegex = /^https:\/\/.*\.vercel\.app$/;
 
     if (!origin || whitelist.indexOf(origin) !== -1 || vercelRegex.test(origin)) {
       callback(null, true);
@@ -27,62 +29,26 @@ const corsOptions = {
   }
 };
 
-// THIS IS THE CRUCIAL ORDER
-// 1. Handle pre-flight requests for all routes
 app.options('*', cors(corsOptions));
-
-// 2. Handle all other requests
 app.use(cors(corsOptions));
-
-// 3. The JSON parser comes AFTER CORS
 app.use(express.json());
 
-// 4. Your API routes are last
-app.use('/api', apiRoutes); // Or '/home' if you prefer that prefix
+// --- API Routes ---
+app.use("/api", apiRoutes); // for live price endpoints
 
-// server.js
-import express from "express";
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-import cors from "cors";
+// --- Connect DB and Start Server ---
+const PORT = process.env.PORT || 5000;
 
-import userRoutes from "./routes/userRoutes.js";
-import botRoutes from "./routes/botRoutes.js";
-import backtestRoutes from "./routes/backtestRoutes.js";
-import priceRoutes from "./routes/priceRoutes.js";   // ✅ add this
-import { startPriceFeed } from "./services/priceService.js"; // ✅ import service
-
-dotenv.config();
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-// ✅ Routes
-app.use("/api/users", userRoutes);
-app.use("/api/bots", botRoutes);
-app.use("/api/backtests", backtestRoutes);
-app.use("/api", priceRoutes);   // ✅ price API endpoint
-
-// ✅ Connect DB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log("MongoDB connected");
-    
-    // ✅ Start Binance price feed *after* DB is connected
+
+    // Start Binance live price feed
     startPriceFeed();
 
-    // ✅ Start server
-    app.listen(process.env.PORT || 5000, () => {
-      console.log(`Server running on port ${process.env.PORT || 5000}`);
+    // Start Express server
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
     });
   })
-  .catch((err) => console.error("MongoDB error:", err));
-
-
-
-// --- Start the Server ---
-
-app.listen(PORT, () => {
-  console.log(`Server is running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-});
+  .catch(err => console.error("MongoDB connection error:", err));

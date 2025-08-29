@@ -6,11 +6,10 @@ const router = express.Router();
 
 /**
  * GET /api/prices
- * Query: ?symbols=BTCUSDT,ETHUSDT,BNBUSDT
- * Returns latest prices for requested symbols
+ * Query: symbols=BTCUSDT,ETHUSDT
  */
 router.get("/prices", (req, res) => {
-  const symbolsQuery = req.query.symbols || "BTCUSDT,ETHUSDT";
+  const symbolsQuery = req.query.symbols || "BTCUSDT,ETHUSDT,BNBUSDT";
   const symbols = symbolsQuery.split(",").map((s) => s.trim().toUpperCase());
 
   const prices = getPrices(symbols);

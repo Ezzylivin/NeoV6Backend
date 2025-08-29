@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 
+import apiRoutes from './routes/apiRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import botRoutes from './routes/botRoutes.js';
 import backtestRoutes from './routes/backtestRoutes.js';

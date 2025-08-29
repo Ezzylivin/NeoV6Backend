@@ -1,37 +1,33 @@
 // File: backend/services/priceService.js
-import WebSocket from "ws";
+import fetch from "node-fetch";
 import Price from "../dbStructure/price.js";
 
-let prices = {};
+let prices = {}; // current prices
 
-export const startPriceFeed = () => {
-  const ws = new WebSocket("wss://stream.binance.com:9443/ws/!ticker@arr");
+export const startPricePolling = () => {
+  const fetchPrices = async () => {
+    try {
+      const symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
+      const url = `https://api.binance.com/api/v3/ticker/price`;
+      const res = await fetch(url);
+      const data = await res.json();
 
-  ws.on("message", async (msg) => {
-    const data = JSON.parse(msg);
-    for (const ticker of data) {
-      const symbol = ticker.s; // e.g., BTCUSDT
-      const price = parseFloat(ticker.c); // last price
-      prices[symbol] = price;
+      data.forEach((ticker) => {
+        if (symbols.includes(ticker.symbol)) {
+          const price = parseFloat(ticker.price);
+          prices[ticker.symbol] = price;
 
-      // Save to MongoDB for historical tracking
-      try {
-        await Price.create({ symbol, price });
-      } catch (err) {
-        console.error("Error logging price:", err.message);
-      }
+          // log to DB for backtesting
+          Price.create({ symbol: ticker.symbol, price, timestamp: new Date() }).catch(() => {});
+        }
+      });
+    } catch (err) {
+      console.error("Price polling error:", err.message);
     }
-  });
+  };
 
-  ws.on("close", () => {
-    console.log("Binance WS closed, reconnecting in 5s...");
-    setTimeout(startPriceFeed, 5000);
-  });
-
-  ws.on("error", (err) => {
-    console.error("Binance WS error:", err.message);
-    ws.close();
-  });
+  fetchPrices();
+  setInterval(fetchPrices, 5000); // every 5s
 };
 
 export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT"]) => {

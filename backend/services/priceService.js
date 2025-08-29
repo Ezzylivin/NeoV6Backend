@@ -1,46 +1,37 @@
-// backend/services/priceService.js
-import WebSocket from "ws";
-import Price from "../dbStructure/price.js";
+// File: backend/services/priceService.js
+import fetch from "node-fetch";
 
 let prices = {};
-let lastSaved = {}; // tracks last DB save time per symbol
 
-export const startPriceFeed = () => {
-  const ws = new WebSocket("wss://stream.binance.com:9443/ws/!ticker@arr");
+// --- Fetch prices from Binance REST API ---
+export const updatePrices = async (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
+  try {
+    const responses = await Promise.all(
+      symbols.map((symbol) =>
+        fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
+          .then((res) => res.json())
+      )
+    );
 
-  ws.on("message", async (msg) => {
-    try {
-      const data = JSON.parse(msg);
-
-      for (const ticker of data) {
-        const symbol = ticker.s; // e.g. BTCUSDT
-        const price = parseFloat(ticker.c);
-        prices[symbol] = price;
-
-        // --- Throttling: only save every 10 seconds per symbol ---
-        const now = Date.now();
-        if (!lastSaved[symbol] || now - lastSaved[symbol] >= 10_000) {
-          await Price.create({ symbol, price });
-          lastSaved[symbol] = now;
-        }
+    responses.forEach((data) => {
+      if (data.symbol && data.price) {
+        prices[data.symbol] = parseFloat(data.price);
       }
-    } catch (err) {
-      console.error("❌ Error processing price feed:", err.message);
-    }
-  });
-
-  ws.on("close", () => {
-    console.log("⚠️ Binance WS closed, reconnecting...");
-    setTimeout(startPriceFeed, 5000);
-  });
-
-  ws.on("error", (err) => {
-    console.error("❌ Binance WS error:", err.message);
-  });
+    });
+  } catch (err) {
+    console.error("Failed to fetch Binance prices:", err.message);
+  }
 };
 
-export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT"]) => {
-  let result = {};
+// --- Start periodic price updates ---
+export const startPriceFeed = (intervalMs = 5000) => {
+  updatePrices(); // initial fetch
+  setInterval(updatePrices, intervalMs); // fetch every 5s
+};
+
+// --- Get current prices for requested symbols ---
+export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
+  const result = {};
   symbols.forEach((s) => {
     result[s] = prices[s] || null;
   });

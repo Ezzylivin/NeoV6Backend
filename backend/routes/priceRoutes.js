@@ -1,13 +1,20 @@
-// backend/routes/priceRoutes.js
+// File: backend/routes/priceRoutes.js
 import express from "express";
-import { fetchLivePrices, fetchPriceHistory } from "../controllers/priceController.js";
+import { getPrices } from "../services/priceService.js";
 
 const router = express.Router();
 
-// GET /api/prices?symbols=BTCUSDT,ETHUSDT
-router.get("/", fetchLivePrices);
+/**
+ * GET /api/prices
+ * Query: ?symbols=BTCUSDT,ETHUSDT,BNBUSDT
+ * Returns latest prices for requested symbols
+ */
+router.get("/prices", (req, res) => {
+  const symbolsQuery = req.query.symbols || "BTCUSDT,ETHUSDT";
+  const symbols = symbolsQuery.split(",").map((s) => s.trim().toUpperCase());
 
-// GET /api/prices/history?symbol=BTCUSDT&limit=50
-router.get("/history", fetchPriceHistory);
+  const prices = getPrices(symbols);
+  res.json({ success: true, prices });
+});
 
 export default router;

@@ -1,5 +1,5 @@
 // backend/controllers/priceController.js
-import Price from "../models/Price.js";
+import Price from "../dbStructure/price.js";
 import { getPrices } from "../services/priceService.js";
 
 // ✅ Live prices (from WebSocket memory)

@@ -1,37 +1,82 @@
-// File: src/backend/services/backtestService.js
+import Backtest from '../dbStructure/backtest.js';
+import { logToDb } from './logService.js';
+import ExchangeService from './exchangeService.js';
 
-// Example in-memory storage (replace with DB if using Mongo/Postgres)
-let BACKTESTS = [];
+/**
+ * Run backtest for a user.
+ * Accepts all inputs: symbol, timeframe, initialBalance, strategy, risk
+ */
+export async function runAndSaveBacktest({
+  userId,
+  symbol,
+  timeframe,
+  initialBalance,
+  strategy = 'default',
+  risk = 'medium'
+}) {
+  if (!userId || !symbol || !timeframe || !initialBalance) {
+    throw new Error('userId, symbol, timeframe, and initialBalance are required.');
+  }
 
-// Run backtest
-export async function run({ userId, symbol, timeframe, initialBalance, strategy, risk }) {
-  // Fake simulation: random profit %
-  const profitPct = (Math.random() * 20 - 10).toFixed(2); // -10% to +10%
-  const finalBalance = +(initialBalance * (1 + profitPct / 100)).toFixed(2);
+  const exchange = new ExchangeService();
+  const historicalData = await exchange.fetchOHLCV(symbol, timeframe, 500);
 
-  const result = {
+  if (!historicalData || historicalData.length === 0) {
+    throw new Error(`No historical data for ${symbol} on ${timeframe}`);
+  }
+
+  let balance = initialBalance;
+  let asset = 0;
+  let trades = 0;
+
+  for (let i = 0; i < historicalData.length; i++) {
+    const recentCandles = historicalData.slice(0, i + 1);
+    const decision = crossoverStrategy(recentCandles); // define your strategy
+    const close = historicalData[i][4];
+
+    if (decision === 'BUY' && balance > close) {
+      asset += balance / close;
+      balance = 0;
+      trades++;
+    } else if (decision === 'SELL' && asset > 0) {
+      balance += asset * close;
+      asset = 0;
+      trades++;
+    }
+  }
+
+  const finalPrice = historicalData[historicalData.length - 1][4];
+  const finalBalance = balance + asset * finalPrice;
+
+  const backtestData = {
     userId,
     symbol,
     timeframe,
     initialBalance,
-    finalBalance,
-    profit: +(finalBalance - initialBalance).toFixed(2),
-    strategy: strategy || "default",
-    risk: risk || "medium",
-    totalTrades: Math.floor(Math.random() * 20) + 5,
-    candlesTested: Math.floor(Math.random() * 500) + 100,
-    createdAt: new Date(),
+    finalBalance: parseFloat(finalBalance.toFixed(2)),
+    profit: parseFloat((finalBalance - initialBalance).toFixed(2)),
+    totalTrades: trades,
+    candlesTested: historicalData.length,
+    strategy,
+    risk,
+    createdAt: new Date()
   };
 
-  BACKTESTS.push(result);
+  const saved = await Backtest.create(backtestData);
+  await logToDb(userId, `[Backtest] ${symbol} | ${timeframe} | Profit: $${backtestData.profit} | Trades: ${trades}`);
 
-  return BACKTESTS.filter((bt) => bt.userId === userId);
+  return saved;
 }
 
-// Get saved backtests
-export async function getAll({ userId, symbol, timeframe }) {
-  let results = BACKTESTS.filter((bt) => bt.userId === userId);
-  if (symbol) results = results.filter((bt) => bt.symbol === symbol);
-  if (timeframe) results = results.filter((bt) => bt.timeframe === timeframe);
-  return results;
+/**
+ * Fetch backtests with optional filters
+ */
+export async function getBacktests({ userId, symbol, timeframe }) {
+  if (!userId) throw new Error('userId is required');
+  
+  let query = { userId };
+  if (symbol) query.symbol = symbol;
+  if (timeframe) query.timeframe = timeframe;
+
+  return await Backtest.find(query).sort({ createdAt: -1 });
 }

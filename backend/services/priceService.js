@@ -1,6 +1,6 @@
 // backend/services/priceService.js
 import WebSocket from "ws";
-import Price from "../models/Price.js";
+import Price from "../dbStructure/price.js";
 
 let prices = {};
 let lastSaved = {}; // tracks last DB save time per symbol

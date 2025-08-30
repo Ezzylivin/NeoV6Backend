@@ -4,8 +4,8 @@ import { fetchLivePrices, fetchPriceHistory } from '../controllers/priceControll
 
 const router = express.Router();
 
-// GET /api/prices/live?symbols=BTCUSDT,ETHUSDT
-router.get('/prices/live', fetchLivePrices);
+// GET /api/prices?symbols=BTCUSDT,ETHUSDT
+router.get('/prices', fetchLivePrices);
 
 // GET /api/prices/history?symbol=BTCUSDT&limit=100
 router.get('/prices/history', fetchPriceHistory);

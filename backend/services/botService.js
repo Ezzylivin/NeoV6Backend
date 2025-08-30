@@ -3,7 +3,7 @@
 import ExchangeService from './exchangeService.js';
 import Bot from '../dbStructure/bot.js';
 import { logToDb } from './logService.js';
-import Price from './priceService.js'; // for getPrices()
+import * as Price from './priceService.js'; // for getPrices()
 
 /**
  * Start a trading bot for a user with full configuration.

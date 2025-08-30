@@ -1,13 +1,20 @@
 // File: backend/routes/backtestRoutes.js
-import express from 'express';
-import { runAndSaveBacktests, getBacktestsByUser } from '../controllers/backtestController.js';
+import express from "express";
+import {
+  runAndSaveBacktests,
+  getBacktestsByUser,
+  getBacktestOptions,
+} from "../controllers/backtestController.js";
 
 const router = express.Router();
 
-// POST: Run backtests and save results
-router.post('/run', runAndSaveBacktests);
+// Run and save new backtest
+router.post("/", runAndSaveBacktests);
 
-// GET: Fetch saved backtest results, optionally filtered by userId and timeframe
-router.get('/results', getBacktestsByUser);
+// Fetch backtests for a specific user
+router.get("/", getBacktestsByUser);
+
+// Fetch dropdown options for backtest form
+router.get("/options", getBacktestOptions);
 
 export default router;

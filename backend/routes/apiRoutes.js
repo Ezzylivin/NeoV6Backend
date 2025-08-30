@@ -1,4 +1,3 @@
-// File: backend/routes/apiRoutes.js
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -17,18 +16,27 @@ router.get('/', (req, res) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const routeFiles = fs.readdirSync(__dirname).filter(
-  file => file.endsWith('Routes.js') && file !== 'apiRoutes.js'
-);
+// Wrap dynamic imports in an async function
+const mountRoutes = async () => {
+  const routeFiles = fs.readdirSync(__dirname).filter(
+    file => file.endsWith('Routes.js') && file !== 'apiRoutes.js'
+  );
 
-for (const file of routeFiles) {
-  const routeModule = await import(`./${file}`);
-  // Mount path: remove 'Routes.js' and prefix with '/'
-  const routePath = '/' + file.replace('Routes.js', '').toLowerCase();
-  if (routeModule.default) {
-    router.use(routePath, routeModule.default);
-    console.log(`✅ Mounted ${file} -> /api${routePath}`);
+  for (const file of routeFiles) {
+    try {
+      const routeModule = await import(`./${file}`);
+      const routePath = '/' + file.replace('Routes.js', '').toLowerCase();
+      if (routeModule.default) {
+        router.use(routePath, routeModule.default);
+        console.log(`✅ Mounted ${file} -> /api${routePath}`);
+      }
+    } catch (err) {
+      console.error(`❌ Failed to load route from ${file}:`, err);
+    }
   }
-}
+};
+
+// Immediately invoke to mount routes
+mountRoutes();
 
 export default router;

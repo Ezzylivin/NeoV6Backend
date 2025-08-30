@@ -8,15 +8,15 @@ import mongoose from "mongoose";
 dotenv.config();
 
 // Import routes
-import backtestRoutes from "./backend/routes/backtestRoutes.js";
-import botRoutes from "./backend/routes/botRoutes.js";
-import cryptoRoutes from "./backend/routes/cryptoRoutes.js";
-import exchangeRoutes from "./backend/routes/exchangeRoutes.js";
-import keyRoutes from "./backend/routes/keyRoutes.js";
-import logRoutes from "./backend/routes/logRoutes.js";
-import priceRoutes from "./backend/routes/priceRoutes.js";
-import strategyEngineRoutes from "./backend/routes/strategyEngineRoutes.js";
-import userRoutes from "./backend/routes/userRoutes.js";
+import backtestRoutes from "./routes/backtestRoutes.js";
+import botRoutes from "./routes/botRoutes.js";
+import cryptoRoutes from "./routes/cryptoRoutes.js";
+import exchangeRoutes from "./routes/exchangeRoutes.js";
+import keyRoutes from "./routes/keyRoutes.js";
+import logRoutes from "./routes/logRoutes.js";
+import priceRoutes from "./routes/priceRoutes.js";
+import strategyEngineRoutes from "./routes/strategyEngineRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 
 // Create Express app
 const app = express();

@@ -1,39 +1,46 @@
 // File: backend/services/priceService.js
-import fetch from "node-fetch";
-import Price from "../dbStructure/price.js";
+import fetch from 'node-fetch';
+import { logToDb } from './logService.js';
 
-let prices = {}; // current prices
+let prices = {};
 
-export const startPricePolling = () => {
-  const fetchPrices = async () => {
-    try {
-      const symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
-      const url = `https://api.binance.com/api/v3/ticker/price`;
-      const res = await fetch(url);
-      const data = await res.json();
+/**
+ * Fetch live prices from Binance REST API for multiple symbols
+ */
+export const updatePrices = async (symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']) => {
+  try {
+    const response = await fetch('https://api.binance.com/api/v3/ticker/price');
+    const data = await response.json();
 
-      data.forEach((ticker) => {
-        if (symbols.includes(ticker.symbol)) {
-          const price = parseFloat(ticker.price);
-          prices[ticker.symbol] = price;
+    // Update local price cache
+    symbols.forEach(symbol => {
+      const ticker = data.find(t => t.symbol === symbol);
+      if (ticker) prices[symbol] = parseFloat(ticker.price);
+    });
 
-          // log to DB for backtesting
-          Price.create({ symbol: ticker.symbol, price, timestamp: new Date() }).catch(() => {});
-        }
-      });
-    } catch (err) {
-      console.error("Price polling error:", err.message);
-    }
-  };
+    // Optionally log to DB for historical tracking
+    // Object.entries(prices).forEach(([symbol, price]) => logToDb('SYSTEM', `${symbol}: $${price}`));
 
-  fetchPrices();
-  setInterval(fetchPrices, 5000); // every 5s
+  } catch (err) {
+    console.error('[PriceService] Failed to fetch prices:', err.message);
+  }
 };
 
-export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT"]) => {
+/**
+ * Return cached prices
+ */
+export const getPrices = (symbols = ['BTCUSDT', 'ETHUSDT']) => {
   let result = {};
-  symbols.forEach((s) => {
+  symbols.forEach(s => {
     result[s] = prices[s] || null;
   });
   return result;
+};
+
+/**
+ * Start automatic price updates every N milliseconds
+ */
+export const startPriceFeed = (intervalMs = 5000) => {
+  updatePrices(); // initial fetch
+  setInterval(updatePrices, intervalMs);
 };

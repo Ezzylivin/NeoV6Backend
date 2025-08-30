@@ -22,12 +22,14 @@ app.use("/api", apiRoutes);
 // MongoDB connect
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
+  .then(() => {
+    console.log("✅ MongoDB connected");
+
+    // Start price feed
+    PriceService.startPriceFeed(10000);
+
+    // Start server only after DB is ready
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+  })
   .catch((err) => console.error("MongoDB connection error:", err.message));
-
-// Start price feed
-PriceService.startPriceFeed(10000); // 10s updates
-
-// Server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

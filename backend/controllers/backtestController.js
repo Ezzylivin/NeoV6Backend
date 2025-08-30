@@ -1,8 +1,12 @@
 // File: backend/controllers/backtestController.js
+import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
 import { logToDb } from "../services/logService.js";
 
-function generateTradeBreakdown(initialBalance) {
+/**
+ * Generate mock trades if no historical data
+ */
+function generateMockTradeBreakdown(initialBalance) {
   const trades = [];
   const tradeCount = Math.floor(Math.random() * 10) + 5;
   let balance = initialBalance;
@@ -28,7 +32,9 @@ function generateTradeBreakdown(initialBalance) {
   return trades;
 }
 
-// Run and save backtests
+/**
+ * Run and save backtests for a user
+ */
 export const runAndSaveBacktests = async (req, res) => {
   try {
     const { userId, symbol, timeframe, initialBalance, strategy, risk } = req.body;
@@ -40,9 +46,59 @@ export const runAndSaveBacktests = async (req, res) => {
       });
     }
 
-    const tradeBreakdown = generateTradeBreakdown(initialBalance);
-    const totalProfit = tradeBreakdown.reduce((sum, t) => sum + t.profit, 0);
-    const finalBalance = +(initialBalance + totalProfit).toFixed(2);
+    // Try fetching historical data
+    const historicalData = await Price.find({ symbol }).sort({ timestamp: 1 });
+    let tradeBreakdown = [];
+    let finalBalance = initialBalance;
+
+    if (historicalData.length > 1) {
+      // Real data backtest
+      let balance = initialBalance;
+      let asset = 0;
+
+      for (let i = 1; i < historicalData.length; i++) {
+        const prevPrice = historicalData[i - 1].close;
+        const currPrice = historicalData[i].close;
+        const decision = currPrice > prevPrice ? "BUY" : "SELL";
+
+        if (decision === "BUY" && balance > currPrice) {
+          asset += balance / currPrice;
+          balance = 0;
+          tradeBreakdown.push({
+            entryTime: historicalData[i - 1].timestamp,
+            exitTime: historicalData[i].timestamp,
+            entryPrice: prevPrice,
+            exitPrice: currPrice,
+            position: "long",
+            profit: +(currPrice - prevPrice).toFixed(2),
+            duration: (historicalData[i].timestamp - historicalData[i - 1].timestamp) / 60000,
+            result: currPrice > prevPrice ? "win" : "loss",
+          });
+        } else if (decision === "SELL" && asset > 0) {
+          balance += asset * currPrice;
+          asset = 0;
+          tradeBreakdown.push({
+            entryTime: historicalData[i - 1].timestamp,
+            exitTime: historicalData[i].timestamp,
+            entryPrice: prevPrice,
+            exitPrice: currPrice,
+            position: "short",
+            profit: +(prevPrice - currPrice).toFixed(2),
+            duration: (historicalData[i].timestamp - historicalData[i - 1].timestamp) / 60000,
+            result: currPrice < prevPrice ? "win" : "loss",
+          });
+        }
+      }
+
+      finalBalance = balance + asset * historicalData[historicalData.length - 1].close;
+    } else {
+      // Fallback to mock trades
+      tradeBreakdown = generateMockTradeBreakdown(initialBalance);
+      const totalProfit = tradeBreakdown.reduce((sum, t) => sum + t.profit, 0);
+      finalBalance = +(initialBalance + totalProfit).toFixed(2);
+    }
+
+    const totalProfit = +(finalBalance - initialBalance).toFixed(2);
 
     const backtestResult = await Backtest.create({
       userId,
@@ -52,17 +108,14 @@ export const runAndSaveBacktests = async (req, res) => {
       finalBalance,
       profit: totalProfit,
       totalTrades: tradeBreakdown.length,
-      candlesTested: tradeBreakdown.length * 10,
+      candlesTested: historicalData.length || tradeBreakdown.length * 10,
       strategy: { name: strategy || "default", parameters: {} },
       tradeBreakdown,
       risk: risk || "medium",
       createdAt: new Date(),
     });
 
-    await logToDb(
-      userId,
-      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${strategy} | Risk: ${risk} | Profit: $${backtestResult.profit}`
-    );
+    await logToDb(userId, `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${strategy} | Risk: ${risk} | Profit: $${totalProfit}`);
 
     res.status(201).json({
       success: true,
@@ -75,7 +128,9 @@ export const runAndSaveBacktests = async (req, res) => {
   }
 };
 
-// Fetch backtests by user
+/**
+ * Fetch backtests by user
+ */
 export const getBacktestsByUser = async (req, res) => {
   try {
     const { userId, symbol, timeframe } = req.query;
@@ -90,17 +145,16 @@ export const getBacktestsByUser = async (req, res) => {
 
     const backtests = await Backtest.find(query).sort({ createdAt: -1 });
 
-    res.status(200).json({
-      success: true,
-      backtests,
-    });
+    res.status(200).json({ success: true, backtests });
   } catch (error) {
     console.error("[Get Backtests Error]", error);
     res.status(500).json({ success: false, message: "Failed to retrieve backtests" });
   }
 };
 
-// Get dropdown options
+/**
+ * Get dropdown options for backtests
+ */
 export const getBacktestOptions = (req, res) => {
   try {
     const options = {

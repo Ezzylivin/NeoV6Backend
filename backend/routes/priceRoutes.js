@@ -6,10 +6,9 @@ import Price from "../dbStructure/price.js";
 const router = express.Router();
 
 // Live prices
-router.get("/prices", (req, res) => {
-  const symbolsQuery = req.query.symbols || "BTCUSDT,ETHUSDT,BNBUSDT";
-  const symbols = symbolsQuery.split(",").map((s) => s.trim().toUpperCase());
-  const prices = getPrices(symbols);
+router.get('/prices', (req, res) => {
+  const symbols = req.query.symbols?.split(',') || ['BTCUSDT', 'ETHUSDT'];
+  const prices = Price.getPrices(symbols);
   res.json({ success: true, prices });
 });
 

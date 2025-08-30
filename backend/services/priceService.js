@@ -1,74 +1,79 @@
 // backend/services/priceService.js
 import fetch from "node-fetch";
+import Price from "../dbStructure/price.js"; // MongoDB model
 
 let prices = {};
 
-// Exchange mapping (internal symbol → exchange format)
-const SYMBOL_MAP = {
-  BTCUSDT: { coinbase: "BTC-USD", gemini: "btcusd", kraken: "XXBTZUSD" },
-  ETHUSDT: { coinbase: "ETH-USD", gemini: "ethusd", kraken: "XETHZUSD" },
-  BNBUSDT: { coinbase: null, gemini: null, kraken: null }, // not widely supported on US exchanges
-};
-
-/** Try Coinbase first */
+// --- Exchange fetchers ---
 const fetchFromCoinbase = async (symbol) => {
-  const product = SYMBOL_MAP[symbol]?.coinbase;
-  if (!product) return null;
-
-  const res = await fetch(`https://api.exchange.coinbase.com/products/${product}/ticker`);
+  const base = symbol.replace("USDT", "");
+  const url = `https://api.exchange.coinbase.com/products/${base}-USD/ticker`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Coinbase failed");
   const data = await res.json();
-  return data.price ? parseFloat(data.price) : null;
+  return parseFloat(data.price);
 };
 
-/** Fallback: Gemini */
 const fetchFromGemini = async (symbol) => {
-  const pair = SYMBOL_MAP[symbol]?.gemini;
-  if (!pair) return null;
-
-  const res = await fetch(`https://api.gemini.com/v1/pubticker/${pair}`);
+  const base = symbol.replace("USDT", "");
+  const url = `https://api.gemini.com/v1/pubticker/${base.toLowerCase()}usd`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Gemini failed");
   const data = await res.json();
-  return data.last ? parseFloat(data.last) : null;
+  return parseFloat(data.last);
 };
 
-/** Fallback: Kraken */
 const fetchFromKraken = async (symbol) => {
-  const pair = SYMBOL_MAP[symbol]?.kraken;
-  if (!pair) return null;
-
-  const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pair}`);
+  const base = symbol.replace("USDT", "USD");
+  const url = `https://api.kraken.com/0/public/Ticker?pair=${base}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Kraken failed");
   const data = await res.json();
-  const result = data?.result?.[pair];
-  return result?.c?.[0] ? parseFloat(result.c[0]) : null;
+  const pairKey = Object.keys(data.result)[0];
+  return parseFloat(data.result[pairKey].c[0]); // c[0] = last trade
 };
 
-/** Master fetcher with fallback */
+// --- Multi-exchange fetch with fallback ---
 const fetchPrice = async (symbol) => {
-  let price = await fetchFromCoinbase(symbol);
-  if (price) return price;
-
-  price = await fetchFromGemini(symbol);
-  if (price) return price;
-
-  price = await fetchFromKraken(symbol);
-  if (price) return price;
-
-  console.error(`[PriceService] No price available for ${symbol}`);
-  return null;
+  const exchanges = [fetchFromCoinbase, fetchFromGemini, fetchFromKraken];
+  for (const ex of exchanges) {
+    try {
+      return await ex(symbol);
+    } catch (err) {
+      console.warn(`[PriceService] ${ex.name} failed for ${symbol}:`, err.message);
+    }
+  }
+  throw new Error(`All exchanges failed for ${symbol}`);
 };
 
-const updatePrices = async (symbols = ["BTCUSDT", "ETHUSDT"]) => {
+// --- Update all tracked prices ---
+const updatePrices = async (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
   try {
-    for (const sym of symbols) {
-      const price = await fetchPrice(sym);
-      if (price) prices[sym] = price;
+    for (const symbol of symbols) {
+      try {
+        const price = await fetchPrice(symbol);
+        prices[symbol] = price;
+
+        // ✅ Save to DB for history
+        await Price.create({
+          symbol,
+          price,
+          timestamp: new Date(),
+        });
+
+        console.log(`[PriceService] ${symbol}: $${price}`);
+      } catch (err) {
+        console.error(`[PriceService] Failed for ${symbol}:`, err.message);
+      }
     }
   } catch (err) {
-    console.error("[PriceService] Failed to update prices:", err.message);
+    console.error("[PriceService] updatePrices error:", err.message);
   }
 };
 
+// --- Public getters ---
 const getPrices = (symbols = ["BTCUSDT", "ETHUSDT"]) => {
-  let result = {};
+  const result = {};
   symbols.forEach((s) => {
     result[s] = prices[s] || null;
   });
@@ -76,7 +81,7 @@ const getPrices = (symbols = ["BTCUSDT", "ETHUSDT"]) => {
 };
 
 const startPriceFeed = (intervalMs = 10000) => {
-  updatePrices(); // initial
+  updatePrices(); // initial fetch
   setInterval(updatePrices, intervalMs);
 };
 

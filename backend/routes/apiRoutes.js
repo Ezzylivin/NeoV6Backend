@@ -1,4 +1,4 @@
-// File: src/backend/routes/apiRoutes.js (Corrected Dynamic Version)
+// File: backend/routes/apiRoutes.js
 
 import express from 'express';
 import fs from 'fs';
@@ -6,8 +6,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const router = express.Router();
-
-// VVVV  ADD THIS BLOCK OF CODE HERE  VVVV
 
 /**
  * @route   GET /api/
@@ -24,6 +22,7 @@ router.get('/', (req, res) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load all route files dynamically except this one
 const routeFiles = fs.readdirSync(__dirname).filter(
   (file) => file.endsWith('.js') && file !== 'apiRoutes.js'
 );
@@ -31,10 +30,10 @@ const routeFiles = fs.readdirSync(__dirname).filter(
 for (const file of routeFiles) {
   try {
     const routeModule = await import(`./${file}`);
-    
-    // --- THIS IS THE CORRECTED LINE ---
-    // It now correctly creates a plural path, e.g., 'userRoutes.js' -> '/users'
-    const routePath = '/' + file.replace('Routes.js', '') + 's';
+
+    // ✅ Smart pluralization: avoids double "s"
+    const baseName = file.replace('Routes.js', '');
+    const routePath = '/' + (baseName.endsWith('s') ? baseName : baseName + 's');
 
     if (routeModule.default) {
       router.use(routePath, routeModule.default);

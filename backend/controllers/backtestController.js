@@ -3,6 +3,37 @@ import Backtest from "../dbStructure/backtest.js";
 import { logToDb } from "../services/logService.js";
 
 /**
+ * Fetch dropdown options for backtests
+ */
+export const getBacktestOptions = (req, res) => {
+  try {
+    // Default options
+    const options = {
+      symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+      timeframes: ["1m", "5m", "15m", "1h", "4h", "1d"],
+      balances: [100, 300, 500, 1000, 5000, 10000],
+      strategies: ["SMA", "EMA", "RSI", "MACD"],
+      risks: ["Low", "Medium", "High"],
+    };
+
+    res.json({ success: true, options });
+  } catch (err) {
+    console.error("[BacktestController] Error fetching options:", err.message);
+    // Always respond with fallback options
+    res.status(200).json({
+      success: true,
+      options: {
+        symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+        timeframes: ["1m", "5m", "15m", "1h", "4h", "1d"],
+        balances: [100, 300, 500, 1000, 5000, 10000],
+        strategies: ["SMA", "EMA", "RSI", "MACD"],
+        risks: ["Low", "Medium", "High"],
+      },
+    });
+  }
+};
+
+/**
  * Run and save backtests for a user
  */
 export const runAndSaveBacktests = async (req, res) => {
@@ -15,7 +46,7 @@ export const runAndSaveBacktests = async (req, res) => {
       });
     }
 
-    // Simple mock backtest logic (replace with real strategy)
+    // Simple mock backtest logic
     const profitPct = (Math.random() * 20 - 10).toFixed(2); // -10% to +10%
     const finalBalance = +(initialBalance * (1 + profitPct / 100)).toFixed(2);
 
@@ -27,7 +58,7 @@ export const runAndSaveBacktests = async (req, res) => {
       finalBalance,
       profit: +(finalBalance - initialBalance).toFixed(2),
       strategy: strategy || "default",
-      risk: risk || "medium",
+      risk: risk || "Medium",
       totalTrades: Math.floor(Math.random() * 20) + 5,
       candlesTested: Math.floor(Math.random() * 500) + 100,
       createdAt: new Date(),
@@ -68,24 +99,5 @@ export const getBacktestsByUser = async (req, res) => {
   } catch (error) {
     console.error("[Get Backtests Error]", error);
     res.status(500).json({ message: "Failed to retrieve backtests" });
-  }
-};
-
-/**
- * Get dropdown options for backtests
- */
-export const getBacktestOptions = (req, res) => {
-  try {
-    const options = {
-      symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
-      timeframes: ["1m", "5m", "15m", "1h", "4h", "1d"],
-      balances: [100, 500, 1000, 5000, 10000],
-      strategies: ["SMA", "EMA", "RSI", "MACD"],
-      risks: ["Low", "Medium", "High"],
-    };
-    res.json({ success: true, options });
-  } catch (err) {
-    console.error("[BacktestController] Error fetching options:", err.message);
-    res.status(500).json({ success: false, message: err.message });
   }
 };

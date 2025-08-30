@@ -25,7 +25,8 @@ const mountRoutes = async () => {
   for (const file of routeFiles) {
     try {
       const routeModule = await import(`./${file}`);
-      const routePath = '/' + file.replace('Routes.js', '').toLowerCase();
+      // Pluralize route path by adding 's'
+      const routePath = '/' + file.replace('Routes.js', '').toLowerCase() + 's';
       if (routeModule.default) {
         router.use(routePath, routeModule.default);
         console.log(`✅ Mounted ${file} -> /api${routePath}`);

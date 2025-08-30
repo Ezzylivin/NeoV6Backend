@@ -110,7 +110,7 @@ function runStrategy(data, strategyName) {
   }
 }
 
-// --- Controller ---
+// --- Controller: Run and save backtest ---
 export const runAndSaveBacktests = async (req, res) => {
   try {
     const { userId, symbol, timeframe, initialBalance, strategy, risk } = req.body;
@@ -119,17 +119,14 @@ export const runAndSaveBacktests = async (req, res) => {
       return res.status(400).json({ success:false, message:"Missing required fields" });
     }
 
-    // Fetch historical data
     const historicalData = await Price.find({ symbol }).sort({ timestamp: 1 });
     if (!historicalData.length) {
       return res.status(400).json({ success:false, message:"No historical data available for this symbol" });
     }
 
-    // Run strategy
     const { trades, finalBalance } = runStrategy(historicalData, strategy);
     const totalProfit = +(finalBalance - initialBalance).toFixed(2);
 
-    // Save backtest
     const backtestResult = await Backtest.create({
       userId,
       symbol,
@@ -147,25 +144,25 @@ export const runAndSaveBacktests = async (req, res) => {
     await logToDb(userId, `[Backtest] ${symbol} | Strategy: ${strategy} | Profit: $${totalProfit}`);
 
     res.status(201).json({ success:true, backtests:[backtestResult] });
-
   } catch(err) {
     console.error("[Backtest Internal Error]", err);
     res.status(500).json({ success:false, message:err.message || "Internal server error during backtest" });
   }
 };
 
-// --- Options ---
-export const getBacktestOptions = (req,res)=>{
-  try{
+// --- Controller: Get dynamic options ---
+export const getBacktestOptions = async (req,res) => {
+  try {
+    const symbols = await Price.distinct("symbol");
     const options = {
-      symbols: ["BTCUSDT","ETHUSDT","BNBUSDT"],
+      symbols: symbols.length ? symbols : ["BTCUSDT","ETHUSDT","BNBUSDT"],
       timeframes:["1m","5m","15m","1h","4h","1d"],
       balances:[100,500,1000,5000],
       strategies:["SMA","EMA","RSI","MACD"],
       risks:["Low","Medium","High"]
     };
     res.json({ success:true, options });
-  }catch(err){
+  } catch(err) {
     console.error("[Options Error]", err);
     res.status(500).json({ success:false, message:err.message });
   }

@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 
-import apiClient from './routes/apiClient.js';
+import apiRoutes from './routes/apiRoutes.js';
 
 import PriceService from "./services/priceService.js";
 

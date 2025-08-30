@@ -1,10 +1,16 @@
-// models/Price.js
 import mongoose from "mongoose";
 
-const priceSchema = new mongoose.Schema({
-  symbol: { type: String, required: true },
-  price: { type: Number, required: true },
-  timestamp: { type: Date, default: Date.now },
+const { Schema, model } = mongoose;
+
+const priceSchema = new Schema({
+  symbol: { type: String, required: true, index: true },
+  timestamp: { type: Date, required: true, index: true },
+  open: Number,
+  high: Number,
+  low: Number,
+  close: Number,
+  volume: Number,
 });
 
-export default mongoose.model("Price", priceSchema);
+const Price = model("Price", priceSchema);
+export default Price;

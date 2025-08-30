@@ -40,7 +40,7 @@ export const startTradingBot = async (
     );
 
     // Get current price from REST price polling
-    const currentPrice = Price.getPrices([symbol])[symbol] || 0;
+    const currentPrice = getPrices([symbol])[symbol] || 0;
 
     const message = `[Bot Started] Symbol: ${symbol} | Balance: $${amount} | Price: $${currentPrice} | Timeframes: ${timeframes.join(', ')} | Strategy: ${strategy} | Risk: ${risk}`;
     await logToDb(userId, message);

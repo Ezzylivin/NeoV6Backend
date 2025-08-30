@@ -17,23 +17,37 @@ export const fetchPrices = (req, res) => {
 // ✅ Fetch historical prices (from MongoDB)
 export const fetchPriceHistory = async (req, res) => {
   try {
-    const { symbols } = req.query; // e.g., "BTCUSDT,ETHUSDT,BNBUSDT"
+    const { symbols } = req.query; // "BTCUSDT,ETHUSDT,BNBUSDT"
     if (!symbols) {
       return res.status(400).json({ success: false, message: 'Symbols are required' });
     }
 
     const symbolsArray = symbols.split(',');
     const result = {};
-
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
 
     for (const symbol of symbolsArray) {
       const history = await PriceModel.find({ symbol, timestamp: { $gte: since } })
         .sort({ timestamp: 1 }); // oldest first
-      result[symbol] = history.map(h => ({
-        time: h.timestamp,
-        price: h.price
+
+      // --- Aggregate into 5-minute buckets ---
+      const bucketMap = {};
+      history.forEach((point) => {
+        const date = new Date(point.timestamp);
+        // Round to nearest 5-minute mark
+        const minutes = Math.floor(date.getMinutes() / 5) * 5;
+        const bucketKey = new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), minutes).toISOString();
+        if (!bucketMap[bucketKey]) bucketMap[bucketKey] = [];
+        bucketMap[bucketKey].push(point.price);
+      });
+
+      // Average prices per bucket
+      const aggregated = Object.entries(bucketMap).map(([time, prices]) => ({
+        time,
+        price: prices.reduce((a, b) => a + b, 0) / prices.length,
       }));
+
+      result[symbol] = aggregated;
     }
 
     res.json({ success: true, history: result });

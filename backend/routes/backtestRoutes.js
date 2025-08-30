@@ -9,12 +9,12 @@ import {
 const router = express.Router();
 
 // Run and save new backtest
-router.post("/", runAndSaveBacktests);
+router.post("/", backtestController.runAndSaveBacktests);
 
 // Fetch backtests for a specific user
-router.get("/", getBacktestsByUser);
+router.get("/", backtestController.getBacktestsByUser);
 
 // Fetch dropdown options for backtest form
-router.get("/options", getBacktestOptions);
+router.get("/options", backtestController.getBacktestOptions);
 
 export default router;

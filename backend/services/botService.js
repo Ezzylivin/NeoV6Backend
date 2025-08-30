@@ -3,7 +3,7 @@
 import ExchangeService from './exchangeService.js';
 import Bot from '../dbStructure/bot.js';
 import { logToDb } from './logService.js';
-import * as Price from './priceService.js'; // for getPrices()
+import Price from './priceService.js'; // for getPrices()
 
 /**
  * Start a trading bot for a user with full configuration.
@@ -40,7 +40,7 @@ export const startTradingBot = async (
     );
 
     // Get current price from REST price polling
-    const currentPrice = getPrices([symbol])[symbol] || 0;
+   const currentPrice = Price.getPrices([symbol])[symbol] || 0;
 
     const message = `[Bot Started] Symbol: ${symbol} | Balance: $${amount} | Price: $${currentPrice} | Timeframes: ${timeframes.join(', ')} | Strategy: ${strategy} | Risk: ${risk}`;
     await logToDb(userId, message);

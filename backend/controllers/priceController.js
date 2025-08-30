@@ -17,16 +17,26 @@ export const fetchPrices = (req, res) => {
 // ✅ Fetch historical prices (from MongoDB)
 export const fetchPriceHistory = async (req, res) => {
   try {
-    const { symbol, limit = 100 } = req.query;
-    if (!symbol) {
-      return res.status(400).json({ success: false, message: 'Symbol is required' });
+    const { symbols } = req.query; // e.g., "BTCUSDT,ETHUSDT,BNBUSDT"
+    if (!symbols) {
+      return res.status(400).json({ success: false, message: 'Symbols are required' });
     }
 
-    const history = await PriceModel.find({ symbol })
-      .sort({ timestamp: -1 })
-      .limit(Number(limit));
+    const symbolsArray = symbols.split(',');
+    const result = {};
 
-    res.json({ success: true, history });
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
+
+    for (const symbol of symbolsArray) {
+      const history = await PriceModel.find({ symbol, timestamp: { $gte: since } })
+        .sort({ timestamp: 1 }); // oldest first
+      result[symbol] = history.map(h => ({
+        time: h.timestamp,
+        price: h.price
+      }));
+    }
+
+    res.json({ success: true, history: result });
   } catch (err) {
     console.error('[PriceController] Error fetching price history:', err.message);
     res.status(500).json({ success: false, message: err.message });

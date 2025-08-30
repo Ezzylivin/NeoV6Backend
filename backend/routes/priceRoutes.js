@@ -1,6 +1,6 @@
 // File: backend/routes/priceRoutes.js
 import express from "express";
-import { getPrices } from "../services/priceService.js";
+import Price from "../services/priceService.js";
 import Price from "../dbStructure/price.js";
 
 const router = express.Router();

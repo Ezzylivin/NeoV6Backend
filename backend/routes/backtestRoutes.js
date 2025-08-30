@@ -9,7 +9,7 @@ import {
 const router = express.Router();
 
 // Run and save new backtest
-router.post("/", runAndSaveBacktests);
+router.post("/run", runAndSaveBacktests);
 
 // Fetch backtests for a specific user
 router.get("/", getBacktestsByUser);

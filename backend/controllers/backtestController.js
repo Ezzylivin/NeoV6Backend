@@ -3,6 +3,35 @@ import Backtest from "../dbStructure/backtest.js";
 import { logToDb } from "../services/logService.js";
 
 /**
+ * Generate mock trades for demonstration
+ */
+function generateTradeBreakdown(initialBalance) {
+  const trades = [];
+  const tradeCount = Math.floor(Math.random() * 10) + 5; // 5-14 trades
+  let balance = initialBalance;
+
+  for (let i = 0; i < tradeCount; i++) {
+    const entryPrice = +(Math.random() * 100 + 10).toFixed(2);
+    const exitPrice = +(entryPrice * (1 + (Math.random() * 0.2 - 0.1))).toFixed(2); // ±10%
+    const profit = +(exitPrice - entryPrice).toFixed(2);
+    balance += profit;
+
+    trades.push({
+      entryTime: new Date(Date.now() - (tradeCount - i) * 60000),
+      exitTime: new Date(Date.now() - (tradeCount - i - 1) * 60000),
+      entryPrice,
+      exitPrice,
+      position: Math.random() > 0.5 ? "long" : "short",
+      profit,
+      duration: Math.floor(Math.random() * 60), // in minutes
+      result: profit > 0 ? "win" : profit < 0 ? "loss" : "breakeven",
+    });
+  }
+
+  return trades;
+}
+
+/**
  * Run and save backtests for a user
  */
 export const runAndSaveBacktests = async (req, res) => {
@@ -15,9 +44,12 @@ export const runAndSaveBacktests = async (req, res) => {
       });
     }
 
-    // Simple mock backtest logic (replace with real strategy)
-    const profitPct = (Math.random() * 20 - 10).toFixed(2); // -10% to +10%
-    const finalBalance = +(initialBalance * (1 + profitPct / 100)).toFixed(2);
+    // Generate trade breakdown
+    const tradeBreakdown = generateTradeBreakdown(initialBalance);
+
+    // Calculate final balance and profit
+    const totalProfit = tradeBreakdown.reduce((sum, t) => sum + t.profit, 0);
+    const finalBalance = +(initialBalance + totalProfit).toFixed(2);
 
     const backtestResult = await Backtest.create({
       userId,
@@ -25,11 +57,12 @@ export const runAndSaveBacktests = async (req, res) => {
       timeframe,
       initialBalance,
       finalBalance,
-      profit: +(finalBalance - initialBalance).toFixed(2),
-      strategy: strategy || "default",
+      profit: totalProfit,
+      totalTrades: tradeBreakdown.length,
+      candlesTested: tradeBreakdown.length * 10, // mock
+      strategy: { name: strategy || "default", parameters: {} },
+      tradeBreakdown,
       risk: risk || "medium",
-      totalTrades: Math.floor(Math.random() * 20) + 5,
-      candlesTested: Math.floor(Math.random() * 500) + 100,
       createdAt: new Date(),
     });
 
@@ -59,7 +92,7 @@ export const getBacktestsByUser = async (req, res) => {
       return res.status(400).json({ message: "userId is required" });
     }
 
-    let query = { userId };
+    const query = { userId };
     if (symbol) query.symbol = symbol;
     if (timeframe) query.timeframe = timeframe;
 

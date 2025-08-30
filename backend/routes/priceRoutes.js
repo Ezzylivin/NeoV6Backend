@@ -1,13 +1,13 @@
 // backend/routes/priceRoutes.js
 import express from "express";
-import { fetchLivePrices, fetchPriceHistory } from "../controllers/priceController.js";
+import { fetchPrices, fetchPriceHistory } from "../controllers/priceController.js";
 
 const router = express.Router();
 
-// GET /api/prices?symbols=BTCUSDT,ETHUSDT
-router.get("/prices", fetchLivePrices);
+// Live prices
+router.get("/prices", fetchPrices);
 
-// GET /api/prices/history?symbol=BTCUSDT&limit=50
+// Historical prices
 router.get("/prices/history", fetchPriceHistory);
 
 export default router;

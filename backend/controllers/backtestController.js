@@ -70,3 +70,22 @@ export const getBacktestsByUser = async (req, res) => {
     res.status(500).json({ message: "Failed to retrieve backtests" });
   }
 };
+
+/**
+ * Get dropdown options for backtests
+ */
+export const getBacktestOptions = (req, res) => {
+  try {
+    const options = {
+      symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+      timeframes: ["1m", "5m", "15m", "1h", "4h", "1d"],
+      balances: [100, 500, 1000, 5000, 10000],
+      strategies: ["SMA", "EMA", "RSI", "MACD"],
+      risks: ["Low", "Medium", "High"],
+    };
+    res.json({ success: true, options });
+  } catch (err) {
+    console.error("[BacktestController] Error fetching options:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

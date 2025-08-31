@@ -1,11 +1,11 @@
 import fetch from "node-fetch";
-import Price from "../models/Price.js"; // MongoDB model
+import Price from "../dbStructure/price.js"; // MongoDB model
 import fetchFromBinance from "./exchanges/binance.js";
 import fetchFromCoinbase from "./exchanges/coinbase.js";
 import fetchFromGemini from "./exchanges/gemini.js";
 import fetchFromKraken from "./exchanges/kraken.js"; // optional
 
-let prices = {}; // live cache
+let prices = {}; // in-memory live cache
 
 // --- Multi-exchange fetch with fallback ---
 const exchanges = [fetchFromBinance, fetchFromCoinbase, fetchFromGemini, fetchFromKraken];
@@ -14,7 +14,6 @@ export async function fetchPrice(symbol) {
   for (const source of exchanges) {
     try {
       const data = await source(symbol);
-      // accept either object with close or direct number
       if (data && (data.close != null || typeof data === "number")) {
         return typeof data === "number" ? { close: data } : data;
       }
@@ -25,7 +24,7 @@ export async function fetchPrice(symbol) {
   throw new Error(`No valid price for ${symbol}`);
 }
 
-// --- Save price to DB and update live cache ---
+// --- Save price to DB and update cache ---
 export async function savePrice(symbol) {
   const data = await fetchPrice(symbol);
   const priceValue = data.close;
@@ -38,7 +37,7 @@ export async function savePrice(symbol) {
   return priceDoc;
 }
 
-// --- Fetch last 24h history ---
+// --- Fetch historical data for 24h charts ---
 export async function getHistory(symbol, periodHours = 24) {
   const end = new Date();
   const start = new Date(end.getTime() - periodHours * 60 * 60 * 1000);

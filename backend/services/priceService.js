@@ -87,7 +87,7 @@ export const getCandles = async (symbol, period = 24, interval = 60) => {
   const candles = [];
   let candle = null;
 
-  for (const p of prices) {
+  for (const p of rawHistory) {
     const time = Math.floor(new Date(p.time).getTime() / 1000 / interval) * interval;
     if (!candle || candle.time !== time) {
       if (candle) candles.push(candle);

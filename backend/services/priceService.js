@@ -1,5 +1,5 @@
 import fetch from "node-fetch";
-import Price from "../dbStructure/price.js";
+import Price from "../dbStructure/price.js"; // MongoDB model
 
 let prices = {}; // in-memory cache
 
@@ -45,7 +45,7 @@ export const fetchPrice = async (symbol) => {
   throw new Error(`All exchanges failed for ${symbol}`);
 };
 
-// --- Save price to DB + cache ---
+// --- Save price ---
 export const savePrice = async (symbol) => {
   const data = await fetchPrice(symbol);
   const price = new Price({ ...data, symbol });
@@ -54,95 +54,72 @@ export const savePrice = async (symbol) => {
   return price;
 };
 
-// --- Fetch historical prices, downsampled ---
-export const getHistory = async (symbol, period = 24, intervalSec = 60) => {
+// --- Get historical prices ---
+export const getHistory = async (symbol, period = 24, interval = 60) => {
   const end = new Date();
   const start = new Date(end.getTime() - period * 60 * 60 * 1000);
-
-  const history = await Price.find({
-    symbol,
-    timestamp: { $gte: start, $lte: end },
-  })
+  let history = await Price.find({ symbol, timestamp: { $gte: start, $lte: end } })
     .sort({ timestamp: 1 })
     .lean();
 
-  if (!history.length) return [];
-
-  const result = [];
-  let lastTime = 0;
-  for (const p of history) {
-    const ts = new Date(p.timestamp).getTime();
-    if (ts - lastTime >= intervalSec * 1000) {
-      result.push({ time: p.timestamp, price: p.close });
-      lastTime = ts;
+  // Downsample based on interval (seconds)
+  if (interval > 0) {
+    const filtered = [];
+    let lastTime = 0;
+    for (const p of history) {
+      const time = new Date(p.timestamp).getTime();
+      if (time - lastTime >= interval * 1000) {
+        filtered.push({ time: p.timestamp, price: p.close });
+        lastTime = time;
+      }
     }
+    history = filtered;
+  } else {
+    history = history.map(p => ({ time: p.timestamp, price: p.close }));
   }
 
-  return result;
+  return history;
 };
 
-// --- Generate candlesticks (OHLC) ---
-export const getCandles = async (symbol, period = 24, intervalSec = 60) => {
-  const end = new Date();
-  const start = new Date(end.getTime() - period * 60 * 60 * 1000);
-
-  const history = await Price.find({
-    symbol,
-    timestamp: { $gte: start, $lte: end },
-  })
-    .sort({ timestamp: 1 })
-    .lean();
-
-  if (!history.length) return [];
-
+// --- Get candlestick data ---
+export const getCandles = async (symbol, period = 24, interval = 60) => {
+  const prices = await getHistory(symbol, period, 1); // get all raw points
   const candles = [];
-  let bucketStart = Math.floor(new Date(history[0].timestamp).getTime() / (intervalSec * 1000)) * (intervalSec * 1000);
-  let open = history[0].close, high = history[0].close, low = history[0].close, close = history[0].close;
+  let candle = null;
 
-  for (const p of history) {
-    const ts = new Date(p.timestamp).getTime();
-    const bucket = Math.floor(ts / (intervalSec * 1000)) * (intervalSec * 1000);
-
-    if (bucket !== bucketStart) {
-      candles.push({ time: new Date(bucketStart), open, high, low, close });
-      bucketStart = bucket;
-      open = high = low = close = p.close;
+  for (const p of prices) {
+    const time = Math.floor(new Date(p.time).getTime() / 1000 / interval) * interval;
+    if (!candle || candle.time !== time) {
+      if (candle) candles.push(candle);
+      candle = { time, open: p.price, high: p.price, low: p.price, close: p.price };
     } else {
-      high = Math.max(high, p.close);
-      low = Math.min(low, p.close);
-      close = p.close;
+      candle.high = Math.max(candle.high, p.price);
+      candle.low = Math.min(candle.low, p.price);
+      candle.close = p.price;
     }
   }
+  if (candle) candles.push(candle);
 
-  candles.push({ time: new Date(bucketStart), open, high, low, close });
   return candles;
 };
 
-// --- Live price cache ---
-export const getPrices = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"]) => {
-  if (!Array.isArray(symbols)) return {};
+// --- Get live prices ---
+export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
   const result = {};
-  symbols.forEach(s => { result[s] = prices[s] || null; });
+  symbols.forEach(s => result[s] = prices[s] || null);
   return result;
 };
 
-// --- Start auto price feed ---
+// --- Auto price feed ---
 export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], intervalMs = 10000) => {
-  if (!Array.isArray(symbols) || symbols.length === 0) {
-    console.error("[PriceService] startPriceFeed received invalid symbols:", symbols);
-    symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"];
-  }
-
   const updateAll = async () => {
-    await Promise.all(symbols.map(async (s) => {
-      try { await savePrice(s); } 
-      catch(err) { console.error(`[PriceService] Failed to update ${s}:`, err.message); }
-    }));
+    for (const symbol of symbols) {
+      try { await savePrice(symbol); } 
+      catch(err) { console.error(`[PriceService] Failed to update ${symbol}:`, err.message); }
+    }
   };
-
-  console.log("[PriceService] Starting price feed...");
   updateAll();
   setInterval(updateAll, intervalMs);
 };
 
-export default { fetchPrice, savePrice, getHistory, getPrices, getCandles, startPriceFeed };
+export default { fetchPrice, savePrice, getHistory, getPrices, startPriceFeed, getCandles };

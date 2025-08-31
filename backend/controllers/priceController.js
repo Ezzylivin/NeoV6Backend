@@ -1,12 +1,12 @@
 // backend/controllers/priceController.js
 import PriceService from "../services/priceService.js";
-import PriceModel from "../dbStructure/price.js"; // MongoDB model for historical prices
+import PriceModel from "../dbStructure/price.js";
 
-// --- Fetch live prices from memory cache ---
-export const getLivePrices = (req, res) => {
+// --- Live prices from cached memory ---
+export const getLivePricesController = async (req, res) => {
   try {
     const symbols = req.query.symbols?.split(",") || ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
-    const prices = PriceService.getPrices(symbols);
+    const prices = PriceService.getPrices(symbols); // uses cached prices
     res.json({ success: true, prices });
   } catch (err) {
     console.error("[PriceController] Error fetching live prices:", err.message);
@@ -14,8 +14,8 @@ export const getLivePrices = (req, res) => {
   }
 };
 
-// --- Fetch 24h historical prices aggregated into 5-min buckets ---
-export const getPriceHistory = async (req, res) => {
+// --- Historical 24h prices from MongoDB ---
+export const getHistoryController = async (req, res) => {
   try {
     const symbols = req.query.symbols?.split(",") || ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
     const result = {};
@@ -31,7 +31,13 @@ export const getPriceHistory = async (req, res) => {
       history.forEach((point) => {
         const date = new Date(point.timestamp);
         const minutes = Math.floor(date.getMinutes() / 5) * 5;
-        const bucketKey = new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), minutes).toISOString();
+        const bucketKey = new Date(
+          date.getFullYear(),
+          date.getMonth(),
+          date.getDate(),
+          date.getHours(),
+          minutes
+        ).toISOString();
         if (!bucketMap[bucketKey]) bucketMap[bucketKey] = [];
         bucketMap[bucketKey].push(point.price);
       });

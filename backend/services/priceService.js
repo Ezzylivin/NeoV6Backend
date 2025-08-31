@@ -1,84 +1,68 @@
+// backend/services/priceService.js
 import fetch from "node-fetch";
 import Price from "../dbStructure/price.js"; // MongoDB model
-import fetchFromBinance from "./exchanges/binance.js";
-import fetchFromCoinbase from "./exchanges/coinbase.js";
-import fetchFromGemini from "./exchanges/gemini.js";
-import fetchFromKraken from "./exchanges/kraken.js"; // optional
 
-let prices = {}; // in-memory live cache
+let prices = {};
 
-// --- Multi-exchange fetch with fallback ---
-const exchanges = [fetchFromBinance, fetchFromCoinbase, fetchFromGemini, fetchFromKraken];
+// --- US-based exchange fetchers only ---
+const fetchFromCoinbase = async (symbol) => {
+  const base = symbol.replace("USDT", "");
+  const url = `https://api.exchange.coinbase.com/products/${base}-USD/ticker`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Coinbase failed");
+  const data = await res.json();
+  return parseFloat(data.price);
+};
 
-export async function fetchPrice(symbol) {
-  for (const source of exchanges) {
+const fetchFromGemini = async (symbol) => {
+  const base = symbol.replace("USDT", "");
+  const url = `https://api.gemini.com/v1/pubticker/${base.toLowerCase()}usd`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Gemini failed");
+  const data = await res.json();
+  return parseFloat(data.last);
+};
+
+// --- Multi-exchange fetch with fallback (US exchanges only) ---
+const fetchPrice = async (symbol) => {
+  const exchanges = [fetchFromCoinbase, fetchFromGemini];
+  for (const ex of exchanges) {
     try {
-      const data = await source(symbol);
-      if (data && (data.close != null || typeof data === "number")) {
-        return typeof data === "number" ? { close: data } : data;
-      }
+      return await ex(symbol);
     } catch (err) {
-      console.warn(`[PriceService] ${source.name} failed for ${symbol}:`, err.message);
+      console.warn(`[PriceService] ${ex.name} failed for ${symbol}:`, err.message);
     }
   }
-  throw new Error(`No valid price for ${symbol}`);
-}
+  throw new Error(`All US exchanges failed for ${symbol}`);
+};
 
-// --- Save price to DB and update cache ---
-export async function savePrice(symbol) {
-  const data = await fetchPrice(symbol);
-  const priceValue = data.close;
-  const priceDoc = await Price.create({
-    symbol,
-    close: priceValue,
-    timestamp: new Date(),
-  });
-  prices[symbol] = priceValue;
-  return priceDoc;
-}
-
-// --- Fetch historical data for 24h charts ---
-export async function getHistory(symbol, periodHours = 24) {
-  const end = new Date();
-  const start = new Date(end.getTime() - periodHours * 60 * 60 * 1000);
-  const history = await Price.find({ symbol, timestamp: { $gte: start, $lte: end } })
-    .sort({ timestamp: 1 })
-    .lean();
-  return history.map(p => ({ time: p.timestamp, price: p.close }));
-}
-
-// --- Update all tracked symbols ---
-export async function updatePrices(symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) {
+// --- Update tracked prices ---
+const updatePrices = async (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
   for (const symbol of symbols) {
     try {
-      const priceDoc = await savePrice(symbol);
-      console.log(`[PriceService] ${symbol}: $${priceDoc.close}`);
+      const price = await fetchPrice(symbol);
+      prices[symbol] = price;
+
+      // Save to DB for history
+      await Price.create({ symbol, price, timestamp: new Date() });
+
+      console.log(`[PriceService] ${symbol}: $${price}`);
     } catch (err) {
       console.error(`[PriceService] Failed for ${symbol}:`, err.message);
     }
   }
-}
-
-// --- Get live cached prices ---
-export function getPrices(symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) {
-  const result = {};
-  symbols.forEach(s => {
-    result[s] = prices[s] || null;
-  });
-  return result;
-}
-
-// --- Start automatic price feed ---
-export function startPriceFeed(symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"], intervalMs = 10000) {
-  updatePrices(symbols); // initial fetch
-  setInterval(() => updatePrices(symbols), intervalMs);
-}
-
-export default {
-  fetchPrice,
-  savePrice,
-  getHistory,
-  updatePrices,
-  getPrices,
-  startPriceFeed,
 };
+
+// --- Public getters ---
+const getPrices = (symbols = ["BTCUSDT", "ETHUSDT"]) => {
+  const result = {};
+  symbols.forEach((s) => (result[s] = prices[s] || null));
+  return result;
+};
+
+const startPriceFeed = (intervalMs = 10000) => {
+  updatePrices(); // initial fetch
+  setInterval(updatePrices, intervalMs);
+};
+
+export default { updatePrices, getPrices, startPriceFeed, fetchPrice };

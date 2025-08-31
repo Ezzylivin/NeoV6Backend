@@ -1,5 +1,5 @@
 // File: src/controllers/priceController.js
-import PriceService from "../services/priceService.js";
+import { getLivePrices, getHistory, getCandles } from "../services/priceService.js";
 
 // GET /api/prices/live
 export const fetchPrices = async (req, res) => {

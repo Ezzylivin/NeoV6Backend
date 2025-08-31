@@ -1,12 +1,9 @@
-// File: src/backend/services/priceService.js
-
 import fetch from "node-fetch";
-import Price from "../dbStructure/price.js"; // MongoDB model
+import Price from "../dbStructure/price.js";
 
-// In-memory cache for live prices
-let prices = {};
+let prices = {}; // in-memory cache
 
-// --- US-based exchange fetchers ---
+// --- Exchange fetchers ---
 const fetchFromCoinbase = async (symbol) => {
   const base = symbol.replace("USDT", "");
   const url = `https://api.exchange.coinbase.com/products/${base}-USD/ticker`;
@@ -48,16 +45,16 @@ export const fetchPrice = async (symbol) => {
   throw new Error(`All exchanges failed for ${symbol}`);
 };
 
-// --- Save price to DB ---
+// --- Save price to DB + cache ---
 export const savePrice = async (symbol) => {
-  const data = await fetchPrice(symbol); // { close, timestamp }
+  const data = await fetchPrice(symbol);
   const price = new Price({ ...data, symbol });
   await price.save();
-  prices[symbol] = data.close; // update in-memory cache
+  prices[symbol] = data.close;
   return price;
 };
 
-// --- Fetch historical prices (last `period` hours, downsampled) ---
+// --- Fetch historical prices, downsampled ---
 export const getHistory = async (symbol, period = 24, intervalSec = 60) => {
   const end = new Date();
   const start = new Date(end.getTime() - period * 60 * 60 * 1000);
@@ -71,10 +68,8 @@ export const getHistory = async (symbol, period = 24, intervalSec = 60) => {
 
   if (!history.length) return [];
 
-  // Downsample → only keep 1 record per `intervalSec`
   const result = [];
   let lastTime = 0;
-
   for (const p of history) {
     const ts = new Date(p.timestamp).getTime();
     if (ts - lastTime >= intervalSec * 1000) {
@@ -86,17 +81,48 @@ export const getHistory = async (symbol, period = 24, intervalSec = 60) => {
   return result;
 };
 
-// --- Live price cache ---
-export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
-  if (!Array.isArray(symbols)) {
-    console.warn("[PriceService] getPrices called with non-array:", symbols);
-    return {};
+// --- Generate candlesticks (OHLC) ---
+export const getCandles = async (symbol, period = 24, intervalSec = 60) => {
+  const end = new Date();
+  const start = new Date(end.getTime() - period * 60 * 60 * 1000);
+
+  const history = await Price.find({
+    symbol,
+    timestamp: { $gte: start, $lte: end },
+  })
+    .sort({ timestamp: 1 })
+    .lean();
+
+  if (!history.length) return [];
+
+  const candles = [];
+  let bucketStart = Math.floor(new Date(history[0].timestamp).getTime() / (intervalSec * 1000)) * (intervalSec * 1000);
+  let open = history[0].close, high = history[0].close, low = history[0].close, close = history[0].close;
+
+  for (const p of history) {
+    const ts = new Date(p.timestamp).getTime();
+    const bucket = Math.floor(ts / (intervalSec * 1000)) * (intervalSec * 1000);
+
+    if (bucket !== bucketStart) {
+      candles.push({ time: new Date(bucketStart), open, high, low, close });
+      bucketStart = bucket;
+      open = high = low = close = p.close;
+    } else {
+      high = Math.max(high, p.close);
+      low = Math.min(low, p.close);
+      close = p.close;
+    }
   }
 
+  candles.push({ time: new Date(bucketStart), open, high, low, close });
+  return candles;
+};
+
+// --- Live price cache ---
+export const getPrices = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"]) => {
+  if (!Array.isArray(symbols)) return {};
   const result = {};
-  symbols.forEach(s => {
-    result[s] = prices[s] || null;
-  });
+  symbols.forEach(s => { result[s] = prices[s] || null; });
   return result;
 };
 
@@ -108,24 +134,15 @@ export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], interv
   }
 
   const updateAll = async () => {
-    try {
-      await Promise.all(
-        symbols.map(async (symbol) => {
-          try {
-            await savePrice(symbol);
-          } catch (err) {
-            console.error(`[PriceService] Failed to update ${symbol}:`, err.message);
-          }
-        })
-      );
-    } catch (err) {
-      console.error("[PriceService] updateAll error:", err.message);
-    }
+    await Promise.all(symbols.map(async (s) => {
+      try { await savePrice(s); } 
+      catch(err) { console.error(`[PriceService] Failed to update ${s}:`, err.message); }
+    }));
   };
 
   console.log("[PriceService] Starting price feed...");
-  updateAll(); // initial fetch
+  updateAll();
   setInterval(updateAll, intervalMs);
 };
 
-export default { fetchPrice, savePrice, getHistory, getPrices, startPriceFeed };
+export default { fetchPrice, savePrice, getHistory, getPrices, getCandles, startPriceFeed };

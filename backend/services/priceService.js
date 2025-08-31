@@ -1,17 +1,16 @@
-// backend/services/priceService.js
 import fetch from "node-fetch";
 import Price from "../dbStructure/price.js"; // MongoDB model
 
-let livePrices = {};
+let prices = {}; // in-memory cache for live prices
 
-// --- Exchange fetchers ---
+// --- US-based exchange fetchers ---
 const fetchFromCoinbase = async (symbol) => {
   const base = symbol.replace("USDT", "");
   const url = `https://api.exchange.coinbase.com/products/${base}-USD/ticker`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("Coinbase failed");
   const data = await res.json();
-  return parseFloat(data.price);
+  return { close: parseFloat(data.price), timestamp: new Date() };
 };
 
 const fetchFromGemini = async (symbol) => {
@@ -20,7 +19,7 @@ const fetchFromGemini = async (symbol) => {
   const res = await fetch(url);
   if (!res.ok) throw new Error("Gemini failed");
   const data = await res.json();
-  return parseFloat(data.last);
+  return { close: parseFloat(data.last), timestamp: new Date() };
 };
 
 const fetchFromKraken = async (symbol) => {
@@ -30,16 +29,15 @@ const fetchFromKraken = async (symbol) => {
   if (!res.ok) throw new Error("Kraken failed");
   const data = await res.json();
   const pairKey = Object.keys(data.result)[0];
-  return parseFloat(data.result[pairKey].c[0]); // last trade
+  return { close: parseFloat(data.result[pairKey].c[0]), timestamp: new Date() };
 };
 
-// --- Multi-exchange fetch with fallback ---
-const fetchPrice = async (symbol) => {
+// --- Multi-exchange fallback ---
+export const fetchPrice = async (symbol) => {
   const exchanges = [fetchFromCoinbase, fetchFromGemini, fetchFromKraken];
   for (const ex of exchanges) {
     try {
-      const price = await ex(symbol);
-      if (price != null) return price;
+      return await ex(symbol);
     } catch (err) {
       console.warn(`[PriceService] ${ex.name} failed for ${symbol}:`, err.message);
     }
@@ -47,71 +45,44 @@ const fetchPrice = async (symbol) => {
   throw new Error(`All exchanges failed for ${symbol}`);
 };
 
-// --- Update live prices & save history ---
-const updatePrices = async (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
-  for (const symbol of symbols) {
-    try {
-      const price = await fetchPrice(symbol);
-      livePrices[symbol] = price;
-
-      // Save to DB for historical charting
-      await Price.create({
-        symbol,
-        price,
-        timestamp: new Date(),
-      });
-
-      console.log(`[PriceService] ${symbol}: $${price}`);
-    } catch (err) {
-      console.error(`[PriceService] Failed for ${symbol}:`, err.message);
-    }
-  }
+// --- Save price to DB ---
+export const savePrice = async (symbol) => {
+  const data = await fetchPrice(symbol); // { close, timestamp }
+  const price = new Price({ ...data, symbol });
+  await price.save();
+  prices[symbol] = data.close;
+  return price;
 };
 
-// --- Get cached live prices ---
-const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
+// --- Fetch historical prices (last `period` hours) ---
+export const getHistory = async (symbol, period = 24) => {
+  const end = new Date();
+  const start = new Date(end.getTime() - period * 60 * 60 * 1000);
+  const history = await Price.find({ symbol, timestamp: { $gte: start, $lte: end } })
+    .sort({ timestamp: 1 })
+    .lean();
+  return history.map(p => ({ time: p.timestamp, price: p.close }));
+};
+
+// --- Live price cache ---
+export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
   const result = {};
-  symbols.forEach((s) => {
-    result[s] = livePrices[s] || null;
+  symbols.forEach(s => {
+    result[s] = prices[s] || null;
   });
   return result;
 };
 
-// --- Fetch 24h history from MongoDB ---
-const getHistory = async (symbol, hours = 24) => {
-  const now = new Date();
-  const since = new Date(now.getTime() - hours * 60 * 60 * 1000);
-
-  const records = await Price.find({ symbol, timestamp: { $gte: since } })
-    .sort({ timestamp: 1 })
-    .lean();
-
-  // Aggregate into 5-minute buckets
-  const buckets = {};
-  records.forEach((r) => {
-    const date = new Date(r.timestamp);
-    const minutes = Math.floor(date.getMinutes() / 5) * 5;
-    const bucketKey = new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), minutes).toISOString();
-    if (!buckets[bucketKey]) buckets[bucketKey] = [];
-    buckets[bucketKey].push(r.price);
-  });
-
-  return Object.entries(buckets).map(([time, prices]) => ({
-    time,
-    price: prices.reduce((a, b) => a + b, 0) / prices.length,
-  }));
+// --- Start auto price feed ---
+export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], intervalMs = 10000) => {
+  const updateAll = async () => {
+    for (const symbol of symbols) {
+      try { await savePrice(symbol); }
+      catch(err) { console.error(`[PriceService] Failed to update ${symbol}:`, err.message); }
+    }
+  };
+  updateAll(); // initial fetch
+  setInterval(updateAll, intervalMs);
 };
 
-// --- Start periodic price feed ---
-const startPriceFeed = (intervalMs = 60000) => {
-  updatePrices(); // initial fetch
-  setInterval(updatePrices, intervalMs);
-};
-
-export default {
-  fetchPrice,
-  updatePrices,
-  getPrices,
-  getHistory,
-  startPriceFeed,
-};
+export default { fetchPrice, savePrice, getHistory, getPrices, startPriceFeed };

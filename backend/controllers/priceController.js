@@ -1,9 +1,9 @@
 import PriceService from "../services/priceService.js";
 
-// --- Live prices endpoint ---
+// --- Live prices ---
 export const fetchPrices = (req, res) => {
   try {
-    const symbols = req.query.symbols?.split(",") || ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
+    const symbols = req.query.symbols?.split(",") || ["BTCUSDT","ETHUSDT","BNBUSDT"];
     const prices = PriceService.getPrices(symbols);
     res.json({ success: true, prices });
   } catch (err) {
@@ -12,13 +12,12 @@ export const fetchPrices = (req, res) => {
   }
 };
 
-// --- Historical prices endpoint ---
+// --- Historical prices ---
 export const fetchPriceHistory = async (req, res) => {
   try {
-    const symbols = req.query.symbols?.split(",") || ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
-    const period = parseInt(req.query.period) || 24; // default 24h
-    const interval = parseInt(req.query.interval) || 60; 
-    // interval in seconds → default 60s (downsample to 1 point/min)
+    const symbols = req.query.symbols?.split(",") || ["BTCUSDT","ETHUSDT","BNBUSDT"];
+    const period = parseInt(req.query.period) || 24;
+    const interval = parseInt(req.query.interval) || 60;
 
     const result = {};
     for (const symbol of symbols) {
@@ -28,6 +27,25 @@ export const fetchPriceHistory = async (req, res) => {
     res.json({ success: true, history: result });
   } catch (err) {
     console.error("[PriceController] Error fetching price history:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// --- Candlestick endpoint ---
+export const fetchCandles = async (req, res) => {
+  try {
+    const symbols = req.query.symbols?.split(",") || ["BTCUSDT","ETHUSDT","BNBUSDT"];
+    const period = parseInt(req.query.period) || 24;
+    const interval = parseInt(req.query.interval) || 60;
+
+    const result = {};
+    for (const symbol of symbols) {
+      result[symbol] = await PriceService.getCandles(symbol, period, interval);
+    }
+
+    res.json({ success: true, candles: result });
+  } catch (err) {
+    console.error("[PriceController] Error fetching candlesticks:", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 };

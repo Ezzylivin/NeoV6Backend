@@ -1,53 +1,55 @@
-// File: src/backend/services/userService.js
-import bcrypt from "bcryptjs";
-import User from "../dbStructure/user.js";
-import { generateToken } from "../utils/token.js";
+import bcrypt from 'bcryptjs';
+import User from '../dbStructure/user.js';
+import { generateToken } from '../utils/token.js'; // make sure this file exists
 
-/**
- * Register a new user
- * @param {string} username 
- * @param {string} email 
- * @param {string} password 
- */
+// --- Register ---
 export const registerUser = async (username, email, password) => {
-  // Check if username/email already exists
   const existingUser = await User.findOne({ $or: [{ email }, { username }] });
-  if (existingUser) {
-    throw new Error("User with this email or username already exists");
-  }
+  if (existingUser) throw new Error('User with this email or username already exists');
 
-  // Hash password
   const hashedPassword = await bcrypt.hash(password, 10);
+  const newUser = await User.create({ username, email, password: hashedPassword });
 
-  // Create user
-  const user = await User.create({ username, email, password: hashedPassword });
-
+  const token = generateToken(newUser._id);
   return {
-    _id: user._id,
-    username: user.username,
-    email: user.email,
-    walletBalance: user.walletBalance, // include walletBalance
-    token: generateToken(user._id),
+    _id: newUser._id,
+    username: newUser.username,
+    email: newUser.email,
+    walletBalance: newUser.walletBalance || 0,
+    token,
   };
 };
 
-/**
- * Login a user
- * @param {string} identifier - username or email
- * @param {string} password
- */
+// --- Login ---
 export const loginUser = async (identifier, password) => {
   const user = await User.findOne({ $or: [{ email: identifier }, { username: identifier }] });
-  if (!user) throw new Error("Invalid credentials");
+  if (!user) throw new Error('Invalid credentials');
 
   const valid = await bcrypt.compare(password, user.password);
-  if (!valid) throw new Error("Invalid credentials");
+  if (!valid) throw new Error('Invalid credentials');
+
+  const token = generateToken(user._id);
+  return {
+    _id: user._id,
+    username: user.username,
+    email: user.email,
+    walletBalance: user.walletBalance || 0,
+    token,
+  };
+};
+
+// --- Get current user by ID ---
+export const getMe = async (userId) => {
+  const user = await User.findById(userId);
+  if (!user) throw new Error('User not found');
 
   return {
     _id: user._id,
     username: user.username,
     email: user.email,
-    walletBalance: user.walletBalance,
-    token: generateToken(user._id),
+    walletBalance: user.walletBalance || 0,
   };
 };
+
+// --- Default export ---
+export default { registerUser, loginUser, getMe };

@@ -1,7 +1,7 @@
 // File: src/backend/services/userService.js
 import bcrypt from "bcryptjs";
 import User from "../dbStructure/user.js";
-import { generateToken } from "../utils/generateToken.js";
+import { generateToken } from "../utils/token.js";
 
 /**
  * Register a new user

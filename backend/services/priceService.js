@@ -121,3 +121,14 @@ export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], interv
   updateAll();
   setInterval(updateAll, intervalMs);
 };
+
+// --- Default export as an object ---
+export default {
+  fetchPrice,
+  savePrice,
+  getHistory,
+  getPrices,
+  startPriceFeed,
+  getCandles
+};
+

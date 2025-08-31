@@ -2,11 +2,9 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
-import path from "path";
-import { fileURLToPath } from "url";
 
 import apiRoutes from "./routes/apiRoutes.js";
-import { startPriceFeed, fetchPrice } from "./services/priceService.js"; // ✅ import both
+import PriceService from "./services/priceService.js";
 
 dotenv.config();
 const app = express();
@@ -18,18 +16,8 @@ app.use(express.json());
 // --- API Routes ---
 app.use("/api", apiRoutes);
 
-// --- Production: Serve React Frontend ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../frontend/dist")));
-
-  // For any route not handled by API, serve index.html
-  app.get("*", (req, res) => {
-    res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
-  });
-}
+// --- Health check ---
+app.get("/api/health", (req, res) => res.json({ success: true, message: "Server is running" }));
 
 // --- Start server + MongoDB ---
 const startServer = async () => {
@@ -40,8 +28,8 @@ const startServer = async () => {
     });
     console.log("✅ MongoDB connected");
 
-    // ✅ Use the named import directly
-    startPriceFeed(["BTCUSDT", "ETHUSDT", "BNBUSDT"], 10000, fetchPrice);
+    // Start price feed
+    PriceService.startPriceFeed(["BTCUSDT","ETHUSDT","BNBUSDT"], 10000);
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

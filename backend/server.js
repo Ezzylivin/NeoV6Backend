@@ -1,4 +1,3 @@
-// backend/server.js
 import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
@@ -17,23 +16,19 @@ app.use(express.json());
 // --- Routes ---
 app.use("/api", apiRoutes);
 
-// --- MongoDB Connect + Server Startup ---
+// --- Start server + MongoDB ---
 const startServer = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
     console.log("✅ MongoDB connected");
 
-    // Start background price feed
-    PriceService.startPriceFeed(["BTCUSDT", "ETHUSDT", "BNBUSDT"], 10000);
+    PriceService.startPriceFeed(["BTCUSDT","ETHUSDT","BNBUSDT"], 10000);
 
-    // Start Express server
     const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
+    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err.message);
-    process.exit(1); // exit on failure
+    process.exit(1);
   }
 };
 

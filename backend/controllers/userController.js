@@ -1,29 +1,30 @@
-import * as userService from '../services/userService.js';
+// File: src/backend/controllers/userController.js
+import * as userService from "../services/userService.js";
 
+/**
+ * Register a new user
+ */
 export const registerUser = async (req, res) => {
-  const { username, email, password } = req.body;
   try {
-    const createdUser = await userService.registerUser(username, email, password);
-    return res.status(201).json(createdUser);
-  } catch (error) {
-    return res.status(400).json({ message: error.message });
+    const { username, email, password } = req.body;
+    const userData = await userService.registerUser(username, email, password);
+    res.status(201).json({ success: true, user: userData });
+  } catch (err) {
+    console.error("[UserController] Register error:", err.message);
+    res.status(400).json({ success: false, message: err.message });
   }
 };
 
+/**
+ * Login a user
+ */
 export const loginUser = async (req, res) => {
-  const identifier = req.body.email || req.body.username;
-  const { password } = req.body;
-  if (!identifier || !password) return res.status(400).json({ message: 'Provide email/username and password' });
-
   try {
-    const loggedInUser = await userService.loginUser(identifier, password);
-    return res.status(200).json(loggedInUser);
-  } catch (error) {
-    return res.status(401).json({ message: error.message });
+    const { identifier, password } = req.body; // identifier = username or email
+    const userData = await userService.loginUser(identifier, password);
+    res.status(200).json({ success: true, user: userData });
+  } catch (err) {
+    console.error("[UserController] Login error:", err.message);
+    res.status(401).json({ success: false, message: err.message });
   }
-};
-
-export const getMe = (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
-  return res.status(200).json(req.user);
 };

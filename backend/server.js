@@ -41,7 +41,8 @@ const startServer = async () => {
     console.log("✅ MongoDB connected");
 
     // Start live price feed
-    PriceService.startPriceFeed(); // uses default symbols and interval
+   PriceService.startPriceFeed(["BTCUSDT","ETHUSDT","BNBUSDT"], 10000);
+ // uses default symbols and interval
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

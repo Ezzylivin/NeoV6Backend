@@ -6,7 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import apiRoutes from "./routes/apiRoutes.js";
-import { startPriceFeed } from "./services/priceService.js";
+import { startPriceFeed, fetchPrice } from "./services/priceService.js"; // ✅ import both
 
 dotenv.config();
 const app = express();
@@ -40,8 +40,8 @@ const startServer = async () => {
     });
     console.log("✅ MongoDB connected");
 
-    // Start live price feed
-    startPriceFeed(["BTCUSDT", "ETHUSDT", "BNBUSDT"], 10000);
+    // ✅ Use the named import directly
+    startPriceFeed(["BTCUSDT", "ETHUSDT", "BNBUSDT"], 10000, fetchPrice);
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

@@ -3,11 +3,11 @@ import PriceService from "../services/priceService.js";
 // --- Live prices ---
 export const fetchPrices = (req, res) => {
   try {
-    const symbols = req.query.symbols?.split(",") || ["BTCUSDT","ETHUSDT","BNBUSDT"];
+    const symbols = req.query.symbols?.split(',') || ["BTCUSDT","ETHUSDT","BNBUSDT"];
     const prices = PriceService.getPrices(symbols);
     res.json({ success: true, prices });
   } catch (err) {
-    console.error("[PriceController] Error fetching live prices:", err.message);
+    console.error('[PriceController] Error fetching live prices:', err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -15,37 +15,37 @@ export const fetchPrices = (req, res) => {
 // --- Historical prices ---
 export const fetchPriceHistory = async (req, res) => {
   try {
-    const symbols = req.query.symbols?.split(",") || ["BTCUSDT","ETHUSDT","BNBUSDT"];
+    const symbols = req.query.symbols?.split(',') || ["BTCUSDT","ETHUSDT","BNBUSDT"];
     const period = parseInt(req.query.period) || 24;
     const interval = parseInt(req.query.interval) || 60;
-
     const result = {};
+
     for (const symbol of symbols) {
       result[symbol] = await PriceService.getHistory(symbol, period, interval);
     }
 
     res.json({ success: true, history: result });
   } catch (err) {
-    console.error("[PriceController] Error fetching price history:", err.message);
+    console.error('[PriceController] Error fetching price history:', err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// --- Candlestick endpoint ---
+// --- Candlestick data ---
 export const fetchCandles = async (req, res) => {
   try {
-    const symbols = req.query.symbols?.split(",") || ["BTCUSDT","ETHUSDT","BNBUSDT"];
+    const symbols = req.query.symbols?.split(',') || ["BTCUSDT","ETHUSDT","BNBUSDT"];
     const period = parseInt(req.query.period) || 24;
     const interval = parseInt(req.query.interval) || 60;
-
     const result = {};
+
     for (const symbol of symbols) {
       result[symbol] = await PriceService.getCandles(symbol, period, interval);
     }
 
     res.json({ success: true, candles: result });
   } catch (err) {
-    console.error("[PriceController] Error fetching candlesticks:", err.message);
+    console.error('[PriceController] Error fetching candlestick data:', err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 };

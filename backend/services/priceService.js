@@ -83,7 +83,7 @@ export const getHistory = async (symbol, period = 24, interval = 60) => {
 
 // --- Get candlestick data ---
 export const getCandles = async (symbol, period = 24, interval = 60) => {
-  const prices = await getHistory(symbol, period, 1); // get all raw points
+  const rawHistory = await getHistory(symbol, period, 1); // get all raw points
   const candles = [];
   let candle = null;
 

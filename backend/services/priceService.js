@@ -1,11 +1,10 @@
-// File: src/services/priceService.js
-import Price from "../dbStructure/price.js"; // MongoDB model
+import Price from "../dbStructure/price.js";
 import fetch from "node-fetch";
 
 let prices = {}; // in-memory cache
 
 // --- Exchange fetchers ---
-export const fetchFromCoinbase = async (symbol) => {
+const fetchFromCoinbase = async (symbol) => {
   const base = symbol.replace("USDT", "");
   const url = `https://api.exchange.coinbase.com/products/${base}-USD/ticker`;
   const res = await fetch(url);
@@ -14,7 +13,7 @@ export const fetchFromCoinbase = async (symbol) => {
   return { close: parseFloat(data.price), timestamp: new Date() };
 };
 
-export const fetchFromGemini = async (symbol) => {
+const fetchFromGemini = async (symbol) => {
   const base = symbol.replace("USDT", "");
   const url = `https://api.gemini.com/v1/pubticker/${base.toLowerCase()}usd`;
   const res = await fetch(url);
@@ -23,7 +22,7 @@ export const fetchFromGemini = async (symbol) => {
   return { close: parseFloat(data.last), timestamp: new Date() };
 };
 
-export const fetchFromKraken = async (symbol) => {
+const fetchFromKraken = async (symbol) => {
   const base = symbol.replace("USDT", "USD");
   const url = `https://api.kraken.com/0/public/Ticker?pair=${base}`;
   const res = await fetch(url);
@@ -59,12 +58,10 @@ export const savePrice = async (symbol, fetchPriceFn = fetchPrice) => {
 export const getHistory = async (symbol, period = 24, interval = 60) => {
   const end = new Date();
   const start = new Date(end.getTime() - period * 60 * 60 * 1000);
-
   let history = await Price.find({ symbol, timestamp: { $gte: start, $lte: end } })
     .sort({ timestamp: 1 })
     .lean();
 
-  // Downsample by interval
   if (interval > 0) {
     const filtered = [];
     let lastTime = 0;
@@ -79,18 +76,17 @@ export const getHistory = async (symbol, period = 24, interval = 60) => {
   } else {
     history = history.map(p => ({ time: new Date(p.timestamp).getTime(), price: p.close }));
   }
-
   return history;
 };
 
 // --- Get candlestick data ---
 export const getCandles = async (symbol, period = 24, interval = 60) => {
-  const rawHistory = await getHistory(symbol, period, 1); // raw 1s interval
+  const rawHistory = await getHistory(symbol, period, 1);
   const candles = [];
   let candle = null;
 
   for (const p of rawHistory) {
-    const time = Math.floor(p.time / 1000 / interval) * interval; // rounded to interval in seconds
+    const time = Math.floor(p.time / 1000 / interval) * interval;
     if (!candle || candle.time !== time) {
       if (candle) candles.push(candle);
       candle = { time, open: p.price, high: p.price, low: p.price, close: p.price };
@@ -101,7 +97,6 @@ export const getCandles = async (symbol, period = 24, interval = 60) => {
     }
   }
   if (candle) candles.push(candle);
-
   return candles;
 };
 
@@ -114,16 +109,13 @@ export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
 };
 
 // --- Auto price feed ---
-export const startPriceFeed = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"], intervalMs = 10000, fetchPriceFn = fetchPrice) => {
+export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], intervalMs = 10000, fetchPriceFn = fetchPrice) => {
   if (!Array.isArray(symbols)) symbols = [symbols];
 
   const updateAll = async () => {
     for (const symbol of symbols) {
-      try {
-        await savePrice(symbol, fetchPriceFn);
-      } catch (err) {
-        console.error(`[PriceService] Failed to update ${symbol}:`, err.message);
-      }
+      try { await savePrice(symbol, fetchPriceFn); }
+      catch(err) { console.error(`[PriceService] Failed to update ${symbol}:`, err.message); }
     }
   };
   updateAll();

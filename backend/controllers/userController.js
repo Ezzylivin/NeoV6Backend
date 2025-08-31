@@ -4,8 +4,16 @@ import { registerUser as registerSvc, loginUser as loginSvc, getMe as getMeSvc }
 export const registerUser = async (req, res) => {
   try {
     const { username, email, password } = req.body;
+
+    if (!username || !email || !password) {
+      return res.status(400).json({ success: false, message: "Username, email, and password are required" });
+    }
+
     const user = await registerSvc(username, email, password);
-    res.json({ success: true, user });
+
+    // Separate token from user data for frontend
+    const { token, ...userData } = user;
+    res.json({ token, ...userData });
   } catch (err) {
     console.error('[UserController] Register error:', err.message);
     res.status(400).json({ success: false, message: err.message });
@@ -16,8 +24,16 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
   try {
     const { identifier, password } = req.body;
+
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, message: "Identifier and password are required" });
+    }
+
     const user = await loginSvc(identifier, password);
-    res.json({ success: true, user });
+
+    // Separate token from user data for frontend
+    const { token, ...userData } = user;
+    res.json({ token, ...userData });
   } catch (err) {
     console.error('[UserController] Login error:', err.message);
     res.status(400).json({ success: false, message: err.message });

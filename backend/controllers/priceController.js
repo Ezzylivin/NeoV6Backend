@@ -1,61 +1,29 @@
-// File: backend/controllers/priceController.js
-import PriceService from '../services/priceService.js';
-import PriceModel from '../dbStructure/price.js';
+import PriceService from "../services/priceService.js";
 
-// --- GET /api/prices/live?symbols=BTCUSDT,ETHUSDT ---
-export const getLivePrices = async (req, res) => {
+// --- Live prices endpoint ---
+export const fetchPrices = (req, res) => {
   try {
-    const symbols = req.query.symbols?.split(',') || ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
-    const prices = {};
-
-    for (const symbol of symbols) {
-      try {
-        // Use PriceService memory cache or fetch latest
-        const price = await PriceService.fetchPrice(symbol);
-        prices[symbol] = price;
-      } catch (err) {
-        console.error(`[PriceController] Failed to fetch ${symbol}:`, err.message);
-        prices[symbol] = null;
-      }
-    }
-
+    const symbols = req.query.symbols?.split(',') || ['BTCUSDT','ETHUSDT','BNBUSDT'];
+    const prices = PriceService.getPrices(symbols);
     res.json({ success: true, prices });
   } catch (err) {
-    console.error('[PriceController] getLivePrices error:', err.message);
+    console.error('[PriceController] Error fetching live prices:', err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// --- GET /api/prices/history?symbols=BTCUSDT,ETHUSDT ---
-export const getPriceHistory = async (req, res) => {
+// --- Historical prices endpoint ---
+export const fetchPriceHistory = async (req, res) => {
   try {
-    const symbols = req.query.symbols?.split(',') || ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
+    const symbols = req.query.symbols?.split(',') || ['BTCUSDT','ETHUSDT','BNBUSDT'];
     const result = {};
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // last 24h
-
     for (const symbol of symbols) {
-      const history = await PriceModel.find({ symbol, timestamp: { $gte: since } }).sort({ timestamp: 1 });
-
-      // Aggregate into 5-minute buckets
-      const bucketMap = {};
-      history.forEach((point) => {
-        const date = new Date(point.timestamp);
-        const minutes = Math.floor(date.getMinutes() / 5) * 5;
-        const bucketKey = new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), minutes).toISOString();
-
-        if (!bucketMap[bucketKey]) bucketMap[bucketKey] = [];
-        bucketMap[bucketKey].push(point.price);
-      });
-
-      result[symbol] = Object.entries(bucketMap).map(([time, prices]) => ({
-        time,
-        price: prices.reduce((a, b) => a + b, 0) / prices.length,
-      }));
+      const history = await PriceService.getHistory(symbol, 24); // last 24 hours
+      result[symbol] = history;
     }
-
     res.json({ success: true, history: result });
   } catch (err) {
-    console.error('[PriceController] getPriceHistory error:', err.message);
+    console.error('[PriceController] Error fetching price history:', err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 };

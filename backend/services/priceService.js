@@ -1,7 +1,10 @@
+// File: src/backend/services/priceService.js
+
 import fetch from "node-fetch";
 import Price from "../dbStructure/price.js"; // MongoDB model
 
-let prices = {}; // in-memory cache for live prices
+// In-memory cache for live prices
+let prices = {};
 
 // --- US-based exchange fetchers ---
 const fetchFromCoinbase = async (symbol) => {
@@ -50,7 +53,7 @@ export const savePrice = async (symbol) => {
   const data = await fetchPrice(symbol); // { close, timestamp }
   const price = new Price({ ...data, symbol });
   await price.save();
-  prices[symbol] = data.close;
+  prices[symbol] = data.close; // update in-memory cache
   return price;
 };
 
@@ -58,14 +61,21 @@ export const savePrice = async (symbol) => {
 export const getHistory = async (symbol, period = 24) => {
   const end = new Date();
   const start = new Date(end.getTime() - period * 60 * 60 * 1000);
+
   const history = await Price.find({ symbol, timestamp: { $gte: start, $lte: end } })
     .sort({ timestamp: 1 })
     .lean();
+
   return history.map(p => ({ time: p.timestamp, price: p.close }));
 };
 
 // --- Live price cache ---
 export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
+  if (!Array.isArray(symbols)) {
+    console.warn("[PriceService] getPrices called with non-array:", symbols);
+    return {};
+  }
+
   const result = {};
   symbols.forEach(s => {
     result[s] = prices[s] || null;
@@ -75,12 +85,28 @@ export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
 
 // --- Start auto price feed ---
 export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], intervalMs = 10000) => {
+  if (!Array.isArray(symbols) || symbols.length === 0) {
+    console.error("[PriceService] startPriceFeed received invalid symbols:", symbols);
+    symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"];
+  }
+
   const updateAll = async () => {
-    for (const symbol of symbols) {
-      try { await savePrice(symbol); }
-      catch(err) { console.error(`[PriceService] Failed to update ${symbol}:`, err.message); }
+    try {
+      await Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            await savePrice(symbol);
+          } catch (err) {
+            console.error(`[PriceService] Failed to update ${symbol}:`, err.message);
+          }
+        })
+      );
+    } catch (err) {
+      console.error("[PriceService] updateAll error:", err.message);
     }
   };
+
+  console.log("[PriceService] Starting price feed...");
   updateAll(); // initial fetch
   setInterval(updateAll, intervalMs);
 };

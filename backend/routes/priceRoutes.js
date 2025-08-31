@@ -1,14 +1,15 @@
 import express from 'express';
-import { fetchPrices, fetchPriceHistory } from '../controllers/priceController.js';
+import { fetchPrices, fetchPriceHistory, fetchCandles } from '../controllers/priceController.js';
 
 const router = express.Router();
 
-// GET /api/prices?symbols=BTCUSDT,ETHUSDT
+// Live prices
 router.get('/live', fetchPrices);
 
-// GET /api/prices/history?symbol=BTCUSDT&limit=100
+// Historical price data (supports period & interval)
 router.get('/history', fetchPriceHistory);
 
-router.get("/candles", fetchCandles);
+// Candlestick data (supports period & interval)
+router.get('/candles', fetchCandles);
 
 export default router;

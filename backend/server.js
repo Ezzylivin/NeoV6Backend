@@ -26,7 +26,7 @@ mongoose
     console.log("✅ MongoDB connected");
 
     // Start price feed
-    PriceService.startPriceFeed(10000);
+    PriceService.startPriceFeed(["BTCUSDT","ETHUSDT","BNBUSDT"], 10000);
 
     // Start server only after DB is ready
     const PORT = process.env.PORT || 5000;

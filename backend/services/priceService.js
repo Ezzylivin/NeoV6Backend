@@ -57,16 +57,33 @@ export const savePrice = async (symbol) => {
   return price;
 };
 
-// --- Fetch historical prices (last `period` hours) ---
-export const getHistory = async (symbol, period = 24) => {
+// --- Fetch historical prices (last `period` hours, downsampled) ---
+export const getHistory = async (symbol, period = 24, intervalSec = 60) => {
   const end = new Date();
   const start = new Date(end.getTime() - period * 60 * 60 * 1000);
 
-  const history = await Price.find({ symbol, timestamp: { $gte: start, $lte: end } })
+  const history = await Price.find({
+    symbol,
+    timestamp: { $gte: start, $lte: end },
+  })
     .sort({ timestamp: 1 })
     .lean();
 
-  return history.map(p => ({ time: p.timestamp, price: p.close }));
+  if (!history.length) return [];
+
+  // Downsample → only keep 1 record per `intervalSec`
+  const result = [];
+  let lastTime = 0;
+
+  for (const p of history) {
+    const ts = new Date(p.timestamp).getTime();
+    if (ts - lastTime >= intervalSec * 1000) {
+      result.push({ time: p.timestamp, price: p.close });
+      lastTime = ts;
+    }
+  }
+
+  return result;
 };
 
 // --- Live price cache ---

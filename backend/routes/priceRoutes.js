@@ -9,4 +9,6 @@ router.get('/live', fetchPrices);
 // GET /api/prices/history?symbol=BTCUSDT&limit=100
 router.get('/history', fetchPriceHistory);
 
+router.get("/candles", fetchCandles);
+
 export default router;

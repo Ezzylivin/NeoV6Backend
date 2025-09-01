@@ -147,3 +147,12 @@ export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT"], intervalMs = 100
   updateAll();
   setInterval(updateAll, intervalMs);
 };
+
+export default {
+  fetchLivePrices,
+  fetchPriceHistory,
+  startPriceFeed,
+  getCandles,
+  getPrices
+};
+

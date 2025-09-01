@@ -5,11 +5,13 @@ import dotenv from "dotenv";
 import cors from "cors";
 import apiRoutes from "./routes/apiRoutes.js";
 import { startPriceFeed } from "./controllers/priceController.js";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
 const app = express();
 
-// --- Dynamic CORS allowing Vercel frontend ---
+// --- CORS setup ---
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true); // Postman, mobile apps
@@ -20,28 +22,30 @@ const corsOptions = {
     }
 
     if (process.env.NODE_ENV === "production") {
-      // Allow any subdomain of anything.vercel.app
-      const domainRegex = /^https:\/\/.*\.vercel\.app$/;
-      if (domainRegex.test(origin)) return callback(null, true);
+      const allowedFrontends = [
+        "https://neo-v6-fa13pnv6c-eric-dickersons-projects-94391fd0.vercel.app"
+      ];
+      if (allowedFrontends.includes(origin)) return callback(null, true);
     }
 
     return callback(new Error("This origin is not allowed by CORS"));
   },
-  optionsSuccessStatus: 200,
+  methods: ["GET","POST","PUT","DELETE"],
+  credentials: true,
+  optionsSuccessStatus: 200
 };
-
 app.use(cors(corsOptions));
+
+// --- JSON parser ---
 app.use(express.json());
 
-// --- Mount dynamic API routes ---
+// --- Mount API routes ---
 app.use("/api", apiRoutes);
 
-// --- Serve static files (optional, for testing HTML) ---
-import path from "path";
-import { fileURLToPath } from "url";
+// --- Serve static files (optional) ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.use(express.static(path.join(__dirname, "public"))); // put testExchanges.html here
+app.use(express.static(path.join(__dirname, "public"))); // e.g., testExchanges.html
 
 // --- Start MongoDB + server ---
 const startServer = async () => {

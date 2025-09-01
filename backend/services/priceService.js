@@ -1,38 +1,33 @@
+// File: src/backend/services/priceService.js
+import axios from "axios";
 import Price from "../dbStructure/price.js";
-import fetch from "node-fetch";
 
-let prices = {}; // in-memory cache
+// === U.S. Exchanges ===
+const COINBASE_PRO = "https://api.pro.coinbase.com";
+const KRAKEN = "https://api.kraken.com/0/public";
+const GEMINI = "https://api.gemini.com/v1";
 
-// --- Exchange fetchers ---
+// === Fetch single live price ===
 const fetchFromCoinbase = async (symbol) => {
-  const base = symbol.replace("USDT", "");
-  const url = `https://api.exchange.coinbase.com/products/${base}-USD/ticker`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Coinbase failed");
-  const data = await res.json();
+  const base = symbol.replace("USDT", "USD");
+  const { data } = await axios.get(`${COINBASE_PRO}/products/${base}/ticker`);
   return { close: parseFloat(data.price), timestamp: new Date() };
 };
 
 const fetchFromGemini = async (symbol) => {
   const base = symbol.replace("USDT", "");
-  const url = `https://api.gemini.com/v1/pubticker/${base.toLowerCase()}usd`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Gemini failed");
-  const data = await res.json();
+  const { data } = await axios.get(`${GEMINI}/pubticker/${base.toLowerCase()}usd`);
   return { close: parseFloat(data.last), timestamp: new Date() };
 };
 
 const fetchFromKraken = async (symbol) => {
   const base = symbol.replace("USDT", "USD");
-  const url = `https://api.kraken.com/0/public/Ticker?pair=${base}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Kraken failed");
-  const data = await res.json();
-  const pairKey = Object.keys(data.result)[0];
-  return { close: parseFloat(data.result[pairKey].c[0]), timestamp: new Date() };
+  const { data } = await axios.get(`${KRAKEN}/Ticker`, { params: { pair: base } });
+  const key = Object.keys(data.result)[0];
+  return { close: parseFloat(data.result[key].c[0]), timestamp: new Date() };
 };
 
-// --- Multi-exchange fallback ---
+// Try multiple exchanges in order
 export const fetchPrice = async (symbol) => {
   const exchanges = [fetchFromCoinbase, fetchFromGemini, fetchFromKraken];
   for (const ex of exchanges) {
@@ -45,90 +40,110 @@ export const fetchPrice = async (symbol) => {
   throw new Error(`All exchanges failed for ${symbol}`);
 };
 
-// --- Save price ---
-export const savePrice = async (symbol, fetchPriceFn = fetchPrice) => {
-  const data = await fetchPriceFn(symbol);
+// === Save price to DB ===
+export const savePrice = async (symbol) => {
+  const data = await fetchPrice(symbol);
   const price = new Price({ ...data, symbol });
   await price.save();
-  prices[symbol] = data.close;
   return price;
 };
 
-// --- Get historical prices ---
-export const getHistory = async (symbol, period = 24, interval = 60) => {
-  const end = new Date();
-  const start = new Date(end.getTime() - period * 60 * 60 * 1000);
-  let history = await Price.find({ symbol, timestamp: { $gte: start, $lte: end } })
-    .sort({ timestamp: 1 })
-    .lean();
+// === Historical data (candles) ===
+export const fetchPriceHistory = async (symbol, periodHours = 24, intervalSec = 60) => {
+  const now = Date.now();
+  const start = now - periodHours * 3600 * 1000;
+  const intervalMinutes = Math.max(intervalSec / 60, 1);
 
-  if (interval > 0) {
-    const filtered = [];
-    let lastTime = 0;
-    for (const p of history) {
-      const time = new Date(p.timestamp).getTime();
-      if (time - lastTime >= interval * 1000) {
-        filtered.push({ time, price: p.close });
-        lastTime = time;
-      }
-    }
-    history = filtered;
-  } else {
-    history = history.map(p => ({ time: new Date(p.timestamp).getTime(), price: p.close }));
+  // 1. Coinbase Pro (best source for OHLC)
+  try {
+    const res = await axios.get(`${COINBASE_PRO}/products/${symbol}/candles`, {
+      params: {
+        start: new Date(start).toISOString(),
+        end: new Date(now).toISOString(),
+        granularity: intervalSec,
+      },
+    });
+    return res.data
+      .map(c => ({ time: c[0], open: c[3], high: c[2], low: c[1], close: c[4] }))
+      .reverse();
+  } catch (err) {
+    console.warn(`[History] Coinbase failed for ${symbol}:`, err.message);
   }
-  return history;
+
+  // 2. Kraken fallback
+  try {
+    const res = await axios.get(`${KRAKEN}/OHLC`, {
+      params: { pair: symbol.replace("USDT","USD"), interval: intervalMinutes, since: start / 1000 }
+    });
+    const key = Object.keys(res.data.result).find(k => k !== "last");
+    return res.data.result[key].map(c => ({
+      time: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+      low: parseFloat(c[3]), close: parseFloat(c[4])
+    }));
+  } catch (err) {
+    console.warn(`[History] Kraken failed for ${symbol}:`, err.message);
+  }
+
+  // 3. Gemini fallback (aggregate trades)
+  try {
+    const res = await axios.get(`${GEMINI}/trades/${symbol.toLowerCase()}usd`);
+    const trades = res.data.filter(t => t.timestampms >= start);
+    const buckets = {};
+    trades.forEach(t => {
+      const bucketTime = Math.floor(t.timestampms / 1000 / intervalSec) * intervalSec;
+      if (!buckets[bucketTime]) buckets[bucketTime] = [];
+      buckets[bucketTime].push(parseFloat(t.price));
+    });
+    return Object.entries(buckets).map(([time, arr]) => ({
+      time: parseInt(time),
+      open: arr[0], high: Math.max(...arr), low: Math.min(...arr), close: arr[arr.length-1]
+    }));
+  } catch (err) {
+    console.warn(`[History] Gemini failed for ${symbol}:`, err.message);
+  }
+
+  // 4. DB fallback (if exchanges fail)
+  const history = await Price.find({ 
+    symbol, 
+    timestamp: { $gte: new Date(start), $lte: new Date(now) } 
+  }).sort({ timestamp: 1 }).lean();
+
+  if (history.length > 0) {
+    return history.map(p => ({
+      time: new Date(p.timestamp).getTime() / 1000,
+      open: p.close, high: p.close, low: p.close, close: p.close
+    }));
+  }
+
+  return [];
 };
 
-// --- Get candlestick data ---
-export const getCandles = async (symbol, period = 24, interval = 60) => {
-  const rawHistory = await getHistory(symbol, period, 1);
-  const candles = [];
-  let candle = null;
-
-  for (const p of rawHistory) {
-    const time = Math.floor(p.time / 1000 / interval) * interval;
-    if (!candle || candle.time !== time) {
-      if (candle) candles.push(candle);
-      candle = { time, open: p.price, high: p.price, low: p.price, close: p.price };
-    } else {
-      candle.high = Math.max(candle.high, p.price);
-      candle.low = Math.min(candle.low, p.price);
-      candle.close = p.price;
+// === Live prices for dashboard ===
+export const fetchLivePrices = async (symbols) => {
+  const prices = {};
+  for (const sym of symbols) {
+    try {
+      const p = await fetchPrice(sym);
+      prices[sym] = p.close;
+      await savePrice(sym); // store in DB too
+    } catch {
+      prices[sym] = null;
     }
   }
-  if (candle) candles.push(candle);
-  return candles;
+  return prices;
 };
 
-// --- Get live prices ---
-export const getPrices = (symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]) => {
-  if (!Array.isArray(symbols)) symbols = [symbols];
-  const result = {};
-  symbols.forEach(s => (result[s] = prices[s] || null));
-  return result;
-};
-
-// --- Auto price feed ---
-export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], intervalMs = 10000, fetchPriceFn = fetchPrice) => {
-  if (!Array.isArray(symbols)) symbols = [symbols];
-
+// === Auto updater (background feed) ===
+export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT"], intervalMs = 10000) => {
   const updateAll = async () => {
     for (const symbol of symbols) {
-      try { await savePrice(symbol, fetchPriceFn); }
-      catch(err) { console.error(`[PriceService] Failed to update ${symbol}:`, err.message); }
+      try {
+        await savePrice(symbol);
+      } catch (err) {
+        console.error(`[PriceFeed] Failed to update ${symbol}:`, err.message);
+      }
     }
   };
   updateAll();
   setInterval(updateAll, intervalMs);
 };
-
-// --- Default export as an object ---
-export default {
-  fetchPrice,
-  savePrice,
-  getHistory,
-  getPrices,
-  startPriceFeed,
-  getCandles
-};
-

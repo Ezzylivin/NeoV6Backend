@@ -1,18 +1,19 @@
-// File: backend/controllers/candleController.js
-import ExchangeService from "../services/exchangeService.js";
+// File: src/backend/controllers/candleController.js
+import ccxt from "ccxt";
 
 export const getCandles = async (req, res) => {
   const { exchange: exchangeId, symbol, timeframe = "1m", limit = 100 } = req.query;
 
+  if (!exchangeId || !symbol) {
+    return res.status(400).json({ success: false, message: "Exchange and symbol are required" });
+  }
+
   try {
-    // Only allow US-based exchanges
-    const service = new ExchangeService(exchangeId);
+    const ex = new ccxt[exchangeId]();
+    const ohlcv = await ex.fetchOHLCV(symbol, timeframe, undefined, limit);
 
-    const ohlcv = await service.fetchOHLCV(symbol, timeframe, limit);
-
-    // Map to frontend format: { time: timestamp, open, high, low, close }
     const formatted = ohlcv.map(c => ({
-      time: Math.floor(c[0] / 1000), // convert ms -> seconds
+      time: Math.floor(c[0] / 1000),
       open: c[1],
       high: c[2],
       low: c[3],
@@ -22,7 +23,7 @@ export const getCandles = async (req, res) => {
 
     res.json(formatted);
   } catch (err) {
-    console.error("Error fetching candles:", err);
-    res.status(500).json({ error: "Failed to fetch candles" });
+    console.error(`[Candles Error] ${exchangeId} ${symbol}:`, err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 };

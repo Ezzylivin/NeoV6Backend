@@ -1,12 +1,12 @@
+// File: src/backend/server.js
 import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
-import path from "path";
-import { fileURLToPath } from "url";
 
 import apiRoutes from "./routes/apiRoutes.js";
-import PriceService from './services/priceService.js'; // default import
+import priceRoutes from "./routes/priceRoutes.js";
+import { startPriceFeed } from "./controllers/priceController.js";
 
 dotenv.config();
 const app = express();
@@ -17,6 +17,7 @@ app.use(express.json());
 
 // --- API Routes ---
 app.use("/api", apiRoutes);
+app.use("/api/prices", priceRoutes);
 
 // --- Start server + MongoDB ---
 const startServer = async () => {
@@ -27,8 +28,8 @@ const startServer = async () => {
     });
     console.log("✅ MongoDB connected");
 
-    // Start live price feed (default symbols & interval)
-    PriceService.startPriceFeed(["BTCUSDT", "ETHUSDT", "BNBUSDT"], 10000);
+    // Start live price feed (background)
+    startPriceFeed();
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

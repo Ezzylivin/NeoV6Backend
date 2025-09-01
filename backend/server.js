@@ -3,8 +3,6 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
-
-
 import apiRoutes from "./routes/apiRoutes.js";
 import { startPriceFeed } from "./controllers/priceController.js";
 
@@ -36,9 +34,14 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // --- Mount dynamic API routes ---
-await mountRoutes();
 app.use("/api", apiRoutes);
 
+// --- Serve static files (optional, for testing HTML) ---
+import path from "path";
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use(express.static(path.join(__dirname, "public"))); // put testExchanges.html here
 
 // --- Start MongoDB + server ---
 const startServer = async () => {

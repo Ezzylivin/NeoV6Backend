@@ -1,15 +1,10 @@
-import express from 'express';
-import { fetchPrices, fetchPriceHistory, fetchCandles } from '../controllers/priceController.js';
+// File: src/backend/routes/priceRoutes.js
+import express from "express";
+import { getLivePrices, getPriceHistory } from "../controllers/priceController.js";
 
 const router = express.Router();
 
-// Live prices
-router.get('/live', fetchPrices);
-
-// Historical price data (supports period & interval)
-router.get('/history', fetchPriceHistory);
-
-// Candlestick data (supports period & interval)
-router.get('/candles', fetchCandles);
+router.get("/live", getLivePrices);
+router.get("/history", getPriceHistory);
 
 export default router;

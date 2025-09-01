@@ -1,30 +1,23 @@
-import express from 'express';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+// File: src/backend/routes/apiRoutes.js
+import express from "express";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const router = express.Router();
-
-// Health check
-router.get('/', (req, res) => {
-  res.status(200).json({
-    message: 'Welcome to the NeoV6 API! Server is online.',
-    status: 'OK',
-  });
-});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default async function mountRoutes() {
-  const routeFiles = fs.readdirSync(__dirname).filter(
-    file => file.endsWith('Routes.js') && file !== 'apiRoutes.js'
-  );
+export const mountRoutes = async () => {
+  const routeFiles = fs
+    .readdirSync(__dirname)
+    .filter(file => file.endsWith("Routes.js") && file !== "apiRoutes.js");
 
   for (const file of routeFiles) {
     try {
       const routeModule = await import(`./${file}`);
-      const routePath = '/' + file.replace('Routes.js', '').toLowerCase() + 's';
+      const routePath = "/" + file.replace("Routes.js", "").toLowerCase() + "s";
       if (routeModule.default) {
         router.use(routePath, routeModule.default);
         console.log(`✅ Mounted ${file} -> /api${routePath}`);
@@ -33,6 +26,6 @@ export default async function mountRoutes() {
       console.error(`❌ Failed to load route from ${file}:`, err);
     }
   }
+};
 
-  return router;
-}
+export default router;

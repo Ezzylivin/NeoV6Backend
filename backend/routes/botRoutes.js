@@ -1,6 +1,5 @@
 // File: src/backend/routes/tradingBotRoutes.js
 import express from "express";
-import * as tradingBotController from "../controllers/botController.js";
 import {
   startBotController,
   stopBotController,

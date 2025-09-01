@@ -1,9 +1,10 @@
+// File: src/backend/routes/candleRoutes.js
 import express from "express";
-import * as candleController from "../controllers/candleController.js";
+import { getCandles } from "../controllers/candleController.js";
 
 const router = express.Router();
 
-// GET: /api/candles?exchange=coinbase&symbol=BTC/USD&timeframe=1m
-router.get("/", candleController.getCandles);
+// GET /api/candles?exchange=coinbase&symbol=BTC/USD&timeframe=1h
+router.get("/", getCandles);
 
 export default router;

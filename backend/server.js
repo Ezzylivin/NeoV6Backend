@@ -1,4 +1,4 @@
-// File: src/backend/server.js (Env-Aware CORS + MongoDB + Price Feed)
+// File: src/backend/server.js (Auto Subdomain CORS + MongoDB + Price Feed)
 
 import express from "express";
 import mongoose from "mongoose";
@@ -12,25 +12,25 @@ import { startPriceFeed } from "./controllers/priceController.js";
 dotenv.config();
 const app = express();
 
-// --- Environment-Aware Dynamic CORS ---
+// --- Environment-Aware Dynamic CORS with Auto Subdomain Matching ---
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (Postman, mobile apps, server-to-server)
-    if (!origin) return callback(null, true);
+    if (!origin) return callback(null, true); // Postman, mobile apps, server-to-server
 
-    // Development environment: allow localhost
     if (process.env.NODE_ENV === "development") {
       const allowedLocalOrigins = ["http://localhost:5173", "http://localhost:8000"];
       if (allowedLocalOrigins.includes(origin)) return callback(null, true);
     }
 
-    // Production environment: allow Vercel subdomains
     if (process.env.NODE_ENV === "production") {
-      const vercelRegex = /^https:\/\/.*\.vercel\.app$/;
-      if (vercelRegex.test(origin)) return callback(null, true);
-      // Add more production domains here if needed
-      const allowedProdDomains = process.env.ALLOWED_ORIGINS?.split(",");
-      if (allowedProdDomains && allowedProdDomains.includes(origin)) return callback(null, true);
+      // Automatically allow any subdomain of your production domain
+      const prodDomain = process.env.PROD_DOMAIN || "vercel.app"; // set in .env if custom domain
+      const domainRegex = new RegExp(`^https:\\/\\/.*\\.${prodDomain}$`);
+      if (domainRegex.test(origin)) return callback(null, true);
+
+      // Optional: allow exact matches from additional domains in env
+      const extraOrigins = process.env.ALLOWED_ORIGINS?.split(",");
+      if (extraOrigins && extraOrigins.includes(origin)) return callback(null, true);
     }
 
     return callback(new Error("This origin is not allowed by CORS"));

@@ -1,6 +1,5 @@
-// File: src/backend/routes/priceRoutes.js
 import express from "express";
-import * as PriceService from "../services/priceService.js";
+import PriceService from "../services/priceService.js"; // default import
 
 const router = express.Router();
 
@@ -9,7 +8,7 @@ router.get("/live", async (req, res) => {
   const { symbols } = req.query;
   const syms = symbols ? symbols.split(",") : ["BTCUSDT", "ETHUSDT", "BNBUSDT"];
   try {
-    const prices = await PriceService.fetchLivePrices(syms);
+    const prices = PriceService.getPrices(syms); // cached
     res.json({ success: true, prices });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -23,10 +22,26 @@ router.get("/candles", async (req, res) => {
   try {
     const result = {};
     for (const sym of syms) {
-      const candles = await PriceService.fetchCandles(sym, parseInt(period), parseInt(interval));
-      result[sym] = candles[sym] || [];
+      const candles = await PriceService.getCandles(sym, parseInt(period), parseInt(interval));
+      result[sym] = candles;
     }
     res.json({ success: true, candles: result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- GET historical line chart data (optional) ---
+router.get("/history", async (req, res) => {
+  const { symbols, period = 24, interval = 60 } = req.query;
+  const syms = symbols ? symbols.split(",") : ["BTCUSDT"];
+  try {
+    const result = {};
+    for (const sym of syms) {
+      const history = await PriceService.getHistory(sym, parseInt(period), parseInt(interval));
+      result[sym] = history;
+    }
+    res.json({ success: true, history: result });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

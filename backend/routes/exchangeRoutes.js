@@ -1,14 +1,14 @@
 // File: src/backend/routes/exchangeRoutes.js
 import express from "express";
-import * as exchangeController from "../controllers/exchangeController.js";
-import * as candleController from "../controllers/candleController.js";
+import { getExchanges } from "../controllers/exchangeController.js";
+import { getCandles } from "../controllers/candleController.js"; // keep your existing candle route
 
 const router = express.Router();
 
-// Get available US-based exchanges + symbols
-router.get("/", exchangeController.getExchanges);
+// GET /api/exchanges → returns DB + live CCXT USD symbols
+router.get("/", getExchanges);
 
-// Get candles
-router.get("/candles", candleController.getCandles);
+// GET /api/exchanges/candles → returns candles (keep as is)
+router.get("/candles", getCandles);
 
 export default router;

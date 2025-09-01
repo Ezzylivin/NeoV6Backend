@@ -1,129 +1,138 @@
-// File: src/backend/services/priceService.js
-import axios from "axios";
+import Price from "../dbStructure/price.js";
+import fetch from "node-fetch";
 
-// US-based exchanges
-const COINBASE_PRO = "https://api.pro.coinbase.com";
-const GEMINI = "https://api.gemini.com/v1";
-const KRAKEN = "https://api.kraken.com/0/public";
+let prices = {}; // in-memory cache
 
-// Helper: retry for Coinbase
-const retryAxios = async (url, retries = 2, delayMs = 500) => {
-  for (let i = 0; i <= retries; i++) {
+// --- US-based exchange fetchers ---
+const fetchFromCoinbase = async (symbol) => {
+  const base = symbol.replace("USDT", "");
+  const url = `https://api.exchange.coinbase.com/products/${base}-USD/ticker`;
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await axios.get(url);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Coinbase HTTP ${res.status}`);
+      const data = await res.json();
+      return { close: parseFloat(data.price), timestamp: new Date() };
     } catch (err) {
-      if (i === retries) throw err;
-      await new Promise(r => setTimeout(r, delayMs));
+      console.warn(`[PriceService] Coinbase attempt ${attempt + 1} failed for ${symbol}:`, err.message);
+      if (attempt < 2) await new Promise(r => setTimeout(r, 500)); // small delay before retry
     }
   }
+  throw new Error("Coinbase failed after 3 attempts");
 };
 
-// --- Fetch live prices from multiple exchanges ---
-export const fetchLivePrices = async (symbols) => {
-  const prices = {};
-  for (const sym of symbols) {
-    let price = null;
-
-    // Coinbase
-    try {
-      const res = await retryAxios(`${COINBASE_PRO}/products/${sym}/ticker`);
-      price = parseFloat(res.data.price);
-    } catch (err) {
-      console.warn(`[PriceService] Coinbase failed for ${sym}: ${err.message}`);
-    }
-
-    // Gemini fallback
-    if (!price) {
-      try {
-        const res = await axios.get(`${GEMINI}/pubticker/${sym.toLowerCase()}usd`);
-        price = parseFloat(res.data.last);
-      } catch (err) {
-        console.warn(`[PriceService] Gemini failed for ${sym}: ${err.message}`);
-      }
-    }
-
-    // Kraken fallback
-    if (!price) {
-      try {
-        const pair = sym.replace("USDT", "USD");
-        const res = await axios.get(`${KRAKEN}/Ticker`, { params: { pair } });
-        const key = Object.keys(res.data.result)[0];
-        price = parseFloat(res.data.result[key].c[0]);
-      } catch (err) {
-        console.warn(`[PriceService] Kraken failed for ${sym}: ${err.message}`);
-      }
-    }
-
-    prices[sym] = price;
-  }
-  return prices;
+const fetchFromGemini = async (symbol) => {
+  const base = symbol.replace("USDT", "").toLowerCase();
+  const url = `https://api.gemini.com/v1/pubticker/${base}usd`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
+  const data = await res.json();
+  return { close: parseFloat(data.last), timestamp: new Date() };
 };
 
-// --- Fetch historical candlestick data ---
-export const fetchCandles = async (symbol, periodHours, intervalSec) => {
-  const now = Date.now();
-  const start = now - periodHours * 3600 * 1000;
+const fetchFromKraken = async (symbol) => {
+  const base = symbol.replace("USDT", "USD");
+  const url = `https://api.kraken.com/0/public/Ticker?pair=${base}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Kraken HTTP ${res.status}`);
+  const data = await res.json();
+  const key = Object.keys(data.result)[0];
+  return { close: parseFloat(data.result[key].c[0]), timestamp: new Date() };
+};
 
-  // Try Coinbase
-  try {
-    const res = await axios.get(`${COINBASE_PRO}/products/${symbol}/candles`, {
-      params: {
-        start: new Date(start).toISOString(),
-        end: new Date(now).toISOString(),
-        granularity: intervalSec,
-      },
-    });
-    const candles = res.data.map(c => ({
-      time: c[0],
-      open: c[1],
-      high: c[2],
-      low: c[3],
-      close: c[4],
-    }));
-    return { [symbol]: candles.reverse() };
-  } catch (err) {
-    console.warn(`[PriceService] Coinbase candles failed for ${symbol}: ${err.message}`);
+// --- Multi-exchange fallback ---
+export const fetchPrice = async (symbol) => {
+  const exchanges = [fetchFromCoinbase, fetchFromGemini, fetchFromKraken];
+  for (const ex of exchanges) {
+    try {
+      return await ex(symbol);
+    } catch (err) {
+      console.warn(`[PriceService] ${ex.name} failed for ${symbol}:`, err.message);
+    }
   }
+  throw new Error(`All exchanges failed for ${symbol}`);
+};
 
-  // Kraken fallback
-  try {
-    const intervalMinutes = Math.max(intervalSec / 60, 1);
-    const pair = symbol.replace("USDT", "USD");
-    const res = await axios.get(`${KRAKEN}/OHLC`, { params: { pair, interval: intervalMinutes, since: Math.floor(start / 1000) } });
-    const key = Object.keys(res.data.result).find(k => k !== "last");
-    const candles = res.data.result[key].map(c => ({
-      time: c[0],
-      open: c[1],
-      high: c[2],
-      low: c[3],
-      close: c[4],
-    }));
-    return { [symbol]: candles };
-  } catch (err) {
-    console.warn(`[PriceService] Kraken candles failed for ${symbol}: ${err.message}`);
+// --- Save price to DB + cache ---
+export const savePrice = async (symbol, fetchPriceFn = fetchPrice) => {
+  const data = await fetchPriceFn(symbol);
+  const price = new Price({ ...data, symbol });
+  await price.save();
+  prices[symbol] = data.close;
+  return price;
+};
+
+// --- Get historical prices ---
+export const getHistory = async (symbol, period = 24, interval = 60) => {
+  const end = new Date();
+  const start = new Date(end.getTime() - period * 60 * 60 * 1000);
+
+  let history = await Price.find({ symbol, timestamp: { $gte: start, $lte: end } })
+    .sort({ timestamp: 1 })
+    .lean();
+
+  // bucket by interval
+  const filtered = [];
+  let lastTime = 0;
+  for (const p of history) {
+    const time = new Date(p.timestamp).getTime();
+    if (time - lastTime >= interval * 1000) {
+      filtered.push({ time: Math.floor(time / 1000), price: p.close });
+      lastTime = time;
+    }
   }
+  return filtered;
+};
 
-  // Gemini fallback (aggregate trades into buckets)
-  try {
-    const res = await axios.get(`${GEMINI}/trades/${symbol.toLowerCase()}usd`);
-    const trades = res.data.filter(t => t.timestamp * 1000 >= start);
-    const buckets = {};
-    trades.forEach(t => {
-      const bucketTime = Math.floor(t.timestamp / intervalSec) * intervalSec;
-      if (!buckets[bucketTime]) buckets[bucketTime] = [];
-      buckets[bucketTime].push(parseFloat(t.price));
-    });
-    const candles = Object.entries(buckets).map(([time, arr]) => {
-      const open = arr[0];
-      const close = arr[arr.length - 1];
-      const high = Math.max(...arr);
-      const low = Math.min(...arr);
-      return { time: parseInt(time), open, high, low, close };
-    });
-    return { [symbol]: candles };
-  } catch (err) {
-    console.warn(`[PriceService] Gemini candles failed for ${symbol}: ${err.message}`);
+// --- Get candlestick data ---
+export const getCandles = async (symbol, period = 24, interval = 60) => {
+  const rawHistory = await getHistory(symbol, period, 1); // raw per second
+  const candles = [];
+  let candle = null;
+
+  for (const p of rawHistory) {
+    const time = Math.floor(p.time / interval) * interval;
+    if (!candle || candle.time !== time) {
+      if (candle) candles.push(candle);
+      candle = { time, open: p.price, high: p.price, low: p.price, close: p.price };
+    } else {
+      candle.high = Math.max(candle.high, p.price);
+      candle.low = Math.min(candle.low, p.price);
+      candle.close = p.price;
+    }
   }
+  if (candle) candles.push(candle);
+  return candles;
+};
 
-  return { [symbol]: [] };
+// --- Get live prices ---
+export const getPrices = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"]) => {
+  if (!Array.isArray(symbols)) symbols = [symbols];
+  const result = {};
+  symbols.forEach(s => (result[s] = prices[s] || null));
+  return result;
+};
+
+// --- Start auto price feed ---
+export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], intervalMs = 10000, fetchPriceFn = fetchPrice) => {
+  if (!Array.isArray(symbols)) symbols = [symbols];
+
+  const updateAll = async () => {
+    for (const symbol of symbols) {
+      try { await savePrice(symbol, fetchPriceFn); }
+      catch(err) { console.error(`[PriceService] Failed to update ${symbol}:`, err.message); }
+    }
+  };
+  updateAll();
+  setInterval(updateAll, intervalMs);
+};
+
+// --- Export all functions ---
+export default {
+  fetchPrice,
+  savePrice,
+  getHistory,
+  getPrices,
+  startPriceFeed,
+  getCandles
 };

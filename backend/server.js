@@ -4,40 +4,45 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 
-import apiRoutes from "./routes/apiRoutes.js";
+import apiRoutes, { mountRoutes } from "./routes/apiRoutes.js";
 import priceRoutes from "./routes/priceRoutes.js";
 import { startPriceFeed } from "./controllers/priceController.js";
 
 dotenv.config();
 const app = express();
 
-// --- Dynamic CORS: allow any Vercel frontend + localhost dev ---
+// --- Dynamic CORS allowing Vercel frontend ---
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // Postman, server-to-server
+    if (!origin) return callback(null, true); // Postman, mobile apps
 
-    // Allow any Vercel frontend
-    const vercelRegex = /^https:\/\/.*\.vercel\.app$/;
-    if (vercelRegex.test(origin)) return callback(null, true);
+    if (process.env.NODE_ENV === "development") {
+      const allowedLocalOrigins = ["http://localhost:5173", "http://localhost:8000"];
+      if (allowedLocalOrigins.includes(origin)) return callback(null, true);
+    }
 
-    // Allow localhost dev
-    const allowedLocalOrigins = ["http://localhost:5173", "http://localhost:8000"];
-    if (allowedLocalOrigins.includes(origin)) return callback(null, true);
+    if (process.env.NODE_ENV === "production") {
+      // Allow any subdomain of anything.vercel.app
+      const domainRegex = /^https:\/\/.*\.vercel\.app$/;
+      if (domainRegex.test(origin)) return callback(null, true);
+    }
 
-    return callback(new Error("CORS not allowed"));
+    return callback(new Error("This origin is not allowed by CORS"));
   },
-  credentials: true,
   optionsSuccessStatus: 200,
 };
 
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// --- API routes ---
+// --- Mount dynamic API routes ---
+await mountRoutes();
 app.use("/api", apiRoutes);
+
+// --- Price routes ---
 app.use("/api/prices", priceRoutes);
 
-// --- Connect to MongoDB + start server ---
+// --- Start MongoDB + server ---
 const startServer = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI, {
@@ -46,7 +51,7 @@ const startServer = async () => {
     });
     console.log("✅ MongoDB connected");
 
-    // Start live price feed (background)
+    // Start background price feed
     startPriceFeed();
 
     const PORT = process.env.PORT || 8000;

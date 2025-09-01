@@ -1,21 +1,30 @@
-// File: backend/routes/botRoutes.js
-import express from 'express';
-// import { protect } from '../middleware/authMiddleware.js';
-// import { authorizeRoles } from '../middleware/roleMiddleware.js';
-
-import {startBotController, stopBotController, getBotStatusController } from '../controllers/botController.js';
+// File: src/backend/routes/tradingBotRoutes.js
+import express from "express";
+import * as tradingBotController from "../controllers/tradingBotController.js";
+import {
+  startBotController,
+  stopBotController,
+  getBotStatusController,
+} from "../controllers/botController.js";
 
 const router = express.Router();
 
-// const allowedRoles = ['trader', 'admin'];
+// 1️⃣ Trading Bot History for a user
+// GET /api/tradingbots/history/:userId
+router.get("/history/:userId", tradingBotController.getHistory);
 
-router.post('/start' , /* protect, authorizeRoles(allowedRoles), */ startBotController);
-router.post('/stop', /* protect, authorizeRoles(allowedRoles), */ stopBotController);
-router.get('/status', /* protect, authorizeRoles(allowedRoles), */ getBotStatusController);
+// 2️⃣ Start a bot (could be merged if startBotController is shared)
+router.post("/start", startBotController || tradingBotController.startBot);
 
-// Test route (public)
-router.get('/test', (req, res) => {
-  res.json({ bot: 'Bot endpoint is working.' });
+// 3️⃣ Stop a bot
+router.post("/stop", stopBotController);
+
+// 4️⃣ Get bot status
+router.get("/status", getBotStatusController);
+
+// 5️⃣ Optional test route
+router.get("/test", (req, res) => {
+  res.json({ bot: "Bot endpoint is working." });
 });
 
 export default router;

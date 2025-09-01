@@ -6,7 +6,7 @@ import * as candleController from "../controllers/candleController.js";
 const router = express.Router();
 
 // Get available US-based exchanges + symbols
-router.get("/exchanges", exchangeController.getExchanges);
+router.get("/", exchangeController.getExchanges);
 
 // Get candles
 router.get("/candles", candleController.getCandles);

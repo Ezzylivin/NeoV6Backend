@@ -4,8 +4,8 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 
-import apiRoutes, { mountRoutes } from "./routes/apiRoutes.js";
-import priceRoutes from "./routes/priceRoutes.js";
+
+import apiRoutes from "./routes/apiRoutes.js";
 import { startPriceFeed } from "./controllers/priceController.js";
 
 dotenv.config();
@@ -39,8 +39,6 @@ app.use(express.json());
 await mountRoutes();
 app.use("/api", apiRoutes);
 
-// --- Price routes ---
-app.use("/api/prices", priceRoutes);
 
 // --- Start MongoDB + server ---
 const startServer = async () => {

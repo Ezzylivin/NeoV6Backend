@@ -4,45 +4,33 @@ import ccxt from "ccxt";
 
 /**
  * GET /api/exchanges
- * Returns exchanges from DB (if available) or fallback US exchanges with USD trading pairs
+ * Returns all exchanges from DB with live USD trading pairs
  */
 export const getExchanges = async (req, res) => {
   try {
-    // 1️⃣ Try pulling from MongoDB
-    const dbExchanges = await Exchange.find(); // [{ name, apiKey, secret, baseUrl }, ...]
-
-    // Decide what exchanges to query
-    let exchangesToLoad = [];
-
-    if (dbExchanges.length > 0) {
-      exchangesToLoad = dbExchanges.map((ex) => ex.name.toLowerCase());
-    } else {
-      // fallback if DB is empty
-      exchangesToLoad = ["coinbase", "kraken", "gemini"];
-    }
+    // 1️⃣ Fetch all exchanges stored in MongoDB
+    const dbExchanges = await Exchange.find(); // e.g. [{name: "coinbase"}, {name: "kraken"}]
 
     const result = [];
 
-    for (const id of exchangesToLoad) {
-      try {
-        if (!ccxt[id]) {
-          console.warn(`[CCXT] Exchange not supported: ${id}`);
-          continue;
+    for (const ex of dbExchanges) {
+      const exchangeId = ex.name.toLowerCase();
+      let symbols = [];
+
+      if (ccxt[exchangeId]) {
+        try {
+          const ccxtEx = new ccxt[exchangeId]();
+          await ccxtEx.loadMarkets();
+          symbols = ccxtEx.symbols.filter((s) => s.includes("USD")); // ✅ USD pairs only
+        } catch (err) {
+          console.warn(`[CCXT Error] ${ex.name}:`, err.message);
         }
-
-        const exchange = new ccxt[id]();
-        await exchange.loadMarkets();
-
-        // Only USD pairs
-        const symbols = exchange.symbols.filter((s) => s.includes("USD"));
-
-        result.push({
-          name: id,
-          symbols,
-        });
-      } catch (err) {
-        console.warn(`[CCXT Error] ${id}:`, err.message);
       }
+
+      result.push({
+        name: ex.name,
+        symbols, // ✅ only send symbols + name (Dashboard expects this)
+      });
     }
 
     res.json({ success: true, exchanges: result });

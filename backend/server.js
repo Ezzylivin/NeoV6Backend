@@ -22,17 +22,16 @@ const corsOptions = {
     }
 
     if (process.env.NODE_ENV === "production") {
-      const allowedFrontends = [
-        "https://neo-v6-fa13pnv6c-eric-dickersons-projects-94391fd0.vercel.app"
-      ];
-      if (allowedFrontends.includes(origin)) return callback(null, true);
+      // Allow any Vercel frontend domain
+      const vercelRegex = /^https:\/\/.*\.vercel\.app$/;
+      if (vercelRegex.test(origin)) return callback(null, true);
     }
 
     return callback(new Error("This origin is not allowed by CORS"));
   },
-  methods: ["GET","POST","PUT","DELETE"],
+  methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
 

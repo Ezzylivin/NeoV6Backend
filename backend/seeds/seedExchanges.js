@@ -1,36 +1,63 @@
 // File: backend/seeds/seedExchanges.js
 import mongoose from "mongoose";
-import dotenv from "dotenv";
 import Exchange from "../dbStructure/exchange.js";
+import ccxt from "ccxt";
+import dotenv from "dotenv";
 
 dotenv.config();
 
-// Connect to MongoDB
-const mongoURI = process.env.MONGO_URI || "mongodb://localhost:27017/neo-v6";
-mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log("MongoDB connected for seeding"))
-  .catch(err => console.error("MongoDB connection error:", err));
+const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/neoV6DB";
 
-const seedExchanges = async () => {
+// US-based exchanges we want to seed
+const US_EXCHANGES = [
+  { name: "Coinbase", ccxtId: "coinbase" },
+  { name: "CoinbasePro", ccxtId: "coinbasepro" },
+  { name: "Kraken", ccxtId: "kraken" },
+  { name: "Gemini", ccxtId: "gemini" },
+];
+
+async function seedExchanges() {
   try {
-    const defaultExchanges = [
-      { name: "binance", apiKey: "", secret: "", baseUrl: "" },
-      { name: "coinbase", apiKey: "", secret: "", baseUrl: "" },
-      { name: "kraken", apiKey: "", secret: "", baseUrl: "" },
-      { name: "gemini", apiKey: "", secret: "", baseUrl: "" },
-    ];
+    await mongoose.connect(MONGO_URI);
+    console.log("✅ Connected to MongoDB");
 
-    // Remove old entries (optional)
-    await Exchange.deleteMany({});
-    // Insert defaults
-    const inserted = await Exchange.insertMany(defaultExchanges);
+    for (const ex of US_EXCHANGES) {
+      // Check if exchange already exists
+      const exists = await Exchange.findOne({ name: ex.name });
+      if (exists) {
+        console.log(`ℹ️  ${ex.name} already exists, skipping`);
+        continue;
+      }
 
-    console.log("Exchanges seeded:", inserted.map(e => e.name));
-    process.exit(0);
+      // Optional: fetch symbols via CCXT
+      let symbols = [];
+      if (ccxt[ex.ccxtId]) {
+        try {
+          const ccxtEx = new ccxt[ex.ccxtId]();
+          await ccxtEx.loadMarkets();
+          symbols = ccxtEx.symbols.filter((s) => s.includes("USD"));
+        } catch (err) {
+          console.warn(`[CCXT Warning] ${ex.name}: ${err.message}`);
+        }
+      }
+
+      // Create exchange in DB
+      await Exchange.create({
+        name: ex.name,
+        apiKey: "",       // leave blank, fill in production if needed
+        secret: "",       // leave blank, fill in production if needed
+        baseUrl: "",      // optional
+      });
+
+      console.log(`✅ Added ${ex.name} with ${symbols.length} USD symbols`);
+    }
+
+    console.log("🎉 Exchange seeding complete!");
   } catch (err) {
-    console.error("Seeding error:", err);
-    process.exit(1);
+    console.error("❌ Seeding error:", err);
+  } finally {
+    mongoose.connection.close();
   }
-};
+}
 
 seedExchanges();

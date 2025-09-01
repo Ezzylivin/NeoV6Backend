@@ -4,12 +4,25 @@ import ccxt from "ccxt";
 
 /**
  * GET /api/exchanges
- * Returns all exchanges from DB with live USD trading pairs
+ * Returns all exchanges from DB with live USD trading pairs.
+ * Auto-seeds DB if empty.
  */
 export const getExchanges = async (req, res) => {
   try {
-    // 1️⃣ Fetch all exchanges stored in MongoDB
-    const dbExchanges = await Exchange.find(); // e.g. [{name: "coinbase"}, {name: "kraken"}]
+    // 1️⃣ Fetch all exchanges from MongoDB
+    let dbExchanges = await Exchange.find();
+
+    // 2️⃣ Auto-seed if empty
+    if (dbExchanges.length === 0) {
+      const seedExchanges = [
+        { name: "Coinbase" },
+        { name: "Kraken" },
+        { name: "Gemini" },
+      ];
+      await Exchange.insertMany(seedExchanges);
+      dbExchanges = await Exchange.find();
+      console.log("[Exchange Seed] MongoDB was empty, seeded exchanges:", seedExchanges);
+    }
 
     const result = [];
 
@@ -17,11 +30,12 @@ export const getExchanges = async (req, res) => {
       const exchangeId = ex.name.toLowerCase();
       let symbols = [];
 
+      // Only fetch symbols if CCXT has the exchange
       if (ccxt[exchangeId]) {
         try {
           const ccxtEx = new ccxt[exchangeId]();
           await ccxtEx.loadMarkets();
-          symbols = ccxtEx.symbols.filter((s) => s.includes("USD")); // ✅ USD pairs only
+          symbols = ccxtEx.symbols.filter((s) => s.includes("USD"));
         } catch (err) {
           console.warn(`[CCXT Error] ${ex.name}:`, err.message);
         }
@@ -29,7 +43,7 @@ export const getExchanges = async (req, res) => {
 
       result.push({
         name: ex.name,
-        symbols, // ✅ only send symbols + name (Dashboard expects this)
+        symbols,
       });
     }
 

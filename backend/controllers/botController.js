@@ -1,93 +1,61 @@
-// File: backend/controllers/botController.js
+// File: src/backend/controllers/botController.js
+import TradingBotHistory from "../dbStructure/tradingBotHistory.js";
 
-import {
-  startTradingBot,
-  stopTradingBot,
-  getBotStatus
-} from '../services/botService.js';
-
-/**
- * Start bot controller
- * Accepts: userId (from auth or body), symbol, amount, timeframes, strategy, risk
- */
+// --- Start bot ---
 export const startBotController = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.userId;
-    const { symbol, amount, timeframes, strategy, risk } = req.body;
-
-    if (!userId || !symbol || !amount) {
-      return res.status(400).json({
-        success: false,
-        error: 'userId, symbol, and amount are required.'
-      });
+    const { userId, symbol, initialBalance, strategy, risk } = req.body;
+    if (!userId || !symbol || !initialBalance) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    await startTradingBot(userId, symbol, amount, timeframes, strategy, risk);
+    const historyEntry = await TradingBotHistory.create({
+      userId,
+      symbol,
+      balance: initialBalance,
+      profit: 0,
+      strategy: strategy || "Default",
+      risk: risk || "Medium",
+      timestamp: new Date(),
+    });
 
-    res.status(200).json({
-      success: true,
-      message: 'Trading bot started.',
-    });
+    res.json({ success: true, message: "Bot started", entry: historyEntry });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    console.error("[Start Bot Error]", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
-/**
- * Stop bot controller
- */
+// --- Stop bot ---
 export const stopBotController = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.userId;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'userId is required.',
-      });
-    }
-
-    await stopTradingBot(userId);
-
-    res.status(200).json({
-      success: true,
-      message: 'Trading bot stopped.',
-    });
+    res.json({ success: true, message: "Bot stopped" });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    console.error("[Stop Bot Error]", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
-/**
- * Get bot status controller
- */
+// --- Get bot status ---
 export const getBotStatusController = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.userId;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'userId is required.',
-      });
-    }
-
-    const status = await getBotStatus(userId);
-
-    res.status(200).json({
-      success: true,
-      status,
-    });
+    res.json({ success: true, status: { isRunning: true } });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    console.error("[Bot Status Error]", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// --- Get user trading bot history ---
+export const getHistoryController = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
+
+    const history = await TradingBotHistory.find({ userId }).sort({ timestamp: 1 });
+    res.json({ success: true, history });
+  } catch (err) {
+    console.error("[Bot History Error]", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };

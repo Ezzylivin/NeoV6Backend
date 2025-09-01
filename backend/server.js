@@ -1,48 +1,43 @@
+// File: src/backend/server.js
 import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 
-import mountApiRoutes from "./routes/apiRoutes.js";
+import apiRoutes from "./routes/apiRoutes.js";
 import priceRoutes from "./routes/priceRoutes.js";
 import { startPriceFeed } from "./controllers/priceController.js";
 
 dotenv.config();
 const app = express();
 
-// --- Dynamic CORS ---
+// --- Dynamic CORS: allow any Vercel frontend + localhost dev ---
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // Postman, mobile apps
+    if (!origin) return callback(null, true); // Postman, server-to-server
 
-    if (process.env.NODE_ENV === "development") {
-      const allowedLocalOrigins = ["http://localhost:5173"];
-      if (allowedLocalOrigins.includes(origin)) return callback(null, true);
-    }
+    // Allow any Vercel frontend
+    const vercelRegex = /^https:\/\/.*\.vercel\.app$/;
+    if (vercelRegex.test(origin)) return callback(null, true);
 
-    if (process.env.NODE_ENV === "production") {
-      const prodDomain = process.env.PROD_DOMAIN || "render.com";
-      const domainRegex = new RegExp(`^https:\\/\\/.*\\.${prodDomain}$`);
-      if (domainRegex.test(origin)) return callback(null, true);
-    }
+    // Allow localhost dev
+    const allowedLocalOrigins = ["http://localhost:5173", "http://localhost:8000"];
+    if (allowedLocalOrigins.includes(origin)) return callback(null, true);
 
     return callback(new Error("CORS not allowed"));
   },
+  credentials: true,
   optionsSuccessStatus: 200,
 };
 
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// --- Mount routes asynchronously ---
-(async () => {
-  const apiRouter = await mountApiRoutes();
-  app.use("/api", apiRouter);
-})();
-
+// --- API routes ---
+app.use("/api", apiRoutes);
 app.use("/api/prices", priceRoutes);
 
-// --- Start server + MongoDB ---
+// --- Connect to MongoDB + start server ---
 const startServer = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI, {
@@ -51,11 +46,12 @@ const startServer = async () => {
     });
     console.log("✅ MongoDB connected");
 
+    // Start live price feed (background)
     startPriceFeed();
 
     const PORT = process.env.PORT || 8000;
     app.listen(PORT, () =>
-      console.log(`🚀 Server running on port ${PORT}`)
+      console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`)
     );
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err.message);

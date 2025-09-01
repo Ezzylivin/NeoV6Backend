@@ -4,16 +4,17 @@ import {
   startBotController,
   stopBotController,
   getBotStatusController,
+  getHistoryController, // Make sure this exists in botController.js
 } from "../controllers/botController.js";
 
 const router = express.Router();
 
 // 1️⃣ Trading Bot History for a user
 // GET /api/tradingbots/history/:userId
-router.get("/history/:userId", tradingBotController.getHistory);
+router.get("/history/:userId", getHistoryController);
 
-// 2️⃣ Start a bot (could be merged if startBotController is shared)
-router.post("/start", startBotController || tradingBotController.startBot);
+// 2️⃣ Start a bot
+router.post("/start", startBotController);
 
 // 3️⃣ Stop a bot
 router.post("/stop", stopBotController);

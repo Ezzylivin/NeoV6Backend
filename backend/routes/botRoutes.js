@@ -2,7 +2,7 @@
 import express from "express";
 import { isValidMarket } from "../utils/validateMarket.js";
 import Bot from "../dbStructure/bot.js";
-import { stopBot, getBotHistory } from "../controllers/botController.js";
+import { startBotController, stopBotController, getHistoryController } from "../controllers/botController.js";
 
 const router = express.Router();
 
@@ -35,9 +35,9 @@ router.post("/start", async (req, res) => {
 });
 
 // --- Stop live bot ---
-router.post("/stop", stopBot);
+router.post("/stop", stopBotController);
 
 // --- Get user bot history for charts ---
-router.get("/history/:userId", getBotHistory);
+router.get("/history/:userId", getHistoryController);
 
 export default router;

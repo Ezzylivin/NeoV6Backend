@@ -1,8 +1,11 @@
+// File: src/backend/controllers/backtestController.js
 import { runRealisticBacktest, runBatchBacktests } from '../services/backtestService.js';
 import Backtest from '../dbStructure/backtest.js';
 import Price from '../dbStructure/price.js';
 
-/* ---------- GET OPTIONS ---------- */
+/**
+ * GET /api/backtests/options
+ */
 export const getBacktestOptions = async (req, res) => {
   try {
     const symbols = await Price.distinct('symbol');
@@ -24,67 +27,130 @@ export const getBacktestOptions = async (req, res) => {
   }
 };
 
-/* ---------- SINGLE BACKTEST ---------- */
-export const runBacktestController = async (req, res) => {
+/**
+ * POST /api/backtests/run
+ */
+export const runAndSaveBacktests = async (req, res) => {
   try {
-    const { userId, strategy, ...params } = req.body;
-    if (!userId || !params.symbol) return res.status(400).json({ success: false, message: "Missing userId or symbol" });
+    const {
+      userId,
+      exchange = 'coinbasepro',
+      symbol,
+      timeframe = '1h',
+      initialBalance = 1000,
+      strategy = { name: 'SMA', parameters: {} },
+      stopLoss = 0,
+      takeProfit = 0,
+      limit = 1000,
+      risk = "Medium"
+    } = req.body;
 
-    let strat = strategy;
-    if (!strat) strat = { name: "SMA", parameters: {} };
-    if (typeof strat === "string") strat = { name: strat, parameters: {} };
-    if (!strat.parameters) strat.parameters = {};
-
-    const result = await runRealisticBacktest({ userId, strategy: strat, ...params });
-    res.status(201).json({ success: true, backtests: [result.saved], metrics: result.metrics, equityCurve: result.equityCurve, trades: result.trades });
-  } catch (err) {
-    console.error("[Backtest Run Error]", err);
-    res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
-  }
-};
-
-/* ---------- BATCH BACKTEST ---------- */
-export const runBatchBacktestsController = async (req, res) => {
-  try {
-    const { userId, paramCombos, exchange = 'coinbasepro' } = req.body;
-    if (!userId || !Array.isArray(paramCombos) || !paramCombos.length) {
-      return res.status(400).json({ success: false, message: "Missing params for batch" });
+    if (!userId || !symbol) {
+      return res.status(400).json({ success: false, message: 'Missing userId or symbol' });
     }
 
-    // normalize each param
-    const normalized = paramCombos.map(p => {
-      if (!p.strategy) p.strategy = { name: "SMA", parameters: {} };
-      if (typeof p.strategy === "string") p.strategy = { name: p.strategy, parameters: {} };
-      if (!p.strategy.parameters) p.strategy.parameters = {};
-      return {
-        ...p,
-        initialBalance: Number(p.initialBalance) || 1000,
-        stopLoss: Number(p.stopLoss) || 0,
-        takeProfit: Number(p.takeProfit) || 0,
-        timeframe: p.timeframe || '1h',
-        limit: Number(p.limit) || 1000,
-        risk: p.risk || "Medium"
+    let result;
+    try {
+      result = await runRealisticBacktest({
+        userId,
+        exchange,
+        symbol,
+        timeframe,
+        initialBalance,
+        strategy,
+        stopLoss,
+        takeProfit,
+        limit,
+        risk
+      });
+    } catch (err) {
+      console.warn(`[Backtest Skipped] ${symbol} - ${err.message}`);
+      result = {
+        saved: null,
+        metrics: { finalBalance: initialBalance, netProfit: 0, tradesCount: 0, winRate: 0 },
+        equityCurve: [],
+        trades: []
       };
-    });
+    }
 
-    const { results, best } = await runBatchBacktests(userId, exchange, normalized);
-    res.status(200).json({ success: true, results, best });
+    res.status(201).json({ success: true, backtests: [result.saved], metrics: result.metrics, equityCurve: result.equityCurve, trades: result.trades });
   } catch (err) {
-    console.error("[Batch Backtests Error]", err);
-    res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
+    console.error('[Backtest Run Error]', err);
+    res.status(500).json({ success: false, message: err.message || 'Internal error' });
   }
 };
 
-/* ---------- GET USER BACKTESTS ---------- */
+/**
+ * POST /api/backtests/batch
+ */
+export const runBatchBacktestsController = async (req, res) => {
+  try {
+    const { userId, exchange = 'coinbasepro', paramCombos } = req.body;
+
+    if (!userId || !Array.isArray(paramCombos) || paramCombos.length === 0) {
+      return res.status(400).json({ success: false, message: 'Missing params for batch' });
+    }
+
+    const results = [];
+
+    for (const params of paramCombos) {
+      try {
+        const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
+          userId,
+          exchange,
+          symbol: params.symbol,
+          timeframe: params.timeframe || '1h',
+          initialBalance: params.initialBalance || 1000,
+          strategy: params.strategy || { name: 'SMA', parameters: {} },
+          stopLoss: params.stopLoss || 0,
+          takeProfit: params.takeProfit || 0,
+          limit: params.limit || 1000,
+          risk: params.risk || "Medium"
+        });
+
+        results.push({ params, metrics, equityCurve, trades, saved });
+      } catch (err) {
+        console.warn(`[Backtest Skipped] ${params.symbol} - ${err.message}`);
+        results.push({
+          params,
+          metrics: { finalBalance: params.initialBalance || 1000, netProfit: 0, tradesCount: 0, winRate: 0 },
+          equityCurve: [],
+          trades: [],
+          saved: null
+        });
+      }
+    }
+
+    // pick best by final balance
+    let best = null;
+    let bestScore = -Infinity;
+    for (const r of results) {
+      const finalBalance = r.metrics?.finalBalance ?? (r.trades?.length ? r.trades[r.trades.length - 1].balance : 0);
+      if (finalBalance > bestScore) {
+        bestScore = finalBalance;
+        best = r.saved;
+      }
+    }
+
+    res.json({ success: true, results, best });
+  } catch (err) {
+    console.error('[Batch Backtests Error]', err);
+    res.status(500).json({ success: false, message: err.message || 'Internal error' });
+  }
+};
+
+/**
+ * GET /api/backtests/user/:userId
+ */
 export const getUserBacktests = async (req, res) => {
   try {
     const { userId } = req.params;
-    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
+    if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
 
     const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
-    res.status(200).json({ success: true, backtests });
+    res.json({ success: true, backtests });
   } catch (err) {
-    console.error("[List Backtests Error]", err);
-    res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
+    console.error('[List Backtests Error]', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };

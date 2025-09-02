@@ -1,22 +1,30 @@
 // File: src/backend/controllers/backtestController.js
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runRealisticBacktest } from "../services/backtestService.js";
+import { runRealisticBacktest, runBatchBacktests } from "../services/backtestService.js";
 
 /**
- * GET available backtest options
+ * GET /api/backtests/options
  */
 export const getBacktestOptions = async (req, res) => {
   try {
     const symbols = await Price.distinct("symbol");
-
     res.json({
       success: true,
       options: {
         symbols: symbols.length ? symbols : ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
         timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
         balances: [100, 500, 1000, 5000, 10000],
-        strategies: ["SMA", "EMA", "RSI", "MACD"],
+        strategies: [
+          "SMA",
+          "EMA",
+          "RSI",
+          "MACD",
+          "BollingerBands",
+          "Stochastic",
+          "VWAP",
+          "ATR"
+        ],
         risks: ["Low", "Medium", "High"],
       },
     });
@@ -27,31 +35,34 @@ export const getBacktestOptions = async (req, res) => {
 };
 
 /**
- * POST run a single realistic backtest
+ * POST /api/backtests/run
  */
 export const runAndSaveBacktests = async (req, res) => {
   try {
-    const { userId, symbol, timeframe, initialBalance, strategy, risk } = req.body;
-    if (!userId || !symbol || !timeframe || initialBalance == null) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+    const {
+      userId,
+      symbol,
+      timeframe = "1h",
+      initialBalance = 1000,
+      strategy = { name: "SMA", parameters: {} },
+      risk = "Medium",
+    } = req.body;
+
+    if (!userId || !symbol) {
+      return res.status(400).json({ success: false, message: "Missing userId or symbol" });
     }
 
+    const normalizedStrategy = (typeof strategy === "string") ? { name: strategy, parameters: {} } : strategy;
     const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
       userId,
       symbol,
       timeframe,
       initialBalance: Number(initialBalance),
-      strategy,
-      risk,
+      strategy: normalizedStrategy,
+      risk
     });
 
-    return res.status(201).json({
-      success: true,
-      backtest: saved,
-      metrics,
-      equityCurve,
-      trades,
-    });
+    res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
   } catch (err) {
     console.error("[Backtest Run Error]", err);
     res.status(500).json({ success: false, message: err.message || "Internal error during backtest" });
@@ -59,32 +70,16 @@ export const runAndSaveBacktests = async (req, res) => {
 };
 
 /**
- * POST run batch backtests with different parameter combos
+ * POST /api/backtests/batch
  */
-export const runBatchBacktests = async (req, res) => {
+export const runBatchBacktestsController = async (req, res) => {
   try {
     const { userId, paramCombos } = req.body;
-    if (!userId || !paramCombos || !Array.isArray(paramCombos)) {
+    if (!userId || !Array.isArray(paramCombos) || paramCombos.length === 0) {
       return res.status(400).json({ success: false, message: "Missing userId or paramCombos" });
     }
 
-    const results = [];
-    for (const params of paramCombos) {
-      const { symbol, timeframe, initialBalance, strategy, risk } = params;
-      const { saved, metrics } = await runRealisticBacktest({
-        userId,
-        symbol,
-        timeframe,
-        initialBalance,
-        strategy,
-        risk,
-      });
-      results.push({ saved, metrics });
-    }
-
-    // Select the best by profit (you can change this to Sharpe, winRate, etc.)
-    const best = results.sort((a, b) => b.metrics.profit - a.metrics.profit)[0];
-
+    const { results, best } = await runBatchBacktests(userId, "coinbasepro", paramCombos);
     res.json({ success: true, results, best });
   } catch (err) {
     console.error("[Batch Backtests Error]", err);
@@ -93,12 +88,14 @@ export const runBatchBacktests = async (req, res) => {
 };
 
 /**
- * GET list backtests (history)
+ * GET /api/backtests/user/:userId
  */
-export const listBacktests = async (req, res) => {
+export const getUserBacktests = async (req, res) => {
   try {
-    const { userId } = req.query;
-    const backtests = await Backtest.find(userId ? { userId } : {}).sort({ createdAt: -1 });
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
+
+    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
     res.json({ success: true, backtests });
   } catch (err) {
     console.error("[List Backtests Error]", err);

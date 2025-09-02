@@ -50,16 +50,18 @@ export const runAndSaveBacktests = async (req, res) => {
     }
 
     const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
-      userId,
-      exchange,
-      symbol,
-      timeframe,
-      initialBalance,
-      strategy,
-      stopLoss,
-      takeProfit,
-      limit,
-    });
+  userId,
+  exchange,
+  symbol,
+  timeframe,
+  initialBalance,
+  strategy,
+  stopLoss,
+  takeProfit,
+  limit,
+  risk: req.body.risk || "Medium" // <-- new
+});
+
 
     res.status(201).json({ success: true, backtests: [saved], metrics, equityCurve, trades });
   } catch (err) {

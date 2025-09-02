@@ -1,5 +1,5 @@
-// src/backend/controllers/backtestController.js
-import { runRealisticBacktest, runBatchBacktests } from '../services/backtestService.js';
+// File: src/backend/controllers/backtestController.js
+import { runRealisticBacktest } from '../services/backtestService.js';
 import Backtest from '../dbStructure/backtest.js';
 import Price from '../dbStructure/price.js';
 
@@ -29,7 +29,7 @@ export const getBacktestOptions = async (req, res) => {
 
 /**
  * POST /api/backtests/run
- * Body: { userId, exchange, symbol, timeframe, initialBalance, strategy: {name,parameters}, stopLoss, takeProfit }
+ * Body: { userId, exchange, symbol, timeframe, initialBalance, strategy, stopLoss, takeProfit, limit }
  */
 export const runAndSaveBacktests = async (req, res) => {
   try {
@@ -45,7 +45,9 @@ export const runAndSaveBacktests = async (req, res) => {
       limit = 1000,
     } = req.body;
 
-    if (!userId || !symbol) return res.status(400).json({ success: false, message: 'Missing userId or symbol' });
+    if (!userId || !symbol) {
+      return res.status(400).json({ success: false, message: 'Missing userId or symbol' });
+    }
 
     const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
       userId,
@@ -68,16 +70,48 @@ export const runAndSaveBacktests = async (req, res) => {
 
 /**
  * POST /api/backtests/batch
- * Body: { userId, exchange, paramCombos: [{symbol,timeframe,initialBalance, strategy:{name,parameters}, stopLoss, takeProfit}] }
+ * Body: { userId, exchange, paramCombos: [{symbol,timeframe,initialBalance,strategy,stopLoss,takeProfit,limit}] }
  */
 export const runBatchBacktestsController = async (req, res) => {
   try {
     const { userId, exchange = 'coinbasepro', paramCombos } = req.body;
+
     if (!userId || !Array.isArray(paramCombos) || paramCombos.length === 0) {
       return res.status(400).json({ success: false, message: 'Missing params for batch' });
     }
 
-    const { results, best } = await runBatchBacktests(userId, exchange, paramCombos);
+    const results = [];
+
+    for (const params of paramCombos) {
+      const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
+        userId,
+        exchange,
+        symbol: params.symbol,
+        timeframe: params.timeframe || '1h',
+        initialBalance: params.initialBalance || 1000,
+        strategy: params.strategy || { name: 'SMA', parameters: {} },
+        stopLoss: params.stopLoss || 0,
+        takeProfit: params.takeProfit || 0,
+        limit: params.limit || 1000,
+      });
+
+      results.push({ params, metrics, equityCurve, trades, saved });
+    }
+
+    // ✅ Pick best by final balance (from metrics or last trade balance)
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (const r of results) {
+      const finalBalance =
+        r.metrics?.finalBalance ??
+        (r.trades?.length ? r.trades[r.trades.length - 1].balance : 0);
+
+      if (finalBalance > bestScore) {
+        bestScore = finalBalance;
+        best = r.saved;
+      }
+    }
 
     res.json({ success: true, results, best });
   } catch (err) {
@@ -88,12 +122,13 @@ export const runBatchBacktestsController = async (req, res) => {
 
 /**
  * GET /api/backtests/user/:userId
- * List saved backtests for a user
  */
 export const getUserBacktests = async (req, res) => {
   try {
     const { userId } = req.params;
-    if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'Missing userId' });
+    }
 
     const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
     res.json({ success: true, backtests });

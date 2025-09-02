@@ -1,29 +1,24 @@
 // File: src/backend/routes/backtestRoutes.js
 import express from "express";
-import { protect } from "../middleware/authMiddleware.js";
 import {
-  getBacktestOptions,
-  runAndSaveBacktests,
-  runBatchBacktestsController,
-  getUserBacktests
+  createBacktest,
+  getAllBacktests,
+  getBacktestsByUser,
+  runBatchBacktests,
 } from "../controllers/backtestController.js";
 
 const router = express.Router();
 
-// Get backtest options
-// GET /api/backtests/options
-router.get("/options", protect, getBacktestOptions);
+// ✅ Batch route
+router.post("/batch", runBatchBacktests);
 
-// Run single backtest
-// POST /api/backtests/run
-router.post("/run", protect, runAndSaveBacktests);
+// ✅ Create single backtest
+router.post("/", createBacktest);
 
-// Run batch backtests
-// POST /api/backtests/batch
-router.post("/batch", protect, runBatchBacktestsController);
+// ✅ Get ALL backtests
+router.get("/", getAllBacktests);
 
-// Get all backtests for a user
-// GET /api/backtests/user/:userId
-router.get("/user/:userId", protect, getUserBacktests);
+// ✅ FIX: Get backtests by user (needed for TradingBot.jsx)
+router.get("/user/:userId", getBacktestsByUser);
 
 export default router;

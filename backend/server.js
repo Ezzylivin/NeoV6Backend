@@ -23,17 +23,17 @@ const corsOptions = {
 
     if (process.env.NODE_ENV === "production") {
       // Allow any Vercel frontend domain
-      const vercelRegex = /^https:\/\/.*\.vercel\.app$/;
-      if (vercelRegex.test(origin)) return callback(null, true);
+      if (origin.includes(".vercel.app")) return callback(null, true);
     }
 
     return callback(new Error("This origin is not allowed by CORS"));
   },
-  methods: ["GET", "POST", "PUT", "DELETE"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true,
   optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // handle preflight requests
 
 // --- JSON parser ---
 app.use(express.json());

@@ -1,28 +1,29 @@
-// File: backend/routes/backtestRoutes.js
-import express from "express";
+import express from 'express';
 import {
-  createBacktest,
-  runBacktest,
-  runBatchBacktests,
   getBacktestOptions,
-  // getBacktestsByUser,  <-- removed because not exported in controller
-} from "../controllers/backtestController.js";
+  runAndSaveBacktests,
+  runBatchBacktestsController,
+  getUserBacktests,
+  createBacktest,
+  getAllBacktests
+} from '../controllers/backtestController.js';
 
 const router = express.Router();
 
-// Create a new backtest
-router.post("/", createBacktest);
+// Dropdown values
+router.get('/options', getBacktestOptions);
 
-// Run a single backtest
-router.post("/run", runBacktest);
+// Run one backtest
+router.post('/run', runAndSaveBacktests);
 
 // Run batch backtests
-router.post("/batch", runBatchBacktests);
+router.post('/batch', runBatchBacktestsController);
 
-// Get backtest options
-router.get("/options", getBacktestOptions);
+// User-specific backtests
+router.get('/user/:userId', getUserBacktests);
 
-// 🚨 If you later implement `getBacktestsByUser` in the controller, add it back:
-// router.get("/user/:userId", getBacktestsByUser);
+// CRUD/debug routes
+router.post('/', createBacktest);
+router.get('/', getAllBacktests);
 
 export default router;

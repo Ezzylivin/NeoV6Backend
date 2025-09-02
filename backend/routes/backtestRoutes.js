@@ -11,17 +11,17 @@ router.get("/options", getBacktestOptions);
 // POST run backtest
 router.post("/run", runAndSaveBacktests);
 
-// GET recent backtests for a user
-router.get("/recent/:userId", async (req, res) => {
-  const { userId } = req.params;
-  if (!userId) return res.status(400).json({ success:false, message:"Missing userId" });
+// ✅ GET recent backtests for a user (supports both query & param style)
+router.get("/recent/:userId?", async (req, res) => {
+  const userId = req.params.userId || req.query.userId;
+  if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
 
   try {
     const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
-    res.json({ success:true, backtests });
+    res.json({ success: true, backtests });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success:false, message:"Failed to fetch backtests" });
+    console.error("Error fetching backtests:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch backtests" });
   }
 });
 

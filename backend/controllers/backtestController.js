@@ -1,17 +1,20 @@
-// backend/controllers/backtestController.js
+// File: src/backend/controllers/backtestController.js
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runRealisticBacktest } from "../services/backtestService.js";
 
-// Keep your options endpoint the same (minor cleanup)
+/**
+ * GET available backtest options
+ */
 export const getBacktestOptions = async (req, res) => {
   try {
     const symbols = await Price.distinct("symbol");
+
     res.json({
       success: true,
       options: {
         symbols: symbols.length ? symbols : ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
-        timeframes: ["1m", "5m", "10m", "15m", "30m", "1h", "4h", "1d", "3d"],
+        timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
         balances: [100, 500, 1000, 5000, 10000],
         strategies: ["SMA", "EMA", "RSI", "MACD"],
         risks: ["Low", "Medium", "High"],
@@ -23,7 +26,9 @@ export const getBacktestOptions = async (req, res) => {
   }
 };
 
-// New: realistic run + save
+/**
+ * POST run a single realistic backtest
+ */
 export const runAndSaveBacktests = async (req, res) => {
   try {
     const { userId, symbol, timeframe, initialBalance, strategy, risk } = req.body;
@@ -42,18 +47,54 @@ export const runAndSaveBacktests = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      backtests: [saved],
+      backtest: saved,
       metrics,
-      equityCurve, // [{time: Date, equity: number}]
+      equityCurve,
       trades,
     });
   } catch (err) {
-    console.error("[Backtest Internal Error]", err);
-    res.status(500).json({ success: false, message: err.message || "Internal server error during backtest" });
+    console.error("[Backtest Run Error]", err);
+    res.status(500).json({ success: false, message: err.message || "Internal error during backtest" });
   }
 };
 
-// Keep your “list backtests” route working as before for charts/history
+/**
+ * POST run batch backtests with different parameter combos
+ */
+export const runBatchBacktests = async (req, res) => {
+  try {
+    const { userId, paramCombos } = req.body;
+    if (!userId || !paramCombos || !Array.isArray(paramCombos)) {
+      return res.status(400).json({ success: false, message: "Missing userId or paramCombos" });
+    }
+
+    const results = [];
+    for (const params of paramCombos) {
+      const { symbol, timeframe, initialBalance, strategy, risk } = params;
+      const { saved, metrics } = await runRealisticBacktest({
+        userId,
+        symbol,
+        timeframe,
+        initialBalance,
+        strategy,
+        risk,
+      });
+      results.push({ saved, metrics });
+    }
+
+    // Select the best by profit (you can change this to Sharpe, winRate, etc.)
+    const best = results.sort((a, b) => b.metrics.profit - a.metrics.profit)[0];
+
+    res.json({ success: true, results, best });
+  } catch (err) {
+    console.error("[Batch Backtests Error]", err);
+    res.status(500).json({ success: false, message: err.message || "Batch backtests failed" });
+  }
+};
+
+/**
+ * GET list backtests (history)
+ */
 export const listBacktests = async (req, res) => {
   try {
     const { userId } = req.query;

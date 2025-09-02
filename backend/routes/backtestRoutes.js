@@ -3,7 +3,6 @@ import {
   runBacktest,
   runBatchBacktests,
   getUserBacktests,
-  deleteBacktest,
   getBacktestOptions,
 } from "../controllers/backtestController.js";
 
@@ -18,8 +17,6 @@ router.post("/batch", runBatchBacktests);
 // Get all backtests for a user
 router.get("/:userId", getUserBacktests);
 
-// Delete backtest
-router.delete("/:id", deleteBacktest);
 
 // Get selectable options for frontend
 router.get("/options/all", getBacktestOptions);

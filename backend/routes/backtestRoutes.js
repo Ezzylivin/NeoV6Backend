@@ -1,24 +1,17 @@
-// File: src/backend/routes/backtestRoutes.js
-import express from "express";
+// src/backend/routes/backtestRoutes.js (example)
+import express from 'express';
 import {
-  runBacktest,
-  runBatchBacktests,
+  runAndSaveBacktests,
+  runBatchBacktestsController,
   getUserBacktests,
   getBacktestOptions
-} from "../controllers/backtestController.js";
+} from '../controllers/backtestController.js';
 
 const router = express.Router();
 
-// Run a single backtest
-router.post("/run", runBacktest);
-
-// Run batch backtests
-router.post("/batch", runBatchBacktests);
-
-// Get all backtests for a user
-router.get("/user/:userId", getUserBacktests);
-
-// Get dropdown/options for backtests
-router.get("/options", getBacktestOptions);
+router.get('/options', getBacktestOptions);
+router.post('/run', runAndSaveBacktests);
+router.post('/batch', runBatchBacktestsController);
+router.get('/user/:userId', getUserBacktests);
 
 export default router;

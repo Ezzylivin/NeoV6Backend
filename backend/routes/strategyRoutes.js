@@ -1,19 +1,24 @@
-// src/backend/routes/strategyRoutes.js
+// File: src/backend/routes/strategyRoutes.js
 import express from "express";
 import {
-  getStrategies,
+  getUserStrategies,
   getStrategyById,
-  createStrategy,
-  updateStrategy,
+  upsertStrategy,
   deleteStrategy,
 } from "../controllers/strategyController.js";
 
 const router = express.Router();
 
-router.get("/", getStrategies);            // ?userId=
-router.get("/:id", getStrategyById);
-router.post("/", createStrategy);
-router.put("/:id", updateStrategy);
-router.delete("/:id", deleteStrategy);
+// --- Get all strategies for a user ---
+router.get("/:userId", getUserStrategies);
+
+// --- Get a single strategy by ID ---
+router.get("/id/:id", getStrategyById);
+
+// --- Create or update (upsert) a strategy ---
+router.post("/", upsertStrategy);
+
+// --- Delete a strategy ---
+router.delete("/:userId/:name", deleteStrategy);
 
 export default router;

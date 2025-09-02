@@ -312,22 +312,28 @@ export async function runRealisticBacktest({
   const { equityCurve, trades, metrics } = simulateStrategy(ohlcv, initialBalance, strategy, stopLoss, takeProfit);
 
   // 3) save to DB
-  const saved = await Backtest.create({
-    userId,
-    exchange,
-    symbol,
-    timeframe,
-    initialBalance,
-    strategy: strategy.name || strategy,
-    stopLoss,
-    takeProfit,
-    results: {
-      profit: +(metrics.netProfit || (metrics.finalBalance - initialBalance)).toFixed(2),
-      finalBalance: +(metrics.finalBalance || initialBalance).toFixed(2),
-    },
-    trades: trades.map(t => ({ ...t })), // ensure stored
-    equityCurve: equityCurve.map(p => ({ time: new Date(p.time), equity: p.equity })),
-  });
+ // inside runRealisticBacktest()
+const saved = await Backtest.create({
+  userId,
+  exchange,
+  symbol,
+  timeframe,
+  initialBalance,
+  strategy: {
+    name: strategy.name || strategy,
+    parameters: strategy.parameters || {}
+  },
+  stopLoss,
+  takeProfit,
+  risk: params?.risk || "Medium", // optional, for filtering
+  results: {
+    profit: +(metrics.netProfit || (metrics.finalBalance - initialBalance)).toFixed(2),
+    finalBalance: +(metrics.finalBalance || initialBalance).toFixed(2),
+  },
+  trades: trades.map(t => ({ ...t })),
+  equityCurve: equityCurve.map(p => ({ time: new Date(p.time), equity: p.equity })),
+});
+
 
   // attach metrics & arrays for controller response
   return {

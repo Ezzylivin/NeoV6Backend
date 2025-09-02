@@ -1,24 +1,28 @@
-// File: src/backend/routes/backtestRoutes.js
+// File: backend/routes/backtestRoutes.js
 import express from "express";
 import {
   createBacktest,
-  getAllBacktests,
-  getBacktestsByUser,
+  runBacktest,
   runBatchBacktests,
+  getBacktestOptions,
+  // getBacktestsByUser,  <-- removed because not exported in controller
 } from "../controllers/backtestController.js";
 
 const router = express.Router();
 
-// ✅ Batch route
-router.post("/batch", runBatchBacktests);
-
-// ✅ Create single backtest
+// Create a new backtest
 router.post("/", createBacktest);
 
-// ✅ Get ALL backtests
-router.get("/", getAllBacktests);
+// Run a single backtest
+router.post("/run", runBacktest);
 
-// ✅ FIX: Get backtests by user (needed for TradingBot.jsx)
-router.get("/user/:userId", getBacktestsByUser);
+// Run batch backtests
+router.post("/batch", runBatchBacktests);
+
+// Get backtest options
+router.get("/options", getBacktestOptions);
+
+// 🚨 If you later implement `getBacktestsByUser` in the controller, add it back:
+// router.get("/user/:userId", getBacktestsByUser);
 
 export default router;

@@ -1,4 +1,3 @@
-// File: src/backend/services/backtestService.js
 import { fetchOHLCV } from './marketDataService.js';
 import Backtest from '../dbStructure/backtest.js';
 
@@ -149,7 +148,6 @@ function simulateStrategy(ohlcv, initialBalance, strategy, stopLossPct = 0, take
       default: break;
     }
 
-    /* ---------- Manage Position ---------- */
     if (position) {
       const entry = position.entryPrice;
       const slPrice = stopLossPct > 0 ? entry * (1 - stopLossPct / 100) : null;
@@ -183,7 +181,6 @@ function simulateStrategy(ohlcv, initialBalance, strategy, stopLossPct = 0, take
     pushEquity(c.time);
   }
 
-  /* ---------- Close leftover position ---------- */
   const last = candles[len - 1];
   if (position) {
     balance += position.amount * last.close;
@@ -192,7 +189,6 @@ function simulateStrategy(ohlcv, initialBalance, strategy, stopLossPct = 0, take
     pushEquity(last.time);
   }
 
-  /* ---------- Metrics ---------- */
   const metrics = computeMetrics(equityCurve, initialBalance);
   metrics.tradesCount = trades.length;
   const wins = trades.filter(t => t.profit > 0).length;
@@ -218,18 +214,14 @@ export async function runRealisticBacktest({
   risk = 'Medium'
 }) {
   if (!userId || !symbol) throw new Error("Missing userId or symbol");
-
-  // ensure strategy is normalized
   if (typeof strategy === 'string') strategy = { name: strategy, parameters: {} };
   if (!strategy.parameters) strategy.parameters = {};
 
-  // fetch OHLCV safely
   const ohlcv = (await fetchOHLCV(exchange, symbol, timeframe, limit)) || [];
-  if (!ohlcv.length) return { equityCurve: [], trades: [], metrics: computeMetrics([], initialBalance) };
+  if (!ohlcv.length) return { equityCurve: [], trades: [], metrics: computeMetrics([], initialBalance), saved: null };
 
   const { equityCurve, trades, metrics } = simulateStrategy(ohlcv, initialBalance, strategy, stopLoss, takeProfit);
 
-  // safe DB write
   const saved = await Backtest.create({
     userId,
     exchange,
@@ -249,4 +241,33 @@ export async function runRealisticBacktest({
   });
 
   return { saved, equityCurve, trades, metrics };
+}
+
+export async function runBatchBacktests(userId, exchange = "coinbasepro", paramCombos = []) {
+  const results = [];
+  const concurrency = 4;
+  const queue = paramCombos.slice();
+
+  const workers = Array.from({ length: concurrency }).map(() =>
+    (async function worker() {
+      while (queue.length) {
+        const params = queue.shift();
+        try {
+          const r = await runRealisticBacktest({ userId, exchange, ...params });
+          results.push({ params, saved: r.saved, metrics: r.metrics });
+        } catch (err) {
+          console.warn("Batch backtest failed for params", params, err.message);
+        }
+      }
+    })()
+  );
+
+  await Promise.all(workers);
+
+  let best = null;
+  for (const r of results) {
+    if (!best || (r.saved?.results?.profit ?? 0) > (best.saved?.results?.profit ?? 0)) best = r;
+  }
+
+  return { results, best };
 }

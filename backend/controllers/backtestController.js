@@ -1,4 +1,3 @@
-// File: src/backend/controllers/backtestController.js
 import { runRealisticBacktest } from '../services/backtestService.js';
 import Backtest from '../dbStructure/backtest.js';
 import Price from '../dbStructure/price.js';
@@ -29,7 +28,6 @@ export const getBacktestOptions = async (req, res) => {
 
 /**
  * POST /api/backtests/run
- * Body: { userId, exchange, symbol, timeframe, initialBalance, strategy, stopLoss, takeProfit, limit }
  */
 export const runAndSaveBacktests = async (req, res) => {
   try {
@@ -43,6 +41,7 @@ export const runAndSaveBacktests = async (req, res) => {
       stopLoss = 0,
       takeProfit = 0,
       limit = 1000,
+      risk = "Medium"
     } = req.body;
 
     if (!userId || !symbol) {
@@ -50,18 +49,17 @@ export const runAndSaveBacktests = async (req, res) => {
     }
 
     const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
-  userId,
-  exchange,
-  symbol,
-  timeframe,
-  initialBalance,
-  strategy,
-  stopLoss,
-  takeProfit,
-  limit,
-  risk: req.body.risk || "Medium" // <-- new
-});
-
+      userId,
+      exchange,
+      symbol,
+      timeframe,
+      initialBalance,
+      strategy,
+      stopLoss,
+      takeProfit,
+      limit,
+      risk
+    });
 
     res.status(201).json({ success: true, backtests: [saved], metrics, equityCurve, trades });
   } catch (err) {
@@ -72,7 +70,6 @@ export const runAndSaveBacktests = async (req, res) => {
 
 /**
  * POST /api/backtests/batch
- * Body: { userId, exchange, paramCombos: [{symbol,timeframe,initialBalance,strategy,stopLoss,takeProfit,limit}] }
  */
 export const runBatchBacktestsController = async (req, res) => {
   try {
@@ -95,20 +92,18 @@ export const runBatchBacktestsController = async (req, res) => {
         stopLoss: params.stopLoss || 0,
         takeProfit: params.takeProfit || 0,
         limit: params.limit || 1000,
+        risk: params.risk || "Medium"
       });
 
       results.push({ params, metrics, equityCurve, trades, saved });
     }
 
-    // ✅ Pick best by final balance (from metrics or last trade balance)
+    // pick best by final balance
     let best = null;
     let bestScore = -Infinity;
 
     for (const r of results) {
-      const finalBalance =
-        r.metrics?.finalBalance ??
-        (r.trades?.length ? r.trades[r.trades.length - 1].balance : 0);
-
+      const finalBalance = r.metrics?.finalBalance ?? (r.trades?.length ? r.trades[r.trades.length - 1].balance : 0);
       if (finalBalance > bestScore) {
         bestScore = finalBalance;
         best = r.saved;
@@ -130,10 +125,7 @@ export const getUserBacktests = async (req, res) => {
     const { userId } = req.params;
     if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
 
-    const backtests = await Backtest.find({ userId })
-      .sort({ createdAt: -1 })
-      .select('_id symbol strategy initialBalance results risk createdAt');
-
+    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
     res.json({ success: true, backtests });
   } catch (err) {
     console.error('[List Backtests Error]', err);

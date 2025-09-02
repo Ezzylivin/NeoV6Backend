@@ -1,29 +1,28 @@
-import express from 'express';
-import {
-  getBacktestOptions,
-  runAndSaveBacktests,
-  runBatchBacktestsController,
-  getUserBacktests,
-  createBacktest,
-  getAllBacktests
-} from '../controllers/backtestController.js';
+// File: src/backend/routes/backtestRoutes.js
+import express from "express";
+import { runAndSaveBacktests, getBacktestOptions } from "../controllers/backtestController.js";
+import Backtest from "../dbStructure/backtest.js";
 
 const router = express.Router();
 
-// Dropdown values
-router.get('/options', getBacktestOptions);
+// GET options
+router.get("/options", getBacktestOptions);
 
-// Run one backtest
-router.post('/run', runAndSaveBacktests);
+// POST run backtest
+router.post("/run", runAndSaveBacktests);
 
-// Run batch backtests
-router.post('/batch', runBatchBacktestsController);
+// ✅ GET recent backtests for a user (supports both query & param style)
+router.get("/recent/:userId?", async (req, res) => {
+  const userId = req.params.userId || req.query.userId;
+  if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
 
-// User-specific backtests
-router.get('/user/:userId', getUserBacktests);
-
-// CRUD/debug routes
-router.post('/', createBacktest);
-router.get('/', getAllBacktests);
+  try {
+    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
+    res.json({ success: true, backtests });
+  } catch (err) {
+    console.error("Error fetching backtests:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch backtests" });
+  }
+});
 
 export default router;

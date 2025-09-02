@@ -15,7 +15,21 @@ export const getUserStrategies = async (req, res) => {
   }
 };
 
-// --- Create or update a strategy ---
+// --- Get a single strategy by ID ---
+export const getStrategyById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const strategy = await Strategy.findById(id);
+    if (!strategy) return res.status(404).json({ success: false, message: "Strategy not found" });
+
+    res.json({ success: true, strategy });
+  } catch (err) {
+    console.error("[Get StrategyById Error]", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// --- Create or update (upsert) a strategy ---
 export const upsertStrategy = async (req, res) => {
   try {
     const { userId, name, params } = req.body;
@@ -23,7 +37,7 @@ export const upsertStrategy = async (req, res) => {
 
     const strategy = await Strategy.findOneAndUpdate(
       { userId, name },
-      { params },
+      { params, name },
       { upsert: true, new: true }
     );
 

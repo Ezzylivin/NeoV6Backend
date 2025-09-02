@@ -217,29 +217,36 @@ export async function runRealisticBacktest({
   limit = 1000,
   risk = 'Medium'
 }) {
-  const ohlcv = await fetchOHLCV(exchange, symbol, timeframe, limit);
+  if (!userId || !symbol) throw new Error("Missing userId or symbol");
+
+  // ensure strategy is normalized
+  if (typeof strategy === 'string') strategy = { name: strategy, parameters: {} };
+  if (!strategy.parameters) strategy.parameters = {};
+
+  // fetch OHLCV safely
+  const ohlcv = (await fetchOHLCV(exchange, symbol, timeframe, limit)) || [];
+  if (!ohlcv.length) return { equityCurve: [], trades: [], metrics: computeMetrics([], initialBalance) };
+
   const { equityCurve, trades, metrics } = simulateStrategy(ohlcv, initialBalance, strategy, stopLoss, takeProfit);
 
+  // safe DB write
   const saved = await Backtest.create({
     userId,
     exchange,
     symbol,
     timeframe,
     initialBalance,
-    strategy: {
-      name: strategy.name || strategy,
-      parameters: strategy.parameters || {}
-    },
+    strategy,
     stopLoss,
     takeProfit,
     risk,
     results: {
-      profit: +(metrics.netProfit || (metrics.finalBalance - initialBalance)).toFixed(2),
-      finalBalance: +(metrics.finalBalance || initialBalance).toFixed(2)
+      profit: +(metrics.netProfit || 0).toFixed(2),
+      finalBalance: +(metrics.finalBalance || initialBalance).toFixed(2),
     },
     trades: trades.map(t => ({ ...t })),
-    equityCurve: equityCurve.map(p => ({ time: new Date(p.time), equity: p.equity }))
+    equityCurve: equityCurve.map(p => ({ time: new Date(p.time), equity: p.equity })),
   });
 
-  return saved;
+  return { saved, equityCurve, trades, metrics };
 }

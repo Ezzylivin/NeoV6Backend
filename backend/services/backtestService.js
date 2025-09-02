@@ -303,6 +303,7 @@ export async function runRealisticBacktest({
   stopLoss = 0,
   takeProfit = 0,
   limit = 1000,
+ risk = "Medium" 
 }) {
   // 1) normalize symbol
   // try to fetch ohlcv (marketDataService handles candidates and cache)

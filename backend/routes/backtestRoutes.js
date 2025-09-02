@@ -1,24 +1,29 @@
+// File: src/backend/routes/backtestRoutes.js
 import express from "express";
+import { protect } from "../middleware/authMiddleware.js";
 import {
-  runBacktest,
-  runBatchBacktests,
-  getUserBacktests,
   getBacktestOptions,
+  runAndSaveBacktests,
+  runBatchBacktestsController,
+  getUserBacktests
 } from "../controllers/backtestController.js";
 
 const router = express.Router();
 
+// Get backtest options
+// GET /api/backtests/options
+router.get("/options", protect, getBacktestOptions);
+
 // Run single backtest
-router.post("/", runBacktest);
+// POST /api/backtests/run
+router.post("/run", protect, runAndSaveBacktests);
 
 // Run batch backtests
-router.post("/batch", runBatchBacktests);
+// POST /api/backtests/batch
+router.post("/batch", protect, runBatchBacktestsController);
 
 // Get all backtests for a user
-router.get("/:userId", getUserBacktests);
-
-
-// Get selectable options for frontend
-router.get("/options/all", getBacktestOptions);
+// GET /api/backtests/user/:userId
+router.get("/user/:userId", protect, getUserBacktests);
 
 export default router;

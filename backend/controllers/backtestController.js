@@ -1,10 +1,8 @@
-import { runRealisticBacktest } from '../services/backtestService.js';
+import { runRealisticBacktest, runBatchBacktests } from '../services/backtestService.js';
 import Backtest from '../dbStructure/backtest.js';
 import Price from '../dbStructure/price.js';
 
-/**
- * GET /api/backtests/options
- */
+/* ---------- GET OPTIONS ---------- */
 export const getBacktestOptions = async (req, res) => {
   try {
     const symbols = await Price.distinct('symbol');
@@ -26,109 +24,67 @@ export const getBacktestOptions = async (req, res) => {
   }
 };
 
-/**
- * POST /api/backtests/run
- */
-export const runAndSaveBacktests = async (req, res) => {
+/* ---------- SINGLE BACKTEST ---------- */
+export const runBacktestController = async (req, res) => {
   try {
-    const {
-      userId,
-      exchange = 'coinbasepro',
-      symbol,
-      timeframe = '1h',
-      initialBalance = 1000,
-      strategy = { name: 'SMA', parameters: {} },
-      stopLoss = 0,
-      takeProfit = 0,
-      limit = 1000,
-      risk = "Medium"
-    } = req.body;
+    const { userId, strategy, ...params } = req.body;
+    if (!userId || !params.symbol) return res.status(400).json({ success: false, message: "Missing userId or symbol" });
 
-    if (!userId || !symbol) {
-      return res.status(400).json({ success: false, message: 'Missing userId or symbol' });
-    }
+    let strat = strategy;
+    if (!strat) strat = { name: "SMA", parameters: {} };
+    if (typeof strat === "string") strat = { name: strat, parameters: {} };
+    if (!strat.parameters) strat.parameters = {};
 
-    const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
-      userId,
-      exchange,
-      symbol,
-      timeframe,
-      initialBalance,
-      strategy,
-      stopLoss,
-      takeProfit,
-      limit,
-      risk
-    });
-
-    res.status(201).json({ success: true, backtests: [saved], metrics, equityCurve, trades });
+    const result = await runRealisticBacktest({ userId, strategy: strat, ...params });
+    res.status(201).json({ success: true, backtests: [result.saved], metrics: result.metrics, equityCurve: result.equityCurve, trades: result.trades });
   } catch (err) {
-    console.error('[Backtest Run Error]', err);
-    res.status(500).json({ success: false, message: err.message || 'Internal error' });
+    console.error("[Backtest Run Error]", err);
+    res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
   }
 };
 
-/**
- * POST /api/backtests/batch
- */
+/* ---------- BATCH BACKTEST ---------- */
 export const runBatchBacktestsController = async (req, res) => {
   try {
-    const { userId, exchange = 'coinbasepro', paramCombos } = req.body;
-
-    if (!userId || !Array.isArray(paramCombos) || paramCombos.length === 0) {
-      return res.status(400).json({ success: false, message: 'Missing params for batch' });
+    const { userId, paramCombos, exchange = 'coinbasepro' } = req.body;
+    if (!userId || !Array.isArray(paramCombos) || !paramCombos.length) {
+      return res.status(400).json({ success: false, message: "Missing params for batch" });
     }
 
-    const results = [];
+    // normalize each param
+    const normalized = paramCombos.map(p => {
+      if (!p.strategy) p.strategy = { name: "SMA", parameters: {} };
+      if (typeof p.strategy === "string") p.strategy = { name: p.strategy, parameters: {} };
+      if (!p.strategy.parameters) p.strategy.parameters = {};
+      return {
+        ...p,
+        initialBalance: Number(p.initialBalance) || 1000,
+        stopLoss: Number(p.stopLoss) || 0,
+        takeProfit: Number(p.takeProfit) || 0,
+        timeframe: p.timeframe || '1h',
+        limit: Number(p.limit) || 1000,
+        risk: p.risk || "Medium"
+      };
+    });
 
-    for (const params of paramCombos) {
-      const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
-        userId,
-        exchange,
-        symbol: params.symbol,
-        timeframe: params.timeframe || '1h',
-        initialBalance: params.initialBalance || 1000,
-        strategy: params.strategy || { name: 'SMA', parameters: {} },
-        stopLoss: params.stopLoss || 0,
-        takeProfit: params.takeProfit || 0,
-        limit: params.limit || 1000,
-        risk: params.risk || "Medium"
-      });
-
-      results.push({ params, metrics, equityCurve, trades, saved });
-    }
-
-    // pick best by final balance
-    let best = null;
-    let bestScore = -Infinity;
-
-    for (const r of results) {
-      const finalBalance = r.metrics?.finalBalance ?? (r.trades?.length ? r.trades[r.trades.length - 1].balance : 0);
-      if (finalBalance > bestScore) {
-        bestScore = finalBalance;
-        best = r.saved;
-      }
-    }
-
-    res.json({ success: true, results, best });
+    const { results, best } = await runBatchBacktests(userId, exchange, normalized);
+    res.status(200).json({ success: true, results, best });
   } catch (err) {
-    console.error('[Batch Backtests Error]', err);
-    res.status(500).json({ success: false, message: err.message || 'Internal error' });
+    console.error("[Batch Backtests Error]", err);
+    res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
   }
 };
 
-/**
- * GET /api/backtests/user/:userId
- */
+/* ---------- GET USER BACKTESTS ---------- */
 export const getUserBacktests = async (req, res) => {
   try {
     const { userId } = req.params;
-    if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
+    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
 
     const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
-    res.json({ success: true, backtests });
+    res.status(200).json({ success: true, backtests });
   } catch (err) {
-    console.error('[List Backtests Error]', err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("[List Backtests Error]", err);
+    res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
   }
 };

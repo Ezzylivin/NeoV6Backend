@@ -126,11 +126,12 @@ export const runBatchBacktestsController = async (req, res) => {
 export const getUserBacktests = async (req, res) => {
   try {
     const { userId } = req.params;
-    if (!userId) {
-      return res.status(400).json({ success: false, message: 'Missing userId' });
-    }
+    if (!userId) return res.status(400).json({ success: false, message: 'Missing userId' });
 
-    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
+    const backtests = await Backtest.find({ userId })
+      .sort({ createdAt: -1 })
+      .select('_id symbol strategy initialBalance results risk createdAt');
+
     res.json({ success: true, backtests });
   } catch (err) {
     console.error('[List Backtests Error]', err);

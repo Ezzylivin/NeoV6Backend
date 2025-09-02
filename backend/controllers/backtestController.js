@@ -1,10 +1,11 @@
 // File: src/backend/controllers/backtestController.js
-import { runRealisticBacktest, runBatchBacktests } from '../services/backtestService.js';
+import { runRealisticBacktest } from '../services/backtestService.js';
 import Backtest from '../dbStructure/backtest.js';
 import Price from '../dbStructure/price.js';
 
 /**
  * GET /api/backtests/options
+ * Provides dropdown values for frontend.
  */
 export const getBacktestOptions = async (req, res) => {
   try {
@@ -29,6 +30,7 @@ export const getBacktestOptions = async (req, res) => {
 
 /**
  * POST /api/backtests/run
+ * Runs a single simulation and saves result.
  */
 export const runAndSaveBacktests = async (req, res) => {
   try {
@@ -73,7 +75,13 @@ export const runAndSaveBacktests = async (req, res) => {
       };
     }
 
-    res.status(201).json({ success: true, backtests: [result.saved], metrics: result.metrics, equityCurve: result.equityCurve, trades: result.trades });
+    res.status(201).json({
+      success: true,
+      backtests: result.saved ? [result.saved] : [],
+      metrics: result.metrics,
+      equityCurve: result.equityCurve,
+      trades: result.trades
+    });
   } catch (err) {
     console.error('[Backtest Run Error]', err);
     res.status(500).json({ success: false, message: err.message || 'Internal error' });
@@ -82,6 +90,7 @@ export const runAndSaveBacktests = async (req, res) => {
 
 /**
  * POST /api/backtests/batch
+ * Runs multiple parameter combos and saves each.
  */
 export const runBatchBacktestsController = async (req, res) => {
   try {
@@ -121,11 +130,11 @@ export const runBatchBacktestsController = async (req, res) => {
       }
     }
 
-    // pick best by final balance
+    // Pick best by final balance
     let best = null;
     let bestScore = -Infinity;
     for (const r of results) {
-      const finalBalance = r.metrics?.finalBalance ?? (r.trades?.length ? r.trades[r.trades.length - 1].balance : 0);
+      const finalBalance = r.metrics?.finalBalance ?? 0;
       if (finalBalance > bestScore) {
         bestScore = finalBalance;
         best = r.saved;
@@ -141,6 +150,7 @@ export const runBatchBacktestsController = async (req, res) => {
 
 /**
  * GET /api/backtests/user/:userId
+ * Fetches all backtests for a specific user.
  */
 export const getUserBacktests = async (req, res) => {
   try {
@@ -152,5 +162,41 @@ export const getUserBacktests = async (req, res) => {
   } catch (err) {
     console.error('[List Backtests Error]', err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * ✅ Extra CRUD-style endpoints
+ */
+
+// Create a backtest manually (no simulation)
+export const createBacktest = async (req, res) => {
+  try {
+    const { userId, name, parameters, result } = req.body;
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+    const backtest = new Backtest({
+      userId,
+      name: name || "Untitled Backtest",
+      parameters: parameters || {},
+      result: result || {}
+    });
+    const saved = await backtest.save();
+    res.status(201).json(saved);
+  } catch (error) {
+    console.error("Error creating backtest:", error);
+    res.status(500).json({ message: "Server error while creating backtest" });
+  }
+};
+
+// Get all backtests (admin/debug)
+export const getAllBacktests = async (req, res) => {
+  try {
+    const backtests = await Backtest.find();
+    res.json(backtests);
+  } catch (error) {
+    console.error("Error fetching backtests:", error);
+    res.status(500).json({ message: "Server error while fetching backtests" });
   }
 };

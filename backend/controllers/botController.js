@@ -16,22 +16,24 @@ export const startBotController = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
+    // Validate symbol
     if (!TOP_PAIRS.includes(symbol)) {
-      return res.status(400).json({ success: false, message: "Symbol not allowed" });
+      return res.status(400).json({ success: false, message: `Symbol ${symbol} not allowed` });
     }
 
+    // Validate exchange
     if (strategy?.exchange && !US_EXCHANGES.includes(strategy.exchange.toLowerCase())) {
-      return res.status(400).json({ success: false, message: "Exchange not allowed" });
+      return res.status(400).json({ success: false, message: `Exchange ${strategy.exchange} not allowed` });
     }
 
-    // Save strategy in DB
+    // Save/update strategy in DB
     const userStrategy = await Strategy.findOneAndUpdate(
-      { userId },
-      { name: strategy?.name || "Default Strategy", params: strategy?.params || {} },
+      { userId, name: strategy?.name || "Default Strategy" },
+      { params: strategy?.params || {} },
       { upsert: true, new: true }
     );
 
-    // Create initial history entry
+    // Save initial bot history
     const historyEntry = await TradingBotHistory.create({
       userId,
       symbol,

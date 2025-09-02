@@ -200,3 +200,12 @@ export const getAllBacktests = async (req, res) => {
     res.status(500).json({ message: "Server error while fetching backtests" });
   }
 };
+
+export {
+  getBacktestOptions,
+  runAndSaveBacktests,
+  runBatchBacktestsController,
+  getUserBacktests,
+  createBacktest,
+  getAllBacktests
+};

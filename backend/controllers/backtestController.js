@@ -204,6 +204,5 @@ export const getAllBacktests = async (req, res) => {
 export {
   getBacktestOptions,
   runAndSaveBacktests,
-  runBatchBacktestsController,
-  getUserBacktests
+  runBatchBacktestsController
 };

@@ -3,7 +3,7 @@ import express from "express";
 import { isValidMarket } from "../utils/validateMarket.js";
 import {
   runBacktest,
-  getUserBacktests,
+  listBacktests,
   deleteBacktest,
   getBacktestOptions,
   runAndSaveBacktests
@@ -32,7 +32,7 @@ router.post("/run", async (req, res) => {
 });
 
 // --- List all backtests for a user ---
-router.get("/user/:userId", getUserBacktests);
+router.get("/user/:userId", listBacktests);
 
 // --- Delete a backtest ---
 router.delete("/:userId/:id", deleteBacktest);

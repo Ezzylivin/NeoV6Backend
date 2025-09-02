@@ -205,6 +205,5 @@ export {
   getBacktestOptions,
   runAndSaveBacktests,
   runBatchBacktestsController,
-  getUserBacktests,
-  createBacktest
+  getUserBacktests
 };

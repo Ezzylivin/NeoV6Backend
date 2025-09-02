@@ -1,30 +1,25 @@
-// File: src/backend/routes/tradingBotRoutes.js
-import express from "express";
-import {
-  startBotController,
-  stopBotController,
-  getBotStatusController,
-  getHistoryController, // Make sure this exists in botController.js
-} from "../controllers/botController.js";
+import express from 'express';
+import { isValidMarket } from '../utils/validateMarket.js';
+import Bot from '../dbStructure/bot.js';
 
 const router = express.Router();
 
-// 1️⃣ Trading Bot History for a user
-// GET /api/tradingbots/history/:userId
-router.get("/history/:userId", getHistoryController);
+router.post('/start', async (req, res) => {
+  const { userId, symbol, strategy, initialBalance, timeframe, risk, exchange = 'coinbase' } = req.body;
 
-// 2️⃣ Start a bot
-router.post("/start", startBotController);
+  try {
+    // Validate the symbol is allowed
+    const valid = await isValidMarket(exchange, symbol);
+    if (!valid) return res.status(400).json({ message: `Invalid symbol ${symbol} for exchange ${exchange}` });
 
-// 3️⃣ Stop a bot
-router.post("/stop", stopBotController);
+    // Start bot logic (your existing code)
+    const bot = await Bot.create({ userId, symbol, strategy, initialBalance, timeframe, risk, exchange, isRunning: true });
 
-// 4️⃣ Get bot status
-router.get("/status", getBotStatusController);
-
-// 5️⃣ Optional test route
-router.get("/test", (req, res) => {
-  res.json({ bot: "Bot endpoint is working." });
+    res.json({ message: 'Bot started', bot });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to start bot' });
+  }
 });
 
 export default router;

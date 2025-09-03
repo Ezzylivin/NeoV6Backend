@@ -1,4 +1,3 @@
-// File: backend/controllers/backtestController.js
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
@@ -57,7 +56,6 @@ export const runAndSaveBacktests = async (req, res) => {
       stopLoss: stopLoss ?? 0
     });
 
-    // Safe profit logging
     const profit = saved?.profit ?? 0;
     await logToDb(
       userId,

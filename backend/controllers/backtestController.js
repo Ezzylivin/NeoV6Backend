@@ -14,17 +14,15 @@ export const getBacktestOptions = async (req, res) => {
         symbols: symbols.length ? symbols : ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
         timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
         balances: [100, 500, 1000, 5000, 10000],
-        strategies: [
-          "SMA","EMA","RSI","MACD","BollingerBands","Stochastic","VWAP","ATR"
-        ],
-        risks: ["Low","Medium","High"],
+        strategies: ["SMA", "EMA", "RSI", "MACD", "BollingerBands", "Stochastic", "VWAP", "ATR"],
+        risks: ["Low", "Medium", "High"],
         stopLosses: [0.5, 1, 2, 3, 5],
         takeProfits: [1, 2, 3, 5, 10]
       }
     });
   } catch (err) {
     console.error("[Options Error]", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message || "Failed to fetch backtest options" });
   }
 };
 
@@ -38,8 +36,8 @@ export const runAndSaveBacktests = async (req, res) => {
       initialBalance = 1000,
       strategy = { name: "SMA", parameters: {} },
       risk = "Medium",
-      takeProfit = null,
-      stopLoss = null
+      takeProfit = 0,
+      stopLoss = 0
     } = req.body;
 
     if (!userId || !symbol) {
@@ -55,13 +53,15 @@ export const runAndSaveBacktests = async (req, res) => {
       initialBalance: Number(initialBalance),
       strategy: normalizedStrategy,
       risk,
-      takeProfit,
-      stopLoss
+      takeProfit: takeProfit ?? 0,
+      stopLoss: stopLoss ?? 0
     });
 
+    // Safe profit logging
+    const profit = saved?.profit ?? 0;
     await logToDb(
       userId,
-      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit} | SL: ${stopLoss} | Profit: $${saved.profit.toFixed(2)}`
+      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`
     );
 
     res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
@@ -97,6 +97,6 @@ export const getUserBacktests = async (req, res) => {
     res.json({ success: true, backtests });
   } catch (err) {
     console.error("[List Backtests Error]", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message || "Failed to fetch user backtests" });
   }
 };

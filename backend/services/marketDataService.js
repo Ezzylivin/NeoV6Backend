@@ -58,3 +58,6 @@ export async function fetchOHLCV(exchangeId = 'coinbasepro', symbol = 'BTC/USD',
   const friendly = lastErr ? lastErr.message || lastErr.toString() : 'unknown';
   throw new Error(`Failed to fetch OHLCV from ${exchangeId} for ${symbol}: ${friendly}`);
 }
+
+  export default { fetchOHLCV };
+

@@ -4,7 +4,13 @@ import Backtest from "../dbStructure/backtest.js";
 import { logToDb } from "./logService.js";
 
 /**
- * Run a single backtest safely with full metrics, trades, TP/SL
+ * Run a single backtest with safety checks
+ * Upgrades:
+ * 1. Validates inputs
+ * 2. Handles empty price data
+ * 3. TP/SL optional handling
+ * 4. Catches errors in loops
+ * 5. Returns consistent metrics even with no trades
  */
 export async function runBacktest({
   userId,
@@ -19,14 +25,13 @@ export async function runBacktest({
   slippageBps = 5,
   limit = 2000
 } = {}) {
-  // --- 1. Validate required inputs ---
   if (!userId || !symbol || !strategy?.name) {
     throw new Error("Missing required fields: userId, symbol, or strategy.name");
   }
 
   console.log("[RunBacktest Payload]", { userId, symbol, timeframe, initialBalance, strategy, risk, takeProfit, stopLoss });
 
-  // --- 2. Fetch historical prices and handle empty ---
+  // --- Fetch historical prices safely ---
   const rows = await Price.find({ symbol }).sort({ timestamp: 1 }).limit(limit);
   if (!rows || rows.length < 2) {
     const emptyMetrics = {
@@ -43,7 +48,6 @@ export async function runBacktest({
     return { saved: null, metrics: emptyMetrics, equityCurve: [], trades: [] };
   }
 
-  // --- 3. Prepare candles ---
   const candles = rows.map(r => ({ time: r.timestamp, price: r.price, raw: r }));
   let balance = initialBalance;
   let asset = 0;
@@ -52,11 +56,9 @@ export async function runBacktest({
   const slip = slippageBps / 10000;
 
   try {
-    // --- 4. Run backtest simulation ---
     for (let i = 1; i < candles.length; i++) {
-      const prevPrice = candles[i - 1].price;
+      const prevPrice = candles[i-1].price;
       const curPrice = candles[i].price;
-
       const decision = curPrice > prevPrice ? "BUY" : "SELL";
 
       equityCurve.push({ time: candles[i].time, equity: +(balance + asset * curPrice).toFixed(2) });
@@ -75,7 +77,6 @@ export async function runBacktest({
 
         let profit = +(proceeds - asset * entryPrice).toFixed(2);
 
-        // --- 5. Safe TP/SL calculation ---
         const pnlPct = ((fill - entryPrice) / entryPrice) * 100;
         if (takeProfit != null && pnlPct >= takeProfit) {
           profit = +(asset * entryPrice * (takeProfit / 100)).toFixed(2);
@@ -100,10 +101,10 @@ export async function runBacktest({
     throw new Error("Error during backtest calculation");
   }
 
-  const lastPrice = candles[candles.length - 1].price;
-  equityCurve.push({ time: candles[candles.length - 1].time, equity: +(balance + asset * lastPrice).toFixed(2) });
+  const lastPrice = candles[candles.length-1].price;
+  equityCurve.push({ time: candles[candles.length-1].time, equity: +(balance + asset * lastPrice).toFixed(2) });
 
-  // --- Metrics ---
+  // --- Calculate metrics safely ---
   const finalBalance = balance + asset * lastPrice;
   const netProfit = +(finalBalance - initialBalance).toFixed(2);
   const wins = trades.filter(t => t.profit > 0).length;
@@ -114,7 +115,7 @@ export async function runBacktest({
   let maxDd = 0;
   for (const e of equityCurve) {
     if (e.equity > peak) peak = e.equity;
-    const dd = (peak - e.equity) / (peak || 1);
+    const dd = (peak - e.equity)/(peak||1);
     if (dd > maxDd) maxDd = dd;
   }
 
@@ -122,15 +123,15 @@ export async function runBacktest({
 
   const returns = [];
   for (let i = 1; i < equityCurve.length; i++) {
-    const prev = equityCurve[i - 1].equity;
+    const prev = equityCurve[i-1].equity;
     const cur = equityCurve[i].equity;
-    returns.push(prev === 0 ? 0 : (cur - prev) / prev);
+    returns.push(prev === 0 ? 0 : (cur - prev)/prev);
   }
-  const sr = returns.length < 2 ? 0 : +(Math.sqrt(252) * (returns.reduce((a,b)=>a+b,0)/returns.length)/Math.sqrt(returns.reduce((a,b)=>a+Math.pow(b-(returns.reduce((a,b)=>a+b,0)/returns.length),2),0)/(returns.length-1))).toFixed(2);
+  const sr = returns.length < 2 ? 0 : +(Math.sqrt(252)*(returns.reduce((a,b)=>a+b,0)/returns.length)/Math.sqrt(returns.reduce((a,b)=>a+Math.pow(b-(returns.reduce((a,b)=>a+b,0)/returns.length),2),0)/(returns.length-1))).toFixed(2);
 
   const startTime = candles[0].time;
-  const endTime = candles[candles.length - 1].time;
-  const years = Math.max((endTime - startTime) / (365*24*3600*1000), 1/365);
+  const endTime = candles[candles.length-1].time;
+  const years = Math.max((endTime - startTime)/(365*24*3600*1000), 1/365);
   const cg = +((Math.pow(finalBalance/initialBalance, 1/years) - 1)*100).toFixed(2);
 
   const metrics = {
@@ -168,7 +169,10 @@ export async function runBacktest({
   return { saved, metrics, equityCurve, trades };
 }
 
-// --- Batch backtests ---
+/**
+ * Run multiple backtests in batch safely
+ * Upgrade: Handles param combos in sequence and identifies best backtest
+ */
 export async function runBatchBacktests(userId, exchange, paramCombos) {
   const results = [];
   let best = null;
@@ -182,5 +186,5 @@ export async function runBatchBacktests(userId, exchange, paramCombos) {
   return { results, best };
 }
 
-// --- Alias for botService ---
+// Alias for realistic bot use
 export const runRealisticBacktest = runBacktest;

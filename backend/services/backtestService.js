@@ -4,11 +4,21 @@ import Backtest from "../dbStructure/backtest.js";
 import { logToDb } from "./logService.js";
 
 /**
- * Run a single backtest with safety checks
- * Upgrades:
- * 1. Sanitizes NaN values for profit/finalBalance before save
- * 2. Always returns consistent metrics, even with no trades
- * 3. Handles TP/SL safely
+ * Simple strategy helper (mocked SMA or default price change)
+ */
+function executeStrategy(strategyName, candles, i, parameters = {}) {
+  if (strategyName === "SMA") {
+    const period = parameters.period || 3;
+    if (i < period) return null;
+    const sma = candles.slice(i - period, i).reduce((sum, c) => sum + c.price, 0) / period;
+    return candles[i].price > sma ? "BUY" : "SELL";
+  }
+  // Default: buy if price increased, sell if decreased
+  return candles[i].price > candles[i - 1].price ? "BUY" : "SELL";
+}
+
+/**
+ * Run a single backtest
  */
 export async function runBacktest({
   userId,
@@ -29,7 +39,6 @@ export async function runBacktest({
 
   console.log("[RunBacktest Payload]", { userId, symbol, timeframe, initialBalance, strategy, risk, takeProfit, stopLoss });
 
-  // --- Fetch historical prices safely ---
   const rows = await Price.find({ symbol }).sort({ timestamp: 1 }).limit(limit);
   if (!rows || rows.length < 2) {
     const emptyMetrics = {
@@ -55,27 +64,27 @@ export async function runBacktest({
 
   try {
     for (let i = 1; i < candles.length; i++) {
-      const prevPrice = candles[i - 1].price;
       const curPrice = candles[i].price;
-      const decision = curPrice > prevPrice ? "BUY" : "SELL";
+      const decision = executeStrategy(strategy.name, candles, i, strategy.parameters);
 
       equityCurve.push({ time: candles[i].time, equity: +(balance + asset * curPrice).toFixed(2) });
 
       if (decision === "BUY" && balance > 0) {
-        const spend = balance;
-        const fill = curPrice * (1 + slip);
-        asset += spend / fill;
+        const fillPrice = curPrice * (1 + slip);
+        asset += balance / fillPrice;
+        trades.push({ entryTime: candles[i].time, entryPrice: fillPrice, position: "long" });
         balance = 0;
-        trades.push({ entryTime: candles[i].time, entryPrice: fill, position: "long" });
-      } else if (asset > 0) {
-        const fill = curPrice * (1 - slip);
-        const proceeds = asset * fill;
+      }
+
+      if (asset > 0 && (decision === "SELL" || i === candles.length - 1)) {
+        const fillPrice = curPrice * (1 - slip);
+        const proceeds = asset * fillPrice;
         const openTrade = trades.slice().reverse().find(t => t.entryTime && !t.exitTime);
         const entryPrice = openTrade?.entryPrice ?? curPrice;
 
         let profit = +(proceeds - asset * entryPrice).toFixed(2);
+        const pnlPct = ((fillPrice - entryPrice) / entryPrice) * 100;
 
-        const pnlPct = ((fill - entryPrice) / entryPrice) * 100;
         if (takeProfit != null && pnlPct >= takeProfit) {
           profit = +(asset * entryPrice * (takeProfit / 100)).toFixed(2);
         } else if (stopLoss != null && pnlPct <= -stopLoss) {
@@ -84,7 +93,7 @@ export async function runBacktest({
 
         trades.push({
           exitTime: candles[i].time,
-          exitPrice: fill,
+          exitPrice: fillPrice,
           profit,
           position: "long",
           result: profit > 0 ? "win" : profit < 0 ? "loss" : "breakeven"
@@ -102,12 +111,12 @@ export async function runBacktest({
   const lastPrice = candles[candles.length - 1].price;
   equityCurve.push({ time: candles[candles.length - 1].time, equity: +(balance + asset * lastPrice).toFixed(2) });
 
-  // --- Calculate metrics safely ---
+  // Metrics calculation with NaN sanitization
   let finalBalance = balance + asset * lastPrice;
-  if (isNaN(finalBalance)) finalBalance = initialBalance; // ✅ sanitize
+  if (isNaN(finalBalance)) finalBalance = initialBalance;
 
   let netProfit = +(finalBalance - initialBalance).toFixed(2);
-  if (isNaN(netProfit)) netProfit = 0; // ✅ sanitize
+  if (isNaN(netProfit)) netProfit = 0;
 
   const wins = trades.filter(t => t.profit > 0).length;
   const losses = trades.filter(t => t.profit < 0).length;
@@ -136,7 +145,7 @@ export async function runBacktest({
   const startTime = candles[0].time;
   const endTime = candles[candles.length - 1].time;
   const years = Math.max((endTime - startTime) / (365 * 24 * 3600 * 1000), 1 / 365);
-  const cg = +((Math.pow(finalBalance / initialBalance, 1 / years) - 1) * 100).toFixed(2);
+  const cagr = +((Math.pow(finalBalance / initialBalance, 1 / years) - 1) * 100).toFixed(2);
 
   const metrics = {
     initialBalance,
@@ -146,11 +155,11 @@ export async function runBacktest({
     maxDrawdown: +(maxDd * 100).toFixed(2),
     profitFactor: pf,
     sharpeRatio: sr,
-    cagr: cg,
+    cagr,
     tradesCount: trades.length
   };
 
-  // --- Save to DB with sanitized numbers ---
+  // Save to DB
   const saved = await Backtest.create({
     userId,
     symbol,
@@ -173,7 +182,9 @@ export async function runBacktest({
   return { saved, metrics, equityCurve, trades };
 }
 
-// Run multiple backtests safely
+/**
+ * Run multiple backtests safely
+ */
 export async function runBatchBacktests(userId, exchange, paramCombos) {
   const results = [];
   let best = null;

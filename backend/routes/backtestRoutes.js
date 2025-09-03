@@ -14,12 +14,28 @@ router.get("/options", getBacktestOptions);
 // --- POST run a single backtest ---
 router.post("/run", runAndSaveBacktests);
 
-// --- POST run batch backtests (optional) ---
-// You may already have a controller for batch runs; include if needed
-// router.post("/batch", runBatchBacktests);
+// --- GET all backtests for a user (query or param) ---
+// Frontend now can call either:
+// GET /backtests?userId=123   OR   GET /backtests/recent/123
+router.get("/", async (req, res) => {
+  const userId = req.query.userId;
+  if (!userId)
+    return res
+      .status(400)
+      .json({ success: false, message: "Missing userId" });
 
-// --- GET recent backtests for a user ---
-// Supports either URL param /recent/:userId or query ?userId=...
+  try {
+    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
+    res.json({ success: true, backtests });
+  } catch (err) {
+    console.error("[Backtest Fetch Error]", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch backtests" });
+  }
+});
+
+// --- GET recent backtests for a user (optional, for legacy calls) ---
 router.get("/recent/:userId?", async (req, res) => {
   const userId = req.params.userId || req.query.userId;
   if (!userId)
@@ -38,7 +54,7 @@ router.get("/recent/:userId?", async (req, res) => {
   }
 });
 
-// --- GET a single backtest by ID (optional) ---
+// --- GET a single backtest by ID ---
 router.get("/:id", async (req, res) => {
   try {
     const backtest = await Backtest.findById(req.params.id);

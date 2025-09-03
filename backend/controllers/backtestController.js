@@ -128,4 +128,12 @@ export const getUserBacktests = async (req, res) => {
     console.error("[List Backtests Error]", err);
     res.status(500).json({ success: false, message: err.message || "Failed to fetch user backtests" });
   }
+
+  export {
+  getBacktestOptions,
+  runAndSaveBacktests,
+  runBatchBacktestsController,
+  getUserBacktests,
+  runRealisticBacktestsController   // ✅ make sure it’s here
 };
+

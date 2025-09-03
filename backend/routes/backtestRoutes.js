@@ -1,10 +1,11 @@
+// File: backend/routes/backtestRoutes.js
 import express from "express";
 import {
+  getBacktestOptions,
   runAndSaveBacktests,
   runBatchBacktestsController,
-  runRealisticBacktestsController,
-  getBacktestOptions,
   getUserBacktests,
+  runRealisticBacktestsController
 } from "../controllers/backtestController.js";
 
 const router = express.Router();
@@ -14,9 +15,9 @@ router.all("*", (req, res, next) => {
   const allowedMethods = {
     "/options": ["GET"],
     "/run": ["POST"],
-    "/run-realistic": ["POST"],
     "/batch": ["POST"],
     "/user/:userId": ["GET"],
+    "/realistic": ["POST"], // ✅ new realistic route
   };
 
   const routeKey = Object.keys(allowedMethods).find(path => req.path.startsWith(path)) || null;
@@ -32,11 +33,11 @@ router.get("/options", getBacktestOptions);
 // --- POST /api/backtests/run ---
 router.post("/run", runAndSaveBacktests);
 
-// --- POST /api/backtests/run-realistic ---
-router.post("/run-realistic", runRealisticBacktestsController);
-
 // --- POST /api/backtests/batch ---
 router.post("/batch", runBatchBacktestsController);
+
+// --- POST /api/backtests/realistic ---
+router.post("/realistic", runRealisticBacktestsController);
 
 // --- GET /api/backtests/user/:userId ---
 router.get("/user/:userId", getUserBacktests);

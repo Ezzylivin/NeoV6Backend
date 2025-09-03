@@ -1,7 +1,7 @@
 // File: backend/services/backtestService.js
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
-import marketDataService from "./marketDataService.js";
+import { marketDataService } from "./marketDataService.js";
 import { logToDb } from "./logService.js";
 
 /**

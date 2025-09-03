@@ -1,27 +1,24 @@
 // File: backend/controllers/backtestController.js
+import mongoose from "mongoose";
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
 
-/**
- * GET /api/backtests/options
- * Fetch available options for backtests (symbols, timeframes, balances, etc.)
- * Upgrade: If DB has no symbols, provide defaults to prevent frontend errors.
- */
+// GET /api/backtests/options
 export const getBacktestOptions = async (req, res) => {
   try {
     const symbols = await Price.distinct("symbol");
     res.json({
       success: true,
       options: {
-        symbols: symbols.length ? symbols : ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+        symbols: symbols.length ? symbols : ["BTCUSDT","ETHUSDT","BNBUSDT"],
         timeframes: ["1m","5m","15m","30m","1h","4h","1d"],
-        balances: [100, 500, 1000, 5000, 10000],
+        balances: [100,500,1000,5000,10000],
         strategies: ["SMA","EMA","RSI","MACD","BollingerBands","Stochastic","VWAP","ATR"],
         risks: ["Low","Medium","High"],
-        takeProfits: [null,1,2,3,5,10], // null included for optional TP
-        stopLosses: [null,0.5,1,2,3,5] // null included for optional SL
+        takeProfits: [null,1,2,3,5,10],
+        stopLosses: [null,0.5,1,2,3,5]
       }
     });
   } catch (err) {
@@ -30,19 +27,10 @@ export const getBacktestOptions = async (req, res) => {
   }
 };
 
-/**
- * POST /api/backtests/run
- * Run a single backtest
- * Upgrades:
- * 1. Validates required fields (userId, symbol)
- * 2. Normalizes strategy object
- * 3. Wraps TP/SL in safe calculations
- * 4. Logs errors with payload
- * 5. Returns consistent response
- */
+// POST /api/backtests/run
 export const runAndSaveBacktests = async (req, res) => {
   try {
-    const {
+    let {
       userId,
       symbol,
       timeframe = "1h",
@@ -53,34 +41,42 @@ export const runAndSaveBacktests = async (req, res) => {
       stopLoss = null
     } = req.body;
 
-    // --- 1. Validate required inputs ---
-    if (!userId || !symbol) {
-      return res.status(400).json({ success: false, message: "Missing userId or symbol" });
+    // --- 1. Validate userId is a valid ObjectId ---
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid or missing userId" });
     }
 
-    // --- 2. Normalize strategy object ---
+    if (!symbol) {
+      return res.status(400).json({ success: false, message: "Missing symbol" });
+    }
+
+    // --- 2. Normalize numbers ---
+    initialBalance = Number(initialBalance) || 0;
+    takeProfit = takeProfit != null ? Number(takeProfit) : null;
+    stopLoss = stopLoss != null ? Number(stopLoss) : null;
+
+    // --- 3. Normalize strategy object ---
     const normalizedStrategy = typeof strategy === "string" ? { name: strategy, parameters: {} } : strategy;
 
-    // --- 3. Run the backtest ---
+    // --- 4. Run backtest safely ---
     const { saved, metrics, equityCurve, trades } = await runBacktest({
       userId,
       symbol,
       timeframe,
-      initialBalance: Number(initialBalance),
+      initialBalance,
       strategy: normalizedStrategy,
       risk,
       takeProfit,
       stopLoss
     });
 
-    // --- 4. Log result safely ---
-    const profit = saved?.profit ?? 0;
+    // --- 5. Safe profit logging ---
+    const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
     await logToDb(
       userId,
       `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`
     );
 
-    // --- 5. Return structured response ---
     res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
   } catch (err) {
     console.error("[Backtest Run Error]", err);
@@ -88,23 +84,19 @@ export const runAndSaveBacktests = async (req, res) => {
   }
 };
 
-/**
- * POST /api/backtests/batch
- * Run multiple backtests in batch
- * Upgrades:
- * 1. Validates userId and paramCombos
- * 2. Splits large arrays into chunks to prevent 413 errors
- * 3. Aggregates results and identifies best backtest
- * 4. Logs errors
- */
+// POST /api/backtests/batch
 export const runBatchBacktestsController = async (req, res) => {
   try {
     const { userId, paramCombos } = req.body;
-    if (!userId || !Array.isArray(paramCombos) || paramCombos.length === 0) {
-      return res.status(400).json({ success: false, message: "Missing userId or paramCombos" });
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid or missing userId" });
     }
 
-    const CHUNK_SIZE = 10; // adjust to server limits
+    if (!Array.isArray(paramCombos) || paramCombos.length === 0) {
+      return res.status(400).json({ success: false, message: "Missing paramCombos" });
+    }
+
+    const CHUNK_SIZE = 50;
     const results = [];
     let best = null;
 
@@ -122,14 +114,13 @@ export const runBatchBacktestsController = async (req, res) => {
   }
 };
 
-/**
- * GET /api/backtests/user/:userId
- * Fetch all backtests for a specific user
- */
+// GET /api/backtests/user/:userId
 export const getUserBacktests = async (req, res) => {
   try {
     const { userId } = req.params;
-    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid or missing userId" });
+    }
 
     const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
     res.json({ success: true, backtests });

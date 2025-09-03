@@ -1,10 +1,12 @@
-// File: src/backend/controllers/backtestController.js
+// File: backend/controllers/backtestController.js
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runRealisticBacktest, runBatchBacktests } from "../services/backtestService.js";
+import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
+import { logToDb } from "../services/logService.js";
 
 /**
  * GET /api/backtests/options
+ * Returns available symbols, timeframes, balances, strategies, and risks
  */
 export const getBacktestOptions = async (req, res) => {
   try {
@@ -23,7 +25,7 @@ export const getBacktestOptions = async (req, res) => {
           "BollingerBands",
           "Stochastic",
           "VWAP",
-          "ATR"
+          "ATR",
         ],
         risks: ["Low", "Medium", "High"],
       },
@@ -36,6 +38,7 @@ export const getBacktestOptions = async (req, res) => {
 
 /**
  * POST /api/backtests/run
+ * Run a single backtest and save results
  */
 export const runAndSaveBacktests = async (req, res) => {
   try {
@@ -52,15 +55,22 @@ export const runAndSaveBacktests = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing userId or symbol" });
     }
 
-    const normalizedStrategy = (typeof strategy === "string") ? { name: strategy, parameters: {} } : strategy;
-    const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
+    const normalizedStrategy = typeof strategy === "string" ? { name: strategy, parameters: {} } : strategy;
+
+    // Use your real service
+    const { saved, metrics, equityCurve, trades } = await runBacktest({
       userId,
       symbol,
       timeframe,
       initialBalance: Number(initialBalance),
       strategy: normalizedStrategy,
-      risk
+      risk,
     });
+
+    await logToDb(
+      userId,
+      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | Profit: $${saved.profit.toFixed(2)}`
+    );
 
     res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
   } catch (err) {
@@ -71,6 +81,7 @@ export const runAndSaveBacktests = async (req, res) => {
 
 /**
  * POST /api/backtests/batch
+ * Run batch backtests for multiple param combinations
  */
 export const runBatchBacktestsController = async (req, res) => {
   try {
@@ -89,6 +100,7 @@ export const runBatchBacktestsController = async (req, res) => {
 
 /**
  * GET /api/backtests/user/:userId
+ * Fetch all backtests for a user
  */
 export const getUserBacktests = async (req, res) => {
   try {

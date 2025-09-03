@@ -6,11 +6,9 @@ import { logToDb } from "./logService.js";
 /**
  * Run a single backtest with safety checks
  * Upgrades:
- * 1. Validates inputs
- * 2. Handles empty price data
- * 3. TP/SL optional handling
- * 4. Catches errors in loops
- * 5. Returns consistent metrics even with no trades
+ * 1. Sanitizes NaN values for profit/finalBalance before save
+ * 2. Always returns consistent metrics, even with no trades
+ * 3. Handles TP/SL safely
  */
 export async function runBacktest({
   userId,
@@ -57,7 +55,7 @@ export async function runBacktest({
 
   try {
     for (let i = 1; i < candles.length; i++) {
-      const prevPrice = candles[i-1].price;
+      const prevPrice = candles[i - 1].price;
       const curPrice = candles[i].price;
       const decision = curPrice > prevPrice ? "BUY" : "SELL";
 
@@ -101,12 +99,16 @@ export async function runBacktest({
     throw new Error("Error during backtest calculation");
   }
 
-  const lastPrice = candles[candles.length-1].price;
-  equityCurve.push({ time: candles[candles.length-1].time, equity: +(balance + asset * lastPrice).toFixed(2) });
+  const lastPrice = candles[candles.length - 1].price;
+  equityCurve.push({ time: candles[candles.length - 1].time, equity: +(balance + asset * lastPrice).toFixed(2) });
 
   // --- Calculate metrics safely ---
-  const finalBalance = balance + asset * lastPrice;
-  const netProfit = +(finalBalance - initialBalance).toFixed(2);
+  let finalBalance = balance + asset * lastPrice;
+  if (isNaN(finalBalance)) finalBalance = initialBalance; // ✅ sanitize
+
+  let netProfit = +(finalBalance - initialBalance).toFixed(2);
+  if (isNaN(netProfit)) netProfit = 0; // ✅ sanitize
+
   const wins = trades.filter(t => t.profit > 0).length;
   const losses = trades.filter(t => t.profit < 0).length;
   const winRate = trades.length ? +(100 * wins / (wins + losses || 1)).toFixed(2) : 0;
@@ -115,7 +117,7 @@ export async function runBacktest({
   let maxDd = 0;
   for (const e of equityCurve) {
     if (e.equity > peak) peak = e.equity;
-    const dd = (peak - e.equity)/(peak||1);
+    const dd = (peak - e.equity) / (peak || 1);
     if (dd > maxDd) maxDd = dd;
   }
 
@@ -123,30 +125,32 @@ export async function runBacktest({
 
   const returns = [];
   for (let i = 1; i < equityCurve.length; i++) {
-    const prev = equityCurve[i-1].equity;
+    const prev = equityCurve[i - 1].equity;
     const cur = equityCurve[i].equity;
-    returns.push(prev === 0 ? 0 : (cur - prev)/prev);
+    returns.push(prev === 0 ? 0 : (cur - prev) / prev);
   }
-  const sr = returns.length < 2 ? 0 : +(Math.sqrt(252)*(returns.reduce((a,b)=>a+b,0)/returns.length)/Math.sqrt(returns.reduce((a,b)=>a+Math.pow(b-(returns.reduce((a,b)=>a+b,0)/returns.length),2),0)/(returns.length-1))).toFixed(2);
+  const sr = returns.length < 2 ? 0 :
+    +(Math.sqrt(252) * (returns.reduce((a, b) => a + b, 0) / returns.length) /
+      Math.sqrt(returns.reduce((a, b) => a + Math.pow(b - (returns.reduce((a, b) => a + b, 0) / returns.length), 2), 0) / (returns.length - 1))).toFixed(2);
 
   const startTime = candles[0].time;
-  const endTime = candles[candles.length-1].time;
-  const years = Math.max((endTime - startTime)/(365*24*3600*1000), 1/365);
-  const cg = +((Math.pow(finalBalance/initialBalance, 1/years) - 1)*100).toFixed(2);
+  const endTime = candles[candles.length - 1].time;
+  const years = Math.max((endTime - startTime) / (365 * 24 * 3600 * 1000), 1 / 365);
+  const cg = +((Math.pow(finalBalance / initialBalance, 1 / years) - 1) * 100).toFixed(2);
 
   const metrics = {
     initialBalance,
     finalBalance: +finalBalance.toFixed(2),
     netProfit,
     winRate,
-    maxDrawdown: +(maxDd*100).toFixed(2),
+    maxDrawdown: +(maxDd * 100).toFixed(2),
     profitFactor: pf,
     sharpeRatio: sr,
     cagr: cg,
     tradesCount: trades.length
   };
 
-  // --- Save to DB ---
+  // --- Save to DB with sanitized numbers ---
   const saved = await Backtest.create({
     userId,
     symbol,
@@ -169,10 +173,7 @@ export async function runBacktest({
   return { saved, metrics, equityCurve, trades };
 }
 
-/**
- * Run multiple backtests in batch safely
- * Upgrade: Handles param combos in sequence and identifies best backtest
- */
+// Run multiple backtests safely
 export async function runBatchBacktests(userId, exchange, paramCombos) {
   const results = [];
   let best = null;
@@ -186,5 +187,4 @@ export async function runBatchBacktests(userId, exchange, paramCombos) {
   return { results, best };
 }
 
-// Alias for realistic bot use
 export const runRealisticBacktest = runBacktest;

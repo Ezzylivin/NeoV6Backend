@@ -12,12 +12,12 @@ export const getBacktestOptions = async (req, res) => {
       success: true,
       options: {
         symbols: symbols.length ? symbols : ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
-        timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+        timeframes: ["1m","5m","15m","30m","1h","4h","1d"],
         balances: [100, 500, 1000, 5000, 10000],
-        strategies: ["SMA", "EMA", "RSI", "MACD", "BollingerBands", "Stochastic", "VWAP", "ATR"],
-        risks: ["Low", "Medium", "High"],
-        stopLosses: [null, 0.5, 1, 2, 3, 5],
-        takeProfits: [null, 1, 2, 3, 5, 10]
+        strategies: ["SMA","EMA","RSI","MACD","BollingerBands","Stochastic","VWAP","ATR"],
+        risks: ["Low","Medium","High"],
+        takeProfits: [null,1,2,3,5,10],
+        stopLosses: [null,0.5,1,2,3,5]
       }
     });
   } catch (err) {
@@ -57,10 +57,11 @@ export const runAndSaveBacktests = async (req, res) => {
       stopLoss
     });
 
+    // Safe profit logging
     const profit = saved?.profit ?? 0;
     await logToDb(
       userId,
-      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? "None"} | SL: ${stopLoss ?? "None"} | Profit: $${profit.toFixed(2)}`
+      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`
     );
 
     res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
@@ -78,7 +79,18 @@ export const runBatchBacktestsController = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing userId or paramCombos" });
     }
 
-    const { results, best } = await runBatchBacktests(userId, "coinbasepro", paramCombos);
+    // Limit batch size to avoid 413
+    const CHUNK_SIZE = 50; // adjust based on server limits
+    const results = [];
+    let best = null;
+
+    for (let i = 0; i < paramCombos.length; i += CHUNK_SIZE) {
+      const chunk = paramCombos.slice(i, i + CHUNK_SIZE);
+      const { results: chunkResults, best: chunkBest } = await runBatchBacktests(userId, "exchange", chunk);
+      results.push(...chunkResults);
+      if (!best || (chunkBest.metrics.netProfit > best.metrics.netProfit)) best = chunkBest;
+    }
+
     res.json({ success: true, results, best });
   } catch (err) {
     console.error("[Batch Backtests Error]", err);

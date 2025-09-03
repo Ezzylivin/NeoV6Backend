@@ -14,6 +14,39 @@ router.get("/options", getBacktestOptions);
 // --- POST run a single backtest ---
 router.post("/run", runAndSaveBacktests);
 
+// --- POST run batch backtests ---
+router.post("/batch", async (req, res) => {
+  const { userId, configs } = req.body;
+
+  if (!userId || !Array.isArray(configs)) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Missing userId or configs array" });
+  }
+
+  try {
+    const results = [];
+
+    for (const config of configs) {
+      // Reuse runAndSaveBacktests logic with a "fake" req/res
+      const fakeReq = { body: { ...config, userId } };
+      const fakeRes = {
+        status: () => fakeRes,
+        json: (data) => results.push(data),
+      };
+
+      await runAndSaveBacktests(fakeReq, fakeRes);
+    }
+
+    res.json({ success: true, results });
+  } catch (err) {
+    console.error("[Batch Backtest Error]", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to run batch backtests" });
+  }
+});
+
 // --- GET all backtests for a user (query or param) ---
 // Frontend now can call either:
 // GET /backtests?userId=123   OR   GET /backtests/recent/123

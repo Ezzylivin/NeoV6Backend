@@ -1,27 +1,32 @@
 // File: backend/services/backtestService.js
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
+import Strategy from "../dbStructure/strategy.js";
 import { logToDb } from "./logService.js";
 
 /**
- * Simple strategy helper (mocked SMA or default price change)
+ * Simple strategy helpers (mocked rules for demo)
  */
 function executeStrategy(strategyName, candles, i, parameters = {}) {
+  // Currently only simple SMA crossover example
   if (strategyName === "SMA") {
     const period = parameters.period || 3;
     if (i < period) return null;
+
     const sma = candles.slice(i - period, i).reduce((sum, c) => sum + c.price, 0) / period;
     return candles[i].price > sma ? "BUY" : "SELL";
   }
+
   // Default: buy if price increased, sell if decreased
   return candles[i].price > candles[i - 1].price ? "BUY" : "SELL";
 }
 
 /**
- * Run a single backtest
+ * Run a single backtest with strategy integration
  */
 export async function runBacktest({
   userId,
+  strategyId = null, // NEW: optional Strategy document ID
   symbol,
   timeframe = "1h",
   initialBalance = 1000,
@@ -33,12 +38,31 @@ export async function runBacktest({
   slippageBps = 5,
   limit = 2000
 } = {}) {
+
+  // --- Load strategy from DB if strategyId is provided ---
+  if (strategyId) {
+    const stratDoc = await Strategy.findById(strategyId);
+    if (stratDoc) {
+      symbol = symbol || stratDoc.params.symbol;
+      timeframe = timeframe || stratDoc.params.timeframe;
+      initialBalance = initialBalance || stratDoc.params.initialBalance;
+      strategy = { 
+        name: stratDoc.params.strategyType || "SMA", 
+        parameters: stratDoc.params 
+      };
+      risk = risk || stratDoc.params.risk;
+      takeProfit = takeProfit != null ? takeProfit : stratDoc.params.takeProfit;
+      stopLoss = stopLoss != null ? stopLoss : stratDoc.params.stopLoss;
+    }
+  }
+
   if (!userId || !symbol || !strategy?.name) {
     throw new Error("Missing required fields: userId, symbol, or strategy.name");
   }
 
   console.log("[RunBacktest Payload]", { userId, symbol, timeframe, initialBalance, strategy, risk, takeProfit, stopLoss });
 
+  // --- Fetch historical prices safely ---
   const rows = await Price.find({ symbol }).sort({ timestamp: 1 }).limit(limit);
   if (!rows || rows.length < 2) {
     const emptyMetrics = {
@@ -69,13 +93,16 @@ export async function runBacktest({
 
       equityCurve.push({ time: candles[i].time, equity: +(balance + asset * curPrice).toFixed(2) });
 
+      // Execute BUY
       if (decision === "BUY" && balance > 0) {
+        const spend = balance;
         const fillPrice = curPrice * (1 + slip);
-        asset += balance / fillPrice;
-        trades.push({ entryTime: candles[i].time, entryPrice: fillPrice, position: "long" });
+        asset += spend / fillPrice;
         balance = 0;
+        trades.push({ entryTime: candles[i].time, entryPrice: fillPrice, position: "long" });
       }
 
+      // Execute SELL
       if (asset > 0 && (decision === "SELL" || i === candles.length - 1)) {
         const fillPrice = curPrice * (1 - slip);
         const proceeds = asset * fillPrice;
@@ -108,10 +135,11 @@ export async function runBacktest({
     throw new Error("Error during backtest calculation");
   }
 
+  // Final equity push
   const lastPrice = candles[candles.length - 1].price;
   equityCurve.push({ time: candles[candles.length - 1].time, equity: +(balance + asset * lastPrice).toFixed(2) });
 
-  // Metrics calculation with NaN sanitization
+  // --- Metrics ---
   let finalBalance = balance + asset * lastPrice;
   if (isNaN(finalBalance)) finalBalance = initialBalance;
 
@@ -138,9 +166,8 @@ export async function runBacktest({
     const cur = equityCurve[i].equity;
     returns.push(prev === 0 ? 0 : (cur - prev) / prev);
   }
-  const sr = returns.length < 2 ? 0 :
-    +(Math.sqrt(252) * (returns.reduce((a, b) => a + b, 0) / returns.length) /
-      Math.sqrt(returns.reduce((a, b) => a + Math.pow(b - (returns.reduce((a, b) => a + b, 0) / returns.length), 2), 0) / (returns.length - 1))).toFixed(2);
+  const sr = returns.length < 2 ? 0 : +(Math.sqrt(252) * (returns.reduce((a, b) => a + b, 0) / returns.length) /
+    Math.sqrt(returns.reduce((a, b) => a + Math.pow(b - (returns.reduce((a, b) => a + b, 0) / returns.length), 2), 0) / (returns.length - 1))).toFixed(2);
 
   const startTime = candles[0].time;
   const endTime = candles[candles.length - 1].time;
@@ -159,7 +186,7 @@ export async function runBacktest({
     tradesCount: trades.length
   };
 
-  // Save to DB
+  // --- Save to DB ---
   const saved = await Backtest.create({
     userId,
     symbol,
@@ -183,7 +210,7 @@ export async function runBacktest({
 }
 
 /**
- * Run multiple backtests safely
+ * Run multiple backtests in batch safely
  */
 export async function runBatchBacktests(userId, exchange, paramCombos) {
   const results = [];

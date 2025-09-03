@@ -1,3 +1,4 @@
+// File: backend/controllers/backtestController.js
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
@@ -15,8 +16,8 @@ export const getBacktestOptions = async (req, res) => {
         balances: [100, 500, 1000, 5000, 10000],
         strategies: ["SMA", "EMA", "RSI", "MACD", "BollingerBands", "Stochastic", "VWAP", "ATR"],
         risks: ["Low", "Medium", "High"],
-        stopLosses: [0.5, 1, 2, 3, 5],
-        takeProfits: [1, 2, 3, 5, 10]
+        stopLosses: [null, 0.5, 1, 2, 3, 5],
+        takeProfits: [null, 1, 2, 3, 5, 10]
       }
     });
   } catch (err) {
@@ -35,8 +36,8 @@ export const runAndSaveBacktests = async (req, res) => {
       initialBalance = 1000,
       strategy = { name: "SMA", parameters: {} },
       risk = "Medium",
-      takeProfit = 0,
-      stopLoss = 0
+      takeProfit = null,
+      stopLoss = null
     } = req.body;
 
     if (!userId || !symbol) {
@@ -52,14 +53,14 @@ export const runAndSaveBacktests = async (req, res) => {
       initialBalance: Number(initialBalance),
       strategy: normalizedStrategy,
       risk,
-      takeProfit: takeProfit ?? 0,
-      stopLoss: stopLoss ?? 0
+      takeProfit,
+      stopLoss
     });
 
     const profit = saved?.profit ?? 0;
     await logToDb(
       userId,
-      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`
+      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? "None"} | SL: ${stopLoss ?? "None"} | Profit: $${profit.toFixed(2)}`
     );
 
     res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });

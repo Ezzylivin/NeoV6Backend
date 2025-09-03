@@ -2,6 +2,7 @@ import express from "express";
 import {
   runAndSaveBacktests,
   runBatchBacktestsController,
+  runRealisticBacktestsController,
   getBacktestOptions,
   getUserBacktests,
 } from "../controllers/backtestController.js";
@@ -13,6 +14,7 @@ router.all("*", (req, res, next) => {
   const allowedMethods = {
     "/options": ["GET"],
     "/run": ["POST"],
+    "/run-realistic": ["POST"],
     "/batch": ["POST"],
     "/user/:userId": ["GET"],
   };
@@ -29,6 +31,9 @@ router.get("/options", getBacktestOptions);
 
 // --- POST /api/backtests/run ---
 router.post("/run", runAndSaveBacktests);
+
+// --- POST /api/backtests/run-realistic ---
+router.post("/run-realistic", runRealisticBacktestsController);
 
 // --- POST /api/backtests/batch ---
 router.post("/batch", runBatchBacktestsController);

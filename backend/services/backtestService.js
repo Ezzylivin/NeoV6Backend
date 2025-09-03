@@ -1,8 +1,9 @@
+// File: backend/services/backtestService.js
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
 import { logToDb } from "./logService.js";
 
-// Single backtest
+// Run a single backtest
 export async function runBacktest({
   userId,
   symbol,
@@ -16,6 +17,7 @@ export async function runBacktest({
   slippageBps = 5,
   limit = 2000
 } = {}) {
+
   const rows = await Price.find({ symbol }).sort({ timestamp: 1 }).limit(limit);
   if (!rows || rows.length < 2) {
     const emptyMetrics = {
@@ -42,8 +44,8 @@ export async function runBacktest({
   for (let i = 1; i < candles.length; i++) {
     const prevPrice = candles[i - 1].price;
     const curPrice = candles[i].price;
-    const decision = curPrice > prevPrice ? "BUY" : "SELL";
 
+    const decision = curPrice > prevPrice ? "BUY" : "SELL";
     equityCurve.push({ time: candles[i].time, equity: +(balance + asset * curPrice).toFixed(2) });
 
     if (decision === "BUY" && balance > 0) {
@@ -141,12 +143,12 @@ export async function runBacktest({
     createdAt: new Date()
   });
 
-  await logToDb(userId, `[Backtest] ${symbol} | TP: ${takeProfit}% | SL: ${stopLoss}% | Profit: $${netProfit.toFixed(2)} | Trades: ${trades.length}`);
+  await logToDb(userId, `[Backtest] ${symbol} | TP: ${takeProfit ?? "None"} | SL: ${stopLoss ?? "None"} | Profit: $${netProfit.toFixed(2)} | Trades: ${trades.length}`);
 
   return { saved, metrics, equityCurve, trades };
 }
 
-// Batch backtests
+// Batch support
 export async function runBatchBacktests(userId, exchange, paramCombos) {
   const results = [];
   let best = null;
@@ -154,11 +156,11 @@ export async function runBatchBacktests(userId, exchange, paramCombos) {
   for (const combo of paramCombos) {
     const { saved, metrics } = await runBacktest({ userId, ...combo });
     results.push({ saved, metrics });
-    if (!best || metrics.netProfit > best.metrics.netProfit) best = { saved, metrics };
+    if (!best || (metrics.netProfit > best.metrics.netProfit)) best = { saved, metrics };
   }
 
   return { results, best };
 }
 
-// Alias for botService imports
+// Alias for botService import
 export const runRealisticBacktest = runBacktest;

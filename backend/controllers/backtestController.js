@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
+import { runBacktest, runBatchBacktests, runRealisticBacktest } from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
 
 // GET /api/backtests/options
@@ -41,7 +41,6 @@ export const runAndSaveBacktests = async (req, res) => {
       stopLoss = null
     } = req.body;
 
-    // --- 1. Validate userId is a valid ObjectId ---
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, message: "Invalid or missing userId" });
     }
@@ -50,15 +49,12 @@ export const runAndSaveBacktests = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing symbol" });
     }
 
-    // --- 2. Normalize numbers ---
     initialBalance = Number(initialBalance) || 0;
     takeProfit = takeProfit != null ? Number(takeProfit) : null;
     stopLoss = stopLoss != null ? Number(stopLoss) : null;
 
-    // --- 3. Normalize strategy object ---
     const normalizedStrategy = typeof strategy === "string" ? { name: strategy, parameters: {} } : strategy;
 
-    // --- 4. Run backtest safely ---
     const { saved, metrics, equityCurve, trades } = await runBacktest({
       userId,
       symbol,
@@ -70,7 +66,6 @@ export const runAndSaveBacktests = async (req, res) => {
       stopLoss
     });
 
-    // --- 5. Safe profit logging ---
     const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
     await logToDb(
       userId,
@@ -128,12 +123,53 @@ export const getUserBacktests = async (req, res) => {
     console.error("[List Backtests Error]", err);
     res.status(500).json({ success: false, message: err.message || "Failed to fetch user backtests" });
   }
+};
 
-  export {
+// POST /api/backtests/realistic
+export const runRealisticBacktestsController = async (req, res) => {
+  try {
+    const { userId, symbol, timeframe = "1h", initialBalance = 1000, strategy = { name: "SMA", parameters: {} }, risk = "Medium", takeProfit = null, stopLoss = null, limit = 2000 } = req.body;
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Invalid or missing userId" });
+    }
+
+    if (!symbol) {
+      return res.status(400).json({ success: false, message: "Missing symbol" });
+    }
+
+    const normalizedStrategy = typeof strategy === "string" ? { name: strategy, parameters: {} } : strategy;
+
+    const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
+      userId,
+      symbol,
+      timeframe,
+      initialBalance,
+      strategy: normalizedStrategy,
+      risk,
+      takeProfit,
+      stopLoss,
+      limit
+    });
+
+    const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
+    await logToDb(
+      userId,
+      `[Realistic Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`
+    );
+
+    res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
+  } catch (err) {
+    console.error("[Realistic Backtest Error]", err);
+    res.status(500).json({ success: false, message: err.message || "Internal error during realistic backtest" });
+  }
+};
+
+// --- EXPORT ALL CONTROLLERS ---
+export {
   getBacktestOptions,
   runAndSaveBacktests,
   runBatchBacktestsController,
   getUserBacktests,
-  runRealisticBacktestsController   // ✅ make sure it’s here
+  runRealisticBacktestsController
 };
-

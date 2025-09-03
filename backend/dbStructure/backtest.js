@@ -1,5 +1,5 @@
-// File: backend/models/Backtest.js
-import mongoose from 'mongoose';
+// File: backend/dbStructure/backtest.js
+import mongoose from "mongoose";
 const { Schema, model } = mongoose;
 
 const tradeResultSchema = new Schema({
@@ -7,37 +7,45 @@ const tradeResultSchema = new Schema({
   exitTime: Date,
   entryPrice: Number,
   exitPrice: Number,
-  position: { type: String, enum:['long','short'] },
-  profit: Number,
+  position: { type: String, enum: ["long", "short"] },
+  profit: { type: Number, default: 0 },
   duration: Number,
-  result: { type:String, enum:['win','loss','breakeven'] },
-}, {_id:false});
+  result: { type: String, enum: ["win", "loss", "breakeven"] },
+}, { _id: false });
 
 const strategyConfigSchema = new Schema({
-  name: { type:String, required:true, default:'crossoverStrategy' },
-  parameters: { type:Schema.Types.Mixed },
-}, {_id:false});
+  name: { type: String, required: true, default: "crossoverStrategy" },
+  parameters: { type: Schema.Types.Mixed },
+}, { _id: false });
 
 const backtestSchema = new Schema({
-  userId: { type: Schema.Types.ObjectId, ref:'user', required:true, index:true },
-  timeframe: { type:String, required:true, trim:true, uppercase:true },
-  initialBalance: { type:Number, required:true, min:[0,'Initial balance must be positive'] },
-  finalBalance: { type:Number, min:[0,'Final balance must be positive'] },
-  profit: Number,
-  totalTrades: { type:Number, min:[0,'Total trades cannot be negative'] },
-  candlesTested: { type:Number, required:true, min:[1,'At least one candle must be tested'] },
+  userId: { type: Schema.Types.ObjectId, ref: "user", required: true, index: true },
+  timeframe: { type: String, required: true, trim: true, uppercase: true },
+  initialBalance: { type: Number, required: true, min: [0, "Initial balance must be positive"] },
+  finalBalance: { type: Number, min: [0, "Final balance must be positive"], default: 0 },
+  profit: { type: Number, default: 0 },
+  totalTrades: { type: Number, min: [0, "Total trades cannot be negative"], default: 0 },
+  candlesTested: { type: Number, required: true, min: [1, "At least one candle must be tested"] },
   strategy: strategyConfigSchema,
   tradeBreakdown: [tradeResultSchema],
-}, {timestamps:true});
+  metrics: { type: Schema.Types.Mixed }, // ✅ keep full metrics snapshot
+}, { timestamps: true });
 
-backtestSchema.pre('save', function(next){
-  if(Array.isArray(this.tradeBreakdown)){
-    const totalProfit = this.tradeBreakdown.reduce((sum,trade)=> sum+(trade.profit||0),0);
+backtestSchema.pre("save", function (next) {
+  if (Array.isArray(this.tradeBreakdown)) {
+    const totalProfit = this.tradeBreakdown.reduce((sum, trade) => sum + (trade.profit || 0), 0);
     this.totalTrades = this.tradeBreakdown.length;
-    this.profit = totalProfit;
-    this.finalBalance = this.initialBalance + totalProfit;
+    if (!isNaN(totalProfit)) {
+      this.profit = totalProfit;
+      this.finalBalance = this.initialBalance + totalProfit;
+    }
   }
+
+  // ✅ Sanitize NaNs
+  if (isNaN(this.profit)) this.profit = 0;
+  if (isNaN(this.finalBalance)) this.finalBalance = this.initialBalance;
+
   next();
 });
 
-export default model('backtest', backtestSchema);
+export default model("backtest", backtestSchema);

@@ -1,12 +1,12 @@
 // File: backend/controllers/backtestController.js
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
+import { runBacktest } from "../services/backtestService.js"; // only export we have for now
 import { logToDb } from "../services/logService.js";
 
 /**
  * GET /api/backtests/options
- * Returns available symbols, timeframes, balances, strategies, and risks
+ * Returns available symbols, timeframes, balances, strategies, risks, TP/SL options
  */
 export const getBacktestOptions = async (req, res) => {
   try {
@@ -28,6 +28,8 @@ export const getBacktestOptions = async (req, res) => {
           "ATR",
         ],
         risks: ["Low", "Medium", "High"],
+        takeProfits: [1, 2, 3, 5, 10],
+        stopLosses: [0.5, 1, 2, 3, 5],
       },
     });
   } catch (err) {
@@ -38,7 +40,7 @@ export const getBacktestOptions = async (req, res) => {
 
 /**
  * POST /api/backtests/run
- * Run a single backtest and save results
+ * Run a single backtest with optional TP/SL and save results
  */
 export const runAndSaveBacktests = async (req, res) => {
   try {
@@ -49,6 +51,8 @@ export const runAndSaveBacktests = async (req, res) => {
       initialBalance = 1000,
       strategy = { name: "SMA", parameters: {} },
       risk = "Medium",
+      takeProfit = null,
+      stopLoss = null,
     } = req.body;
 
     if (!userId || !symbol) {
@@ -57,7 +61,6 @@ export const runAndSaveBacktests = async (req, res) => {
 
     const normalizedStrategy = typeof strategy === "string" ? { name: strategy, parameters: {} } : strategy;
 
-    // Use your real service
     const { saved, metrics, equityCurve, trades } = await runBacktest({
       userId,
       symbol,
@@ -65,36 +68,19 @@ export const runAndSaveBacktests = async (req, res) => {
       initialBalance: Number(initialBalance),
       strategy: normalizedStrategy,
       risk,
+      takeProfit: takeProfit !== undefined ? Number(takeProfit) : null,
+      stopLoss: stopLoss !== undefined ? Number(stopLoss) : null,
     });
 
     await logToDb(
       userId,
-      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | Profit: $${saved.profit.toFixed(2)}`
+      `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit} | SL: ${stopLoss} | Profit: $${saved?.profit?.toFixed(2) ?? 0}`
     );
 
     res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
   } catch (err) {
     console.error("[Backtest Run Error]", err);
     res.status(500).json({ success: false, message: err.message || "Internal error during backtest" });
-  }
-};
-
-/**
- * POST /api/backtests/batch
- * Run batch backtests for multiple param combinations
- */
-export const runBatchBacktestsController = async (req, res) => {
-  try {
-    const { userId, paramCombos } = req.body;
-    if (!userId || !Array.isArray(paramCombos) || paramCombos.length === 0) {
-      return res.status(400).json({ success: false, message: "Missing userId or paramCombos" });
-    }
-
-    const { results, best } = await runBatchBacktests(userId, "coinbasepro", paramCombos);
-    res.json({ success: true, results, best });
-  } catch (err) {
-    console.error("[Batch Backtests Error]", err);
-    res.status(500).json({ success: false, message: err.message || "Batch backtests failed" });
   }
 };
 

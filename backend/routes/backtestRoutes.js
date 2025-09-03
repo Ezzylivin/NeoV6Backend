@@ -1,4 +1,3 @@
-// File: src/backend/routes/backtestRoutes.js
 import express from "express";
 import {
   runAndSaveBacktests,
@@ -9,20 +8,32 @@ import {
 
 const router = express.Router();
 
+// Middleware to handle unsupported methods
+router.all("*", (req, res, next) => {
+  const allowedMethods = {
+    "/options": ["GET"],
+    "/run": ["POST"],
+    "/batch": ["POST"],
+    "/user/:userId": ["GET"],
+  };
+
+  const routeKey = Object.keys(allowedMethods).find(path => req.path.startsWith(path)) || null;
+  if (routeKey && !allowedMethods[routeKey].includes(req.method)) {
+    return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
+  }
+  next();
+});
+
 // --- GET /api/backtests/options ---
-// Fetch all backtest options (symbols, timeframes, balances, strategies, risks)
 router.get("/options", getBacktestOptions);
 
 // --- POST /api/backtests/run ---
-// Run and save a single backtest
 router.post("/run", runAndSaveBacktests);
 
 // --- POST /api/backtests/batch ---
-// Run multiple backtests in batch
 router.post("/batch", runBatchBacktestsController);
 
 // --- GET /api/backtests/user/:userId ---
-// Fetch all backtests for a specific user
 router.get("/user/:userId", getUserBacktests);
 
 export default router;

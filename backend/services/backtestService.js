@@ -213,7 +213,7 @@ export async function runBacktest({
   });
 
   // ---------------------------
-  // Fetch candles
+  // Fetch candles with safety
   // ---------------------------
   let candles = [];
   try {
@@ -224,9 +224,27 @@ export async function runBacktest({
         timestamp: { $gte: new Date(startDate), $lte: new Date(endDate) }
       }).sort({ timestamp: 1 }).lean();
 
-      candles = candles.map(c => ({ time: c.timestamp, price: c.close }));
+      candles = candles.map(c => ({ time: c.timestamp, price: c.close }))
+                       .filter(c => c.price != null);
     } else {
       candles = await fetchOHLCVMulti(symbol, timeframe, limit);
+      candles = candles.filter(c => c.price != null);
+    }
+
+    if (!candles.length) {
+      console.warn(`[Backtest] No candle data for ${symbol} ${timeframe} ${startDate ?? ""} - ${endDate ?? ""}`);
+      const emptyMetrics = {
+        initialBalance,
+        finalBalance: initialBalance,
+        netProfit: 0,
+        winRate: 0,
+        maxDrawdown: 0,
+        profitFactor: 0,
+        sharpeRatio: 0,
+        cagr: 0,
+        tradesCount: 0
+      };
+      return { saved: null, metrics: emptyMetrics, equityCurve: [], trades: [] };
     }
   } catch (err) {
     console.error(`[Backtest] Failed to fetch OHLCV for ${symbol}:`, err.message);

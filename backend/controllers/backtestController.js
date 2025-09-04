@@ -1,4 +1,3 @@
-// File: backend/controllers/backtestController.js
 import mongoose from "mongoose";
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -39,8 +38,9 @@ export const runAndSaveBacktests = async (req, res) => {
       risk = "Medium",
       takeProfit = null,
       stopLoss = null,
-      // You can optionally pass `limit` to control OHLCV depth
       limit = 2000,
+      startDate,  // ✅ NEW
+      endDate     // ✅ NEW
     } = req.body;
 
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -50,7 +50,7 @@ export const runAndSaveBacktests = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing symbol" });
     }
 
-    // Normalize numeric inputs (TP/SL are % values, nullable)
+    // Normalize numeric inputs
     initialBalance = Number(initialBalance) || 0;
     takeProfit = takeProfit != null ? Number(takeProfit) : null;
     stopLoss = stopLoss != null ? Number(stopLoss) : null;
@@ -67,6 +67,8 @@ export const runAndSaveBacktests = async (req, res) => {
       takeProfit,
       stopLoss,
       limit,
+      startDate, // ✅ forward
+      endDate    // ✅ forward
     });
 
     const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
@@ -93,7 +95,6 @@ export const runBatchBacktestsController = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing paramCombos" });
     }
 
-    // CHUNK server-side to keep payloads small and memory bounded
     const CHUNK_SIZE = 50;
     const results = [];
     let best = null;
@@ -127,7 +128,7 @@ export const getUserBacktests = async (req, res) => {
   }
 };
 
-// POST /api/backtests/realistic  (alias of runBacktest but keeping your route)
+// POST /api/backtests/realistic
 export const runRealisticBacktestsController = async (req, res) => {
   try {
     const {
@@ -140,6 +141,8 @@ export const runRealisticBacktestsController = async (req, res) => {
       takeProfit = null,
       stopLoss = null,
       limit = 2000,
+      startDate,  // ✅ NEW
+      endDate     // ✅ NEW
     } = req.body;
 
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -161,6 +164,8 @@ export const runRealisticBacktestsController = async (req, res) => {
       takeProfit,
       stopLoss,
       limit,
+      startDate, // ✅ forward
+      endDate    // ✅ forward
     });
 
     const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;

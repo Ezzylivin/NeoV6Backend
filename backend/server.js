@@ -35,8 +35,9 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions)); // handle preflight requests
 
-// --- JSON parser ---
-app.use(express.json());
+// --- JSON parser with increased payload limit ---
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // --- Mount API routes ---
 app.use("/api", apiRoutes);

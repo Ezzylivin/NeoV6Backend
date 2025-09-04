@@ -1,3 +1,4 @@
+// File: backend/controllers/backtestsController.js
 import mongoose from "mongoose";
 import Price from "../dbStructure/price.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -39,8 +40,8 @@ export const runAndSaveBacktests = async (req, res) => {
       takeProfit = null,
       stopLoss = null,
       limit = 2000,
-      startDate,  // ✅ NEW
-      endDate     // ✅ NEW
+      startDate,
+      endDate
     } = req.body;
 
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -67,11 +68,12 @@ export const runAndSaveBacktests = async (req, res) => {
       takeProfit,
       stopLoss,
       limit,
-      startDate, // ✅ forward
-      endDate    // ✅ forward
+      startDate,
+      endDate
     });
 
     const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
+
     await logToDb(
       userId,
       `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`
@@ -141,8 +143,8 @@ export const runRealisticBacktestsController = async (req, res) => {
       takeProfit = null,
       stopLoss = null,
       limit = 2000,
-      startDate,  // ✅ NEW
-      endDate     // ✅ NEW
+      startDate,
+      endDate
     } = req.body;
 
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -164,11 +166,12 @@ export const runRealisticBacktestsController = async (req, res) => {
       takeProfit,
       stopLoss,
       limit,
-      startDate, // ✅ forward
-      endDate    // ✅ forward
+      startDate,
+      endDate
     });
 
     const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
+
     await logToDb(
       userId,
       `[Realistic Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`

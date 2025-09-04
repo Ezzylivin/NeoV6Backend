@@ -164,12 +164,3 @@ export const runRealisticBacktestsController = async (req, res) => {
     res.status(500).json({ success: false, message: err.message || "Internal error during realistic backtest" });
   }
 };
-
-// --- EXPORT ALL CONTROLLERS ---
-export {
-  getBacktestOptions,
-  runAndSaveBacktests,
-  runBatchBacktestsController,
-  getUserBacktests,
-  runRealisticBacktestsController
-};

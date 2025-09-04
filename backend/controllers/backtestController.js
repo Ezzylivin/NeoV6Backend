@@ -12,14 +12,14 @@ export const getBacktestOptions = async (req, res) => {
     res.json({
       success: true,
       options: {
-        symbols: symbols.length ? symbols : ["BTCUSDT","ETHUSDT","BNBUSDT"],
-        timeframes: ["1m","5m","15m","30m","1h","4h","1d"],
-        balances: [100,500,1000,5000,10000],
-        strategies: ["SMA","EMA","RSI","MACD","BollingerBands","Stochastic","VWAP","ATR"],
-        risks: ["Low","Medium","High"],
-        takeProfits: [null,1,2,3,5,10],
-        stopLosses: [null,0.5,1,2,3,5]
-      }
+        symbols: symbols.length ? symbols : ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+        timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+        balances: [100, 500, 1000, 5000, 10000],
+        strategies: ["SMA", "EMA", "RSI", "MACD", "BollingerBands", "Stochastic", "VWAP", "ATR"],
+        risks: ["Low", "Medium", "High"],
+        takeProfits: [null, 1, 2, 3, 5, 10],
+        stopLosses: [null, 0.5, 1, 2, 3, 5],
+      },
     });
   } catch (err) {
     console.error("[Options Error]", err);
@@ -38,17 +38,19 @@ export const runAndSaveBacktests = async (req, res) => {
       strategy = { name: "SMA", parameters: {} },
       risk = "Medium",
       takeProfit = null,
-      stopLoss = null
+      stopLoss = null,
+      // You can optionally pass `limit` to control OHLCV depth
+      limit = 2000,
     } = req.body;
 
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, message: "Invalid or missing userId" });
     }
-
     if (!symbol) {
       return res.status(400).json({ success: false, message: "Missing symbol" });
     }
 
+    // Normalize numeric inputs (TP/SL are % values, nullable)
     initialBalance = Number(initialBalance) || 0;
     takeProfit = takeProfit != null ? Number(takeProfit) : null;
     stopLoss = stopLoss != null ? Number(stopLoss) : null;
@@ -63,7 +65,8 @@ export const runAndSaveBacktests = async (req, res) => {
       strategy: normalizedStrategy,
       risk,
       takeProfit,
-      stopLoss
+      stopLoss,
+      limit,
     });
 
     const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
@@ -86,11 +89,11 @@ export const runBatchBacktestsController = async (req, res) => {
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, message: "Invalid or missing userId" });
     }
-
     if (!Array.isArray(paramCombos) || paramCombos.length === 0) {
       return res.status(400).json({ success: false, message: "Missing paramCombos" });
     }
 
+    // CHUNK server-side to keep payloads small and memory bounded
     const CHUNK_SIZE = 50;
     const results = [];
     let best = null;
@@ -116,7 +119,6 @@ export const getUserBacktests = async (req, res) => {
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, message: "Invalid or missing userId" });
     }
-
     const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
     res.json({ success: true, backtests });
   } catch (err) {
@@ -125,15 +127,24 @@ export const getUserBacktests = async (req, res) => {
   }
 };
 
-// POST /api/backtests/realistic
+// POST /api/backtests/realistic  (alias of runBacktest but keeping your route)
 export const runRealisticBacktestsController = async (req, res) => {
   try {
-    const { userId, symbol, timeframe = "1h", initialBalance = 1000, strategy = { name: "SMA", parameters: {} }, risk = "Medium", takeProfit = null, stopLoss = null, limit = 2000 } = req.body;
+    const {
+      userId,
+      symbol,
+      timeframe = "1h",
+      initialBalance = 1000,
+      strategy = { name: "SMA", parameters: {} },
+      risk = "Medium",
+      takeProfit = null,
+      stopLoss = null,
+      limit = 2000,
+    } = req.body;
 
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ success: false, message: "Invalid or missing userId" });
     }
-
     if (!symbol) {
       return res.status(400).json({ success: false, message: "Missing symbol" });
     }
@@ -149,7 +160,7 @@ export const runRealisticBacktestsController = async (req, res) => {
       risk,
       takeProfit,
       stopLoss,
-      limit
+      limit,
     });
 
     const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;

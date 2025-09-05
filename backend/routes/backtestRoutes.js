@@ -7,22 +7,23 @@ import {
   runRealistic,
   getUserBacktests
 } from "../controllers/backtestController.js";
+import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// --- GET options for dropdowns in frontend ---
-router.get("/options", getBacktestOptions);
+// Fetch options for frontend dropdowns
+router.get("/options", protect, getBacktestOptions);
 
-// --- Single backtest ---
-router.post("/run", runSingleBacktest);
+// Single backtest
+router.post("/single", protect, runSingleBacktest);
 
-// --- Batch backtests ---
-router.post("/batch", runBatch);
+// Batch backtests
+router.post("/batch", protect, runBatch);
 
-// --- Realistic backtest ---
-router.post("/realistic", runRealistic);
+// Realistic backtest
+router.post("/realistic", protect, runRealistic);
 
-// --- Get all backtests for a user ---
-router.get("/user/:userId", getUserBacktests);
+// User backtests
+router.get("/user/:userId", protect, getUserBacktests);
 
 export default router;

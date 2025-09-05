@@ -5,35 +5,29 @@ import { fetchOHLCV } from "./marketDataService.js";
 import { logToDb } from "./logService.js";
 
 /**
- * -------------------------------------------------------
- * INDICATOR HELPERS (very lightweight, enough to differ)
- * -------------------------------------------------------
+ * -----------------------------
+ * INDICATOR HELPERS
+ * -----------------------------
  */
-const SMA = (arr, p, i) => {
-  if (i < p) return null;
-  let s = 0;
-  for (let k = i - p; k < i; k++) s += arr[k];
-  return s / p;
-};
+const SMA = (arr, period, i) => (i < period ? null : arr.slice(i - period, i).reduce((a, b) => a + b, 0) / period);
 
-const EMA = (arr, p, i) => {
-  if (i < p) return null;
-  const k = 2 / (p + 1);
-  let ema = arr[i - p];
-  for (let k_i = i - p + 1; k_i < i; k_i++) {
-    ema = arr[k_i] * k + ema * (1 - k);
+const EMA = (arr, period, i) => {
+  if (i < period) return null;
+  const k = 2 / (period + 1);
+  let ema = arr[i - period];
+  for (let idx = i - period + 1; idx < i; idx++) {
+    ema = arr[idx] * k + ema * (1 - k);
   }
   return ema;
 };
 
-const RSI = (arr, p, i) => {
-  if (i < p + 1) return null;
-  let gains = 0,
-    losses = 0;
-  for (let k = i - p + 1; k <= i; k++) {
-    const ch = arr[k] - arr[k - 1];
-    if (ch >= 0) gains += ch;
-    else losses -= ch;
+const RSI = (arr, period, i) => {
+  if (i < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let idx = i - period + 1; idx <= i; idx++) {
+    const change = arr[idx] - arr[idx - 1];
+    if (change > 0) gains += change;
+    else losses -= change;
   }
   const rs = losses === 0 ? 100 : gains / (losses || 1e-9);
   return 100 - 100 / (1 + rs);
@@ -45,11 +39,11 @@ const MACD = (arr, fast = 12, slow = 26, signal = 9, i) => {
   const slowE = EMA(arr, slow, i);
   if (fastE == null || slowE == null) return null;
   const macd = fastE - slowE;
-  // naive signal line
+
   const hist = [];
-  for (let k = i - signal + 1; k <= i; k++) {
-    const fe = EMA(arr, fast, k);
-    const se = EMA(arr, slow, k);
+  for (let idx = i - signal + 1; idx <= i; idx++) {
+    const fe = EMA(arr, fast, idx);
+    const se = EMA(arr, slow, idx);
     if (fe == null || se == null) return null;
     hist.push(fe - se);
   }
@@ -57,143 +51,105 @@ const MACD = (arr, fast = 12, slow = 26, signal = 9, i) => {
   return { macd, sig };
 };
 
-const STDEV = (arr, p, i) => {
-  if (i < p) return null;
-  const slice = arr.slice(i - p, i);
-  const mean = slice.reduce((a, b) => a + b, 0) / p;
-  const v = slice.reduce((a, b) => a + (b - mean) ** 2, 0) / p;
-  return Math.sqrt(v);
+const STDEV = (arr, period, i) => {
+  if (i < period) return null;
+  const slice = arr.slice(i - period, i);
+  const mean = slice.reduce((a, b) => a + b, 0) / period;
+  return Math.sqrt(slice.reduce((a, b) => a + (b - mean) ** 2, 0) / period);
 };
 
 /**
- * -------------------------------------------------------
- * STRATEGY DECISIONS
- * Each returns "BUY" | "SELL" | null
- * -------------------------------------------------------
+ * -----------------------------
+ * STRATEGY EXECUTION
+ * -----------------------------
  */
-function executeStrategy(strategyName, candles, i, parameters = {}) {
-  const priceArr = candles.map((c) => c.price);
-  const p = priceArr[i];
+function executeStrategy(name, candles, i, params = {}) {
+  const prices = candles.map(c => c.price);
+  const price = prices[i];
 
-  switch ((strategyName || "").toUpperCase()) {
+  switch ((name || "").toUpperCase()) {
     case "SMA": {
-      const fast = Number(parameters.fast) || 5;
-      const slow = Number(parameters.slow) || 20;
-      const f = SMA(priceArr, fast, i);
-      const s = SMA(priceArr, slow, i);
-      if (f == null || s == null) return null;
-      return f > s ? "BUY" : "SELL";
+      const f = SMA(prices, Number(params.fast) || 5, i);
+      const s = SMA(prices, Number(params.slow) || 20, i);
+      return f != null && s != null ? (f > s ? "BUY" : "SELL") : null;
     }
     case "EMA": {
-      const fast = Number(parameters.fast) || 8;
-      const slow = Number(parameters.slow) || 21;
-      const f = EMA(priceArr, fast, i);
-      const s = EMA(priceArr, slow, i);
-      if (f == null || s == null) return null;
-      return f > s ? "BUY" : "SELL";
+      const f = EMA(prices, Number(params.fast) || 8, i);
+      const s = EMA(prices, Number(params.slow) || 21, i);
+      return f != null && s != null ? (f > s ? "BUY" : "SELL") : null;
     }
     case "RSI": {
-      const period = Number(parameters.period) || 14;
-      const overbought = Number(parameters.overbought) || 70;
-      const oversold = Number(parameters.oversold) || 30;
-      const r = RSI(priceArr, period, i);
+      const r = RSI(prices, Number(params.period) || 14, i);
       if (r == null) return null;
-      if (r < oversold) return "BUY";
-      if (r > overbought) return "SELL";
+      if (r < (params.oversold || 30)) return "BUY";
+      if (r > (params.overbought || 70)) return "SELL";
       return null;
     }
     case "MACD": {
-      const fast = Number(parameters.fast) || 12;
-      const slow = Number(parameters.slow) || 26;
-      const signal = Number(parameters.signal) || 9;
-      const m = MACD(priceArr, fast, slow, signal, i);
-      if (!m) return null;
-      return m.macd > m.sig ? "BUY" : "SELL";
+      const m = MACD(prices, Number(params.fast) || 12, Number(params.slow) || 26, Number(params.signal) || 9, i);
+      return m ? (m.macd > m.sig ? "BUY" : "SELL") : null;
     }
     case "BOLLINGERBANDS": {
-      const period = Number(parameters.period) || 20;
-      const mult = Number(parameters.multiplier) || 2;
-      const ma = SMA(priceArr, period, i);
-      const sd = STDEV(priceArr, period, i);
+      const period = Number(params.period) || 20;
+      const mult = Number(params.multiplier) || 2;
+      const ma = SMA(prices, period, i);
+      const sd = STDEV(prices, period, i);
       if (ma == null || sd == null) return null;
       const upper = ma + mult * sd;
       const lower = ma - mult * sd;
-      if (p < lower) return "BUY";
-      if (p > upper) return "SELL";
+      if (price < lower) return "BUY";
+      if (price > upper) return "SELL";
       return null;
     }
     case "STOCHASTIC": {
-      const kPeriod = Number(parameters.k) || 14;
-      const dPeriod = Number(parameters.d) || 3;
+      const kPeriod = Number(params.k) || 14;
+      const dPeriod = Number(params.d) || 3;
       if (i < kPeriod + dPeriod) return null;
       const window = candles.slice(i - kPeriod, i);
-      const highs = window.map((c) => c.price);
-      const lows = window.map((c) => c.price);
-      const high = Math.max(...highs);
-      const low = Math.min(...lows);
-      const k = ((p - low) / Math.max(high - low, 1e-9)) * 100;
-      // d = SMA of k, but keep it simple
+      const high = Math.max(...window.map(c => c.price));
+      const low = Math.min(...window.map(c => c.price));
+      const k = ((price - low) / Math.max(high - low, 1e-9)) * 100;
       if (k < 20) return "BUY";
       if (k > 80) return "SELL";
       return null;
     }
     case "VWAP": {
-      // Simplified: compare price to SMA as VWAP proxy in demo (without volume)
-      const period = Number(parameters.period) || 20;
-      const vwap = SMA(priceArr, period, i);
-      if (vwap == null) return null;
-      return p > vwap ? "BUY" : "SELL";
+      const vwap = SMA(prices, Number(params.period) || 20, i);
+      return vwap != null ? (price > vwap ? "BUY" : "SELL") : null;
     }
     case "ATR": {
-      // Simplified: ATR-like volatility filter via STDEV
-      const period = Number(parameters.period) || 14;
-      const sd = STDEV(priceArr, period, i);
-      if (sd == null) return null;
-      // If volatility rising (roughly), trend-follow
-      const prevSd = STDEV(priceArr, period, i - 1);
-      if (prevSd == null) return null;
-      return sd >= prevSd ? "BUY" : "SELL";
+      const sd = STDEV(prices, Number(params.period) || 14, i);
+      const prevSd = STDEV(prices, Number(params.period) || 14, i - 1);
+      return sd != null && prevSd != null ? (sd >= prevSd ? "BUY" : "SELL") : null;
     }
     default:
-      // Fallback: momentum
       if (i < 1) return null;
-      return candles[i].price > candles[i - 1].price ? "BUY" : "SELL";
+      return price > prices[i - 1] ? "BUY" : "SELL";
   }
 }
 
-// --- List of exchanges to try (use valid ccxt ids; coinbasepro is deprecated) ---
-const EXCHANGE_LIST = ["binance", "kraken", "coinbase", "gemini"];
-
 /**
- * Try multiple exchanges for OHLCV; return close price rows
+ * -----------------------------
+ * BACKTEST ENGINE
+ * -----------------------------
  */
+const EXCHANGES = ["binance", "kraken", "coinbase", "gemini"];
+const RISK_SIZES = { Low: 0.25, Medium: 0.5, High: 1 };
+
 async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000) {
-  let lastErr = null;
-  for (const ex of EXCHANGE_LIST) {
+  let lastErr;
+  for (const ex of EXCHANGES) {
     try {
       const ohlcv = await fetchOHLCV(ex, symbol, timeframe, limit);
-      // Map ccxt rows -> our minimal candle format
-      return ohlcv.map((c) => ({ time: new Date(c[0]), price: c[4] }));
+      return ohlcv.map(c => ({ time: new Date(c[0]), price: c[4] }));
     } catch (err) {
       console.warn(`[Backtest] Failed on ${ex} for ${symbol}: ${err.message}`);
       lastErr = err;
     }
   }
-  throw new Error(`All exchanges failed for ${symbol}: ${lastErr?.message || "unknown error"}`);
+  throw new Error(`All exchanges failed for ${symbol}: ${lastErr?.message || "unknown"}`);
 }
 
-/**
- * Map "risk" -> position sizing fraction of available balance
- * Low: 25%, Medium: 50%, High: 100%
- */
-const RISK_SIZING = { Low: 0.25, Medium: 0.5, High: 1 };
-
-/**
- * Run a single backtest
- * - Uses risk as position sizing
- * - Checks TP/SL intrabar (at each bar) and exits early
- * - Stores symbol/risk/TP/SL in DB
- */
 export async function runBacktest({
   userId,
   strategyId = null,
@@ -202,12 +158,12 @@ export async function runBacktest({
   initialBalance = 1000,
   strategy = { name: "SMA", parameters: {} },
   risk = "Medium",
-  takeProfit = null, // percent (e.g. 2 means +2%)
-  stopLoss = null,   // percent (e.g. 1 means -1%)
+  takeProfit = null,
+  stopLoss = null,
   slippageBps = 5,
-  limit = 2000,
+  limit = 2000
 } = {}) {
-  // Allow loading a saved strategy template by id
+
   if (strategyId) {
     const stratDoc = await Strategy.findById(strategyId);
     if (stratDoc) {
@@ -216,106 +172,58 @@ export async function runBacktest({
       initialBalance = initialBalance || stratDoc.params.initialBalance;
       strategy = { name: stratDoc.params.strategyType || "SMA", parameters: stratDoc.params };
       risk = risk || stratDoc.params.risk;
-      takeProfit = takeProfit != null ? takeProfit : stratDoc.params.takeProfit;
-      stopLoss = stopLoss != null ? stopLoss : stratDoc.params.stopLoss;
+      takeProfit = takeProfit ?? stratDoc.params.takeProfit;
+      stopLoss = stopLoss ?? stratDoc.params.stopLoss;
     }
   }
 
-  if (!userId || !symbol || !strategy?.name) {
-    throw new Error("Missing required fields: userId, symbol, or strategy.name");
+  if (!userId || !symbol || !strategy?.name) throw new Error("Missing required fields");
+
+  let candles;
+  try { candles = await fetchOHLCVMulti(symbol, timeframe, limit); }
+  catch (err) { 
+    console.error(`[Backtest] Failed OHLCV:`, err.message);
+    return { saved: null, metrics: { netProfit: 0, tradesCount: 0 }, equityCurve: [], trades: [] };
   }
 
-  // Helpful server-side payload log (mirrors your front-end console)
-  console.log("[RunBacktest Payload]", {
-    userId,
-    symbol,
-    timeframe,
-    initialBalance,
-    strategy,
-    risk,
-    takeProfit,
-    stopLoss,
-    limit,
-  });
-
-  // Get data
-  let candles = [];
-  try {
-    candles = await fetchOHLCVMulti(symbol, timeframe, limit);
-  } catch (err) {
-    console.error(`[Backtest] Failed to fetch OHLCV for ${symbol}:`, err.message);
-    // Return an empty result instead of throwing to keep UI happy
-    const emptyMetrics = {
-      initialBalance,
-      finalBalance: initialBalance,
-      netProfit: 0,
-      winRate: 0,
-      maxDrawdown: 0,
-      profitFactor: 0,
-      sharpeRatio: 0,
-      cagr: 0,
-      tradesCount: 0,
-    };
-    return { saved: null, metrics: emptyMetrics, equityCurve: [], trades: [] };
-  }
-
-  // ---------------------------
-  // Backtest loop (long only)
-  // ---------------------------
-  let cash = initialBalance;
-  let asset = 0; // units
-  let entryPrice = null;
-  let openIndex = null;
-
-  const trades = [];
-  const equityCurve = [];
+  let cash = initialBalance, asset = 0, entryPrice = null, openIndex = null;
+  const trades = [], equityCurve = [];
   const slip = slippageBps / 10000;
-  const sizeFrac = RISK_SIZING[risk] ?? RISK_SIZING.Medium; // fallback to Medium
+  const sizeFrac = RISK_SIZES[risk] ?? 0.5;
 
   for (let i = 1; i < candles.length; i++) {
-    const cur = candles[i];
-    const price = cur.price;
-
-    // Update equity curve at each bar
-    equityCurve.push({ time: cur.time, equity: +(cash + asset * price).toFixed(2) });
+    const price = candles[i].price;
+    equityCurve.push({ time: candles[i].time, equity: +(cash + asset * price).toFixed(2) });
 
     const decision = executeStrategy(strategy.name, candles, i, strategy.parameters);
 
-    // If we have an open position, check TP/SL **intrabar** (each bar)
+    // Close position
     if (asset > 0 && entryPrice != null) {
       const pnlPct = ((price - entryPrice) / entryPrice) * 100;
-
-      // Exit for TP/SL first (risk controls)
-      let exitForRisk = false;
-      if (takeProfit != null && pnlPct >= takeProfit) exitForRisk = true;
-      if (stopLoss != null && pnlPct <= -stopLoss) exitForRisk = true;
-
+      const exitForRisk = (takeProfit != null && pnlPct >= takeProfit) || (stopLoss != null && pnlPct <= -stopLoss);
       if (exitForRisk || decision === "SELL" || i === candles.length - 1) {
         const fill = price * (1 - slip);
-        const proceeds = asset * fill;
-        const profit = +(proceeds - asset * entryPrice).toFixed(2);
-
+        const profit = +(asset * (fill - entryPrice)).toFixed(2);
         trades.push({
           entryTime: candles[openIndex].time,
-          exitTime: cur.time,
-          entryPrice: +(entryPrice).toFixed(2),
-          exitPrice: +(fill).toFixed(2),
+          exitTime: candles[i].time,
+          entryPrice: +entryPrice.toFixed(2),
+          exitPrice: +fill.toFixed(2),
           position: "long",
           profit,
           duration: i - openIndex,
-          result: profit > 0 ? "win" : profit < 0 ? "loss" : "breakeven",
+          result: profit > 0 ? "win" : profit < 0 ? "loss" : "breakeven"
         });
-
-        cash += proceeds;
+        cash += asset * fill;
         asset = 0;
         entryPrice = null;
         openIndex = null;
       }
     }
 
-    // If flat, consider entries on BUY
+    // Open position
     if (asset === 0 && decision === "BUY") {
-      const spend = cash * sizeFrac; // position size based on risk
+      const spend = cash * sizeFrac;
       if (spend > 0) {
         const fill = price * (1 + slip);
         asset = spend / fill;
@@ -326,106 +234,48 @@ export async function runBacktest({
     }
   }
 
-  // Final equity & metrics
-  const last = candles[candles.length - 1];
-  const finalEquity = +(cash + asset * last.price).toFixed(2);
-  equityCurve.push({ time: last.time, equity: finalEquity });
+  // Final metrics
+  const finalEquity = +(cash + asset * candles[candles.length - 1].price).toFixed(2);
+  equityCurve.push({ time: candles[candles.length - 1].time, equity: finalEquity });
 
   const netProfit = +(finalEquity - initialBalance).toFixed(2);
-  const wins = trades.filter((t) => t.profit > 0).length;
-  const losses = trades.filter((t) => t.profit < 0).length;
   const tradesCount = trades.length;
+  const wins = trades.filter(t => t.profit > 0).length;
   const winRate = tradesCount ? +(100 * wins / tradesCount).toFixed(2) : 0;
 
-  // Max Drawdown
-  let peak = equityCurve[0]?.equity || 0;
-  let maxDd = 0;
-  for (const pt of equityCurve) {
-    if (pt.equity > peak) peak = pt.equity;
-    const dd = (peak - pt.equity) / (peak || 1);
-    if (dd > maxDd) maxDd = dd;
-  }
+  let peak = equityCurve[0]?.equity || 0, maxDd = 0;
+  for (const pt of equityCurve) { peak = Math.max(peak, pt.equity); maxDd = Math.max(maxDd, (peak - pt.equity) / (peak || 1)); }
 
-  // Profit factor (gross wins / gross losses)
-  const grossWin = trades.filter((t) => t.profit > 0).reduce((a, b) => a + b.profit, 0);
-  const grossLoss = trades.filter((t) => t.profit < 0).reduce((a, b) => a + Math.abs(b.profit), 0);
+  const grossWin = trades.filter(t => t.profit > 0).reduce((a, b) => a + b.profit, 0);
+  const grossLoss = trades.filter(t => t.profit < 0).reduce((a, b) => a + Math.abs(b.profit), 0);
   const profitFactor = grossLoss === 0 ? (grossWin > 0 ? Infinity : 0) : +(grossWin / grossLoss).toFixed(2);
 
-  // Simple Sharpe using daily-ish bars proxy (still illustrative)
-  const rets = [];
-  for (let i = 1; i < equityCurve.length; i++) {
-    const prev = equityCurve[i - 1].equity || 1;
-    const curEq = equityCurve[i].equity || 1;
-    rets.push((curEq - prev) / prev);
-  }
+  const rets = equityCurve.slice(1).map((p, idx) => (p.equity - equityCurve[idx].equity) / (equityCurve[idx].equity || 1));
   const mean = rets.length ? rets.reduce((a, b) => a + b, 0) / rets.length : 0;
   const var_ = rets.length > 1 ? rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (rets.length - 1) : 0;
   const sharpeRatio = var_ === 0 ? 0 : +(Math.sqrt(252) * (mean / Math.sqrt(var_))).toFixed(2);
 
-  // CAGR over tested period
-  const startTime = candles[0]?.time || new Date();
-  const endTime = last?.time || new Date();
-  const years = Math.max((endTime - startTime) / (365 * 24 * 3600 * 1000), 1 / 365);
+  const years = Math.max((candles[candles.length - 1].time - candles[0].time) / (365 * 24 * 3600 * 1000), 1 / 365);
   const cagr = +((Math.pow(finalEquity / initialBalance, 1 / years) - 1) * 100).toFixed(2);
 
-  const metrics = {
-    initialBalance,
-    finalBalance: finalEquity,
-    netProfit,
-    winRate,
-    maxDrawdown: +(maxDd * 100).toFixed(2),
-    profitFactor,
-    sharpeRatio,
-    cagr,
-    tradesCount,
-  };
+  const metrics = { initialBalance, finalBalance: finalEquity, netProfit, winRate, maxDrawdown: +(maxDd * 100).toFixed(2), profitFactor, sharpeRatio, cagr, tradesCount };
 
-  // Persist
-  const saved = await Backtest.create({
-    userId,
-    symbol,             // ✅ store symbol
-    timeframe,
-    initialBalance,
-    finalBalance: finalEquity,
-    profit: netProfit,
-    candlesTested: candles.length,
-    strategy,
-    tradeBreakdown: trades,
-    metrics,
-    risk,               // ✅ store risk
-    takeProfit,         // ✅ store TP
-    stopLoss,           // ✅ store SL
-    createdAt: new Date(),
-  });
+  const saved = await Backtest.create({ userId, symbol, timeframe, initialBalance, finalBalance: finalEquity, profit: netProfit, candlesTested: candles.length, strategy, tradeBreakdown: trades, metrics, risk, takeProfit, stopLoss, createdAt: new Date() });
 
-  await logToDb(
-    userId,
-    `[Backtest] ${symbol} | ${timeframe} | Risk: ${risk} | TP: ${takeProfit ?? 0}% | SL: ${stopLoss ?? 0}% | Profit: $${netProfit.toFixed(2)} | Trades: ${tradesCount}`
-  );
+  await logToDb(userId, `[Backtest] ${symbol} | ${timeframe} | Risk: ${risk} | TP: ${takeProfit ?? 0}% | SL: ${stopLoss ?? 0}% | Profit: $${netProfit.toFixed(2)} | Trades: ${tradesCount}`);
 
   return { saved, metrics, equityCurve, trades };
 }
 
-/**
- * Run multiple backtests in batch (sequentially to avoid DB + rate limit spikes)
- * NOTE: The "sameness" issue you saw before came from strategies behaving
- *       almost identically. With the upgraded strategy engine above, different
- *       names/parameters produce different decisions & results.
- */
 export async function runBatchBacktests(userId, _exchange, paramCombos) {
   const results = [];
   let best = null;
-
   for (const combo of paramCombos) {
-    const { saved, metrics } = await runBacktest({ userId, ...combo });
-    results.push({ saved, metrics });
-    if (!best || metrics.netProfit > best.metrics.netProfit) {
-      best = { saved, metrics };
-    }
+    const result = await runBacktest({ userId, ...combo });
+    results.push(result);
+    if (!best || result.metrics.netProfit > best.metrics.netProfit) best = result;
   }
-
   return { results, best };
 }
 
-// Alias (kept for your existing routes)
 export const runRealisticBacktest = runBacktest;

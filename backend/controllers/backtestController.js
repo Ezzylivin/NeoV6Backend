@@ -3,121 +3,69 @@ import { runBacktest, runBatchBacktests, runRealisticBacktest } from "../service
 import Backtest from "../dbStructure/backtest.js";
 
 /**
- * Run a single backtest
+ * ✅ Backtest options (used by frontend dropdowns)
  */
-export const runSingleBacktest = async (req, res) => {
+export async function getBacktestOptions(req, res) {
   try {
-    const {
-      symbol,
-      timeframe,
-      initialBalance,
-      strategy,
-      risk,
-      takeProfit,
-      stopLoss,
-      slippageBps,
-      limit,
-      strategyId,
-      startDate,   // ✅ new
-      endDate      // ✅ new
-    } = req.body;
+    const options = {
+      symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+      timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+      balances: [100, 500, 1000, 5000, 10000],
+      risks: ["Low", "Medium", "High"],
+      strategies: ["SMA", "EMA", "RSI", "MACD", "BOLLINGERBANDS", "STOCHASTIC", "VWAP", "ATR"],
+    };
 
-    const userId = req.user?._id;
-
-    const result = await runBacktest({
-      userId,
-      symbol,
-      timeframe,
-      initialBalance,
-      strategy,
-      risk,
-      takeProfit,
-      stopLoss,
-      slippageBps,
-      limit,
-      strategyId,
-      startDate,   // ✅ pass through
-      endDate      // ✅ pass through
-    });
-
-    res.status(200).json(result);
+    res.json(options);
   } catch (err) {
-    console.error("[Controller] runSingleBacktest failed:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
-};
+}
 
 /**
- * Run batch backtests
+ * ✅ Single backtest
  */
-export const runBatch = async (req, res) => {
+export async function runSingleBacktest(req, res) {
   try {
-    const { paramCombos, exchange } = req.body;
-    const userId = req.user?._id;
-
-    const result = await runBatchBacktests(userId, exchange, paramCombos);
-    res.status(200).json(result);
+    const result = await runBacktest({ ...req.body, userId: req.user?.id || req.body.userId });
+    res.json(result);
   } catch (err) {
-    console.error("[Controller] runBatch failed:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
-};
+}
 
 /**
- * Run realistic backtest (alias of runBacktest)
+ * ✅ Batch backtests
  */
-export const runRealistic = async (req, res) => {
+export async function runBatch(req, res) {
   try {
-    const {
-      symbol,
-      timeframe,
-      initialBalance,
-      strategy,
-      risk,
-      takeProfit,
-      stopLoss,
-      slippageBps,
-      limit,
-      strategyId,
-      startDate,   // ✅ new
-      endDate      // ✅ new
-    } = req.body;
-
-    const userId = req.user?._id;
-
-    const result = await runRealisticBacktest({
-      userId,
-      symbol,
-      timeframe,
-      initialBalance,
-      strategy,
-      risk,
-      takeProfit,
-      stopLoss,
-      slippageBps,
-      limit,
-      strategyId,
-      startDate,   // ✅ pass through
-      endDate      // ✅ pass through
-    });
-
-    res.status(200).json(result);
+    const result = await runBatchBacktests(req.user?.id || req.body.userId, req.body.exchange, req.body.paramCombos);
+    res.json(result);
   } catch (err) {
-    console.error("[Controller] runRealistic failed:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
-};
+}
 
 /**
- * Get all backtests for a user
+ * ✅ Realistic backtest
  */
-export const getUserBacktests = async (req, res) => {
+export async function runRealistic(req, res) {
   try {
-    const userId = req.user?._id;
+    const result = await runRealisticBacktest({ ...req.body, userId: req.user?.id || req.body.userId });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+/**
+ * ✅ Get all backtests for a user
+ */
+export async function getUserBacktests(req, res) {
+  try {
+    const userId = req.params.userId || req.user?.id;
     const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
-    res.status(200).json(backtests);
+    res.json(backtests);
   } catch (err) {
-    console.error("[Controller] getUserBacktests failed:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
-};
+}

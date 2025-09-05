@@ -1,6 +1,7 @@
 // File: backend/routes/backtestRoutes.js
 import express from "express";
 import {
+  getBacktestOptions,
   runSingleBacktest,
   runBatch,
   runRealistic,
@@ -12,6 +13,7 @@ const router = express.Router();
 // Middleware: restrict allowed methods per route
 router.all("*", (req, res, next) => {
   const allowedMethods = {
+    "/options": ["GET"],
     "/run": ["POST"],
     "/batch": ["POST"],
     "/realistic": ["POST"],
@@ -30,6 +32,9 @@ router.all("*", (req, res, next) => {
   next();
 });
 
+// --- GET /api/backtests/options --- (backtest dropdowns/options)
+router.get("/options", getBacktestOptions);
+
 // --- POST /api/backtests/run --- (single backtest)
 router.post("/run", runSingleBacktest);
 
@@ -39,7 +44,7 @@ router.post("/batch", runBatch);
 // --- POST /api/backtests/realistic --- (realistic mode)
 router.post("/realistic", runRealistic);
 
-// --- GET /api/backtests/user/:userId --- (get all user backtests)
+// --- GET /api/backtests/user/:userId --- (user’s backtests)
 router.get("/user/:userId", getUserBacktests);
 
 export default router;

@@ -45,17 +45,6 @@ export async function runBatch(req, res) {
   }
 }
 
-/**
- * ✅ Realistic backtest
- */
-export async function runRealistic(req, res) {
-  try {
-    const result = await runRealisticBacktest({ ...req.body, userId: req.user?.id || req.body.userId });
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-}
 
 /**
  * ✅ Get all backtests for a user

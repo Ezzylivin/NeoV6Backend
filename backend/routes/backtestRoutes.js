@@ -1,45 +1,45 @@
 // File: backend/routes/backtestRoutes.js
 import express from "express";
 import {
-  getBacktestOptions,
-  runAndSaveBacktests,
-  runBatchBacktestsController,
-  getUserBacktests,
-  runRealisticBacktestsController
+  runSingleBacktest,
+  runBatch,
+  runRealistic,
+  getUserBacktests
 } from "../controllers/backtestController.js";
 
 const router = express.Router();
 
-// Middleware to handle unsupported methods
+// Middleware: restrict allowed methods per route
 router.all("*", (req, res, next) => {
   const allowedMethods = {
-    "/options": ["GET"],
     "/run": ["POST"],
     "/batch": ["POST"],
-    "/user/:userId": ["GET"],
-    "/realistic": ["POST"], // ✅ new realistic route
+    "/realistic": ["POST"],
+    "/user": ["GET"],
   };
 
-  const routeKey = Object.keys(allowedMethods).find(path => req.path.startsWith(path)) || null;
+  const routeKey = Object.keys(allowedMethods).find(path =>
+    req.path.startsWith(path)
+  );
+
   if (routeKey && !allowedMethods[routeKey].includes(req.method)) {
-    return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
+    return res
+      .status(405)
+      .json({ success: false, message: `Method ${req.method} Not Allowed` });
   }
   next();
 });
 
-// --- GET /api/backtests/options ---
-router.get("/options", getBacktestOptions);
+// --- POST /api/backtests/run --- (single backtest)
+router.post("/run", runSingleBacktest);
 
-// --- POST /api/backtests/run ---
-router.post("/run", runAndSaveBacktests);
+// --- POST /api/backtests/batch --- (batch backtests)
+router.post("/batch", runBatch);
 
-// --- POST /api/backtests/batch ---
-router.post("/batch", runBatchBacktestsController);
+// --- POST /api/backtests/realistic --- (realistic mode)
+router.post("/realistic", runRealistic);
 
-// --- POST /api/backtests/realistic ---
-router.post("/realistic", runRealisticBacktestsController);
-
-// --- GET /api/backtests/user/:userId ---
+// --- GET /api/backtests/user/:userId --- (get all user backtests)
 router.get("/user/:userId", getUserBacktests);
 
 export default router;

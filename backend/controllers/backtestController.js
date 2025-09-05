@@ -13,9 +13,11 @@ export async function getBacktestOptions(req, res) {
       balances: [100, 500, 1000, 5000, 10000],
       risks: ["Low", "Medium", "High"],
       strategies: ["SMA", "EMA", "RSI", "MACD", "BOLLINGERBANDS", "STOCHASTIC", "VWAP", "ATR"],
+      takeProfits: [null, 1, 2, 3, 5, 10],
+      stopLosses: [null, 0.5, 1, 2, 3, 5],
     };
 
-    res.json(options);
+    res.json({ success: true, options });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -26,9 +28,21 @@ export async function getBacktestOptions(req, res) {
  */
 export async function runSingleBacktest(req, res) {
   try {
-    const result = await runBacktest({ ...req.body, userId: req.user?.id || req.body.userId });
-    res.json(result);
+    const userId = req.user?.id || req.body.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "User not authenticated" });
+
+    const result = await runBacktest({ ...req.body, userId });
+
+    // Ensure frontend can read metrics & saved object
+    res.json({
+      success: true,
+      saved: result.saved || result, // if your service returns full backtest object
+      metrics: result.metrics || {},
+      equityCurve: result.equityCurve || [],
+      trades: result.trades || [],
+    });
   } catch (err) {
+    console.error("[Run Single Backtest Error]", err);
     res.status(500).json({ success: false, message: err.message });
   }
 }
@@ -38,13 +52,16 @@ export async function runSingleBacktest(req, res) {
  */
 export async function runBatch(req, res) {
   try {
-    const result = await runBatchBacktests(req.user?.id || req.body.userId, req.body.exchange, req.body.paramCombos);
-    res.json(result);
+    const userId = req.user?.id || req.body.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "User not authenticated" });
+
+    const result = await runBatchBacktests(userId, req.body.exchange, req.body.paramCombos);
+    res.json({ success: true, result });
   } catch (err) {
+    console.error("[Run Batch Backtests Error]", err);
     res.status(500).json({ success: false, message: err.message });
   }
 }
-
 
 /**
  * ✅ Get all backtests for a user
@@ -53,8 +70,9 @@ export async function getUserBacktests(req, res) {
   try {
     const userId = req.params.userId || req.user?.id;
     const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
-    res.json(backtests);
+    res.json({ success: true, backtests });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 }
+

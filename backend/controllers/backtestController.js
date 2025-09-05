@@ -39,8 +39,10 @@ export const runAndSaveBacktests = async (req, res) => {
       risk = "Medium",
       takeProfit = null,
       stopLoss = null,
-      // You can optionally pass `limit` to control OHLCV depth
       limit = 2000,
+      // ✅ new optional params
+      startDate,
+      endDate,
     } = req.body;
 
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -50,14 +52,13 @@ export const runAndSaveBacktests = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing symbol" });
     }
 
-    // Normalize numeric inputs (TP/SL are % values, nullable)
+    // Normalize numeric inputs
     initialBalance = Number(initialBalance) || 0;
     takeProfit = takeProfit != null ? Number(takeProfit) : null;
     stopLoss = stopLoss != null ? Number(stopLoss) : null;
-
     const normalizedStrategy = typeof strategy === "string" ? { name: strategy, parameters: {} } : strategy;
 
-    const { saved, metrics, equityCurve, trades } = await runBacktest({
+    const { saved, metrics, equityCurve, trades, truncated } = await runBacktest({
       userId,
       symbol,
       timeframe,
@@ -67,6 +68,8 @@ export const runAndSaveBacktests = async (req, res) => {
       takeProfit,
       stopLoss,
       limit,
+      startDate,
+      endDate,
     });
 
     const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
@@ -75,103 +78,9 @@ export const runAndSaveBacktests = async (req, res) => {
       `[Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`
     );
 
-    res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
+    res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades, truncated });
   } catch (err) {
     console.error("[Backtest Run Error]", err);
     res.status(500).json({ success: false, message: err.message || "Internal error during backtest" });
-  }
-};
-
-// POST /api/backtests/batch
-export const runBatchBacktestsController = async (req, res) => {
-  try {
-    const { userId, paramCombos } = req.body;
-    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ success: false, message: "Invalid or missing userId" });
-    }
-    if (!Array.isArray(paramCombos) || paramCombos.length === 0) {
-      return res.status(400).json({ success: false, message: "Missing paramCombos" });
-    }
-
-    // CHUNK server-side to keep payloads small and memory bounded
-    const CHUNK_SIZE = 50;
-    const results = [];
-    let best = null;
-
-    for (let i = 0; i < paramCombos.length; i += CHUNK_SIZE) {
-      const chunk = paramCombos.slice(i, i + CHUNK_SIZE);
-      const { results: chunkResults, best: chunkBest } = await runBatchBacktests(userId, "exchange", chunk);
-      results.push(...chunkResults);
-      if (!best || (chunkBest.metrics.netProfit > best.metrics.netProfit)) best = chunkBest;
-    }
-
-    res.json({ success: true, results, best });
-  } catch (err) {
-    console.error("[Batch Backtests Error]", err);
-    res.status(500).json({ success: false, message: err.message || "Batch backtests failed" });
-  }
-};
-
-// GET /api/backtests/user/:userId
-export const getUserBacktests = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ success: false, message: "Invalid or missing userId" });
-    }
-    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
-    res.json({ success: true, backtests });
-  } catch (err) {
-    console.error("[List Backtests Error]", err);
-    res.status(500).json({ success: false, message: err.message || "Failed to fetch user backtests" });
-  }
-};
-
-// POST /api/backtests/realistic  (alias of runBacktest but keeping your route)
-export const runRealisticBacktestsController = async (req, res) => {
-  try {
-    const {
-      userId,
-      symbol,
-      timeframe = "1h",
-      initialBalance = 1000,
-      strategy = { name: "SMA", parameters: {} },
-      risk = "Medium",
-      takeProfit = null,
-      stopLoss = null,
-      limit = 2000,
-    } = req.body;
-
-    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ success: false, message: "Invalid or missing userId" });
-    }
-    if (!symbol) {
-      return res.status(400).json({ success: false, message: "Missing symbol" });
-    }
-
-    const normalizedStrategy = typeof strategy === "string" ? { name: strategy, parameters: {} } : strategy;
-
-    const { saved, metrics, equityCurve, trades } = await runRealisticBacktest({
-      userId,
-      symbol,
-      timeframe,
-      initialBalance,
-      strategy: normalizedStrategy,
-      risk,
-      takeProfit,
-      stopLoss,
-      limit,
-    });
-
-    const profit = saved?.profit != null && !isNaN(saved.profit) ? saved.profit : 0;
-    await logToDb(
-      userId,
-      `[Realistic Backtest] ${symbol} | ${timeframe} | Balance: $${initialBalance} | Strategy: ${normalizedStrategy.name} | Risk: ${risk} | TP: ${takeProfit ?? 0} | SL: ${stopLoss ?? 0} | Profit: $${profit.toFixed(2)}`
-    );
-
-    res.status(201).json({ success: true, backtest: saved, metrics, equityCurve, trades });
-  } catch (err) {
-    console.error("[Realistic Backtest Error]", err);
-    res.status(500).json({ success: false, message: err.message || "Internal error during realistic backtest" });
   }
 };

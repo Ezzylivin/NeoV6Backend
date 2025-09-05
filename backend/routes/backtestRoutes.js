@@ -4,7 +4,6 @@ import {
   getBacktestOptions,
   runSingleBacktest,
   runBatch,
-  runRealistic,
   getUserBacktests
 } from "../controllers/backtestController.js";
 import { protect } from "../middleware/authMiddleware.js";
@@ -20,8 +19,6 @@ router.post("/single", protect, runSingleBacktest);
 // Batch backtests
 router.post("/batch", protect, runBatch);
 
-// Realistic backtest
-router.post("/realistic", protect, runRealistic);
 
 // User backtests
 router.get("/user/:userId", protect, getUserBacktests);

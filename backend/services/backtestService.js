@@ -9,7 +9,8 @@ import { logToDb } from "./logService.js";
  * INDICATOR HELPERS
  * -----------------------------
  */
-const SMA = (arr, period, i) => (i < period ? null : arr.slice(i - period, i).reduce((a, b) => a + b, 0) / period);
+const SMA = (arr, period, i) =>
+  i < period ? null : arr.slice(i - period, i).reduce((a, b) => a + b, 0) / period;
 
 const EMA = (arr, period, i) => {
   if (i < period) return null;
@@ -161,9 +162,12 @@ export async function runBacktest({
   takeProfit = null,
   stopLoss = null,
   slippageBps = 5,
-  limit = 2000
+  limit = 2000,
+  startDate,              // ✅ new
+  endDate                 // ✅ new
 } = {}) {
 
+  // --- Load strategy from DB if using strategyId ---
   if (strategyId) {
     const stratDoc = await Strategy.findById(strategyId);
     if (stratDoc) {
@@ -179,13 +183,30 @@ export async function runBacktest({
 
   if (!userId || !symbol || !strategy?.name) throw new Error("Missing required fields");
 
+  // --- Fetch candles ---
   let candles;
-  try { candles = await fetchOHLCVMulti(symbol, timeframe, limit); }
-  catch (err) { 
+  try { 
+    candles = await fetchOHLCVMulti(symbol, timeframe, limit); 
+  } catch (err) { 
     console.error(`[Backtest] Failed OHLCV:`, err.message);
     return { saved: null, metrics: { netProfit: 0, tradesCount: 0 }, equityCurve: [], trades: [] };
   }
 
+  // --- ✅ Apply date filtering ---
+  if (startDate || endDate) {
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : null;
+    candles = candles.filter(c => {
+      const t = new Date(c.time);
+      return (!start || t >= start) && (!end || t <= end);
+    });
+  }
+
+  if (!candles.length) {
+    return { saved: null, metrics: { netProfit: 0, tradesCount: 0 }, equityCurve: [], trades: [] };
+  }
+
+  // --- Backtest Engine ---
   let cash = initialBalance, asset = 0, entryPrice = null, openIndex = null;
   const trades = [], equityCurve = [];
   const slip = slippageBps / 10000;
@@ -244,7 +265,10 @@ export async function runBacktest({
   const winRate = tradesCount ? +(100 * wins / tradesCount).toFixed(2) : 0;
 
   let peak = equityCurve[0]?.equity || 0, maxDd = 0;
-  for (const pt of equityCurve) { peak = Math.max(peak, pt.equity); maxDd = Math.max(maxDd, (peak - pt.equity) / (peak || 1)); }
+  for (const pt of equityCurve) { 
+    peak = Math.max(peak, pt.equity); 
+    maxDd = Math.max(maxDd, (peak - pt.equity) / (peak || 1)); 
+  }
 
   const grossWin = trades.filter(t => t.profit > 0).reduce((a, b) => a + b.profit, 0);
   const grossLoss = trades.filter(t => t.profit < 0).reduce((a, b) => a + Math.abs(b.profit), 0);
@@ -258,11 +282,29 @@ export async function runBacktest({
   const years = Math.max((candles[candles.length - 1].time - candles[0].time) / (365 * 24 * 3600 * 1000), 1 / 365);
   const cagr = +((Math.pow(finalEquity / initialBalance, 1 / years) - 1) * 100).toFixed(2);
 
-  const metrics = { initialBalance, finalBalance: finalEquity, netProfit, winRate, maxDrawdown: +(maxDd * 100).toFixed(2), profitFactor, sharpeRatio, cagr, tradesCount };
+  const metrics = { 
+    initialBalance, 
+    finalBalance: finalEquity, 
+    netProfit, 
+    winRate, 
+    maxDrawdown: +(maxDd * 100).toFixed(2), 
+    profitFactor, 
+    sharpeRatio, 
+    cagr, 
+    tradesCount 
+  };
 
-  const saved = await Backtest.create({ userId, symbol, timeframe, initialBalance, finalBalance: finalEquity, profit: netProfit, candlesTested: candles.length, strategy, tradeBreakdown: trades, metrics, risk, takeProfit, stopLoss, createdAt: new Date() });
+  const saved = await Backtest.create({
+    userId, symbol, timeframe, initialBalance,
+    finalBalance: finalEquity, profit: netProfit,
+    candlesTested: candles.length, strategy, tradeBreakdown: trades,
+    metrics, risk, takeProfit, stopLoss, createdAt: new Date()
+  });
 
-  await logToDb(userId, `[Backtest] ${symbol} | ${timeframe} | Risk: ${risk} | TP: ${takeProfit ?? 0}% | SL: ${stopLoss ?? 0}% | Profit: $${netProfit.toFixed(2)} | Trades: ${tradesCount}`);
+  await logToDb(
+    userId,
+    `[Backtest] ${symbol} | ${timeframe} | Risk: ${risk} | TP: ${takeProfit ?? 0}% | SL: ${stopLoss ?? 0}% | Profit: $${netProfit.toFixed(2)} | Trades: ${tradesCount}`
+  );
 
   return { saved, metrics, equityCurve, trades };
 }

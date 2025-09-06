@@ -1,26 +1,29 @@
-// File: backend/routes/backtestRoutes.js
+// backend/routes/backtestRoutes.js
 import express from "express";
 import {
   getBacktestOptions,
-  runSingleBacktest,
-  runBatch,
-  getUserBacktests
+  runSingleBacktest,   // single = /run
+  runBatch,           // batch = /batch
+  runRealistic,       // realistic = /realistic
+  getUserBacktests,   // history
 } from "../controllers/backtestController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Fetch options for frontend dropdowns
+// --- Options ---
 router.get("/options", protect, getBacktestOptions);
 
-// Single backtest
-router.post("/single", protect, runSingleBacktest);
+// --- Single Backtest ---
+router.post("/run", protect, runSingleBacktest);
 
-// Batch backtests
+// --- Batch Backtests ---
 router.post("/batch", protect, runBatch);
 
+// --- Realistic Backtest ---
+router.post("/realistic", protect, runRealistic);
 
-// User backtests
+// --- User Backtest History ---
 router.get("/user/:userId", protect, getUserBacktests);
 
 export default router;

@@ -1,28 +1,32 @@
+// File: backend/routes/backtestRoutes.js
 import express from "express";
 import {
   getBacktestOptions,
-  runAndSaveBacktests,          // single = /run
-  runBatchBacktestsController,  // batch = /batch
-  runRealisticBacktestsController, // realistic = /realistic
-  getUserBacktests,             // history
+  runBacktestController,
+  runBatchBacktestsController,
+  getUserBacktests,
+  getBacktestById,
+  deleteBacktest
 } from "../controllers/backtestController.js";
-import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// --- Options ---
-router.get("/options", protect, getBacktestOptions);
+// GET available options (risks, strategies, etc.)
+router.get("/options", getBacktestOptions);
 
-// --- Single Backtest ---
-router.post("/run", protect, runAndSaveBacktests);
+// POST run a single backtest
+router.post("/run", runBacktestController);
 
-// --- Batch Backtests ---
-router.post("/batch", protect, runBatchBacktestsController);
+// POST run batch backtests
+router.post("/batch", runBatchBacktestsController);
 
-// --- Realistic Backtest ---
-router.post("/realistic", protect, runRealisticBacktestsController);
+// GET all backtests for a specific user
+router.get("/user/:userId", getUserBacktests);
 
-// --- User Backtest History ---
-router.get("/user/:userId", protect, getUserBacktests);
+// GET a single backtest by ID
+router.get("/:backtestId", getBacktestById);
+
+// DELETE a backtest by ID
+router.delete("/:backtestId", deleteBacktest);
 
 export default router;

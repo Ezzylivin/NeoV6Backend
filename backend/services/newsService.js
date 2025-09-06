@@ -1,19 +1,34 @@
-// File: backend/services/newsService.js
-import axios from "axios";
+import { fetchNews } from "./newsService.js";
 
-const API_KEY = process.env.NEWS_API_KEY; // e.g., NewsAPI or Finnhub
+export async function runBacktest({ userId, symbol, useNews = false, startDate, endDate, ...rest }) {
+  
+  // Fetch candles
+  let candles = await fetchOHLCVMulti(symbol, rest.timeframe, rest.limit);
 
-export async function fetchNews(symbol, startDate, endDate) {
-  const url = `https://finnhub.io/api/v1/company-news?symbol=${symbol}&from=${startDate}&to=${endDate}&token=${API_KEY}`;
-  try {
-    const res = await axios.get(url);
-    // Map news to simple format for backtesting
-    return res.data.map(n => ({
-      time: new Date(n.datetime * 1000),
-      impact: n.sentiment || 0 // sentiment score if available
-    }));
-  } catch (err) {
-    console.error(`[NewsService] Failed for ${symbol}: ${err.message}`);
-    return [];
+  // Optional news integration
+  let news = [];
+  if (useNews) {
+    try {
+      news = await fetchNews(symbol, startDate, endDate);
+    } catch (err) {
+      console.warn(`[Backtest] Failed to fetch news for ${symbol}: ${err.message}`);
+      news = [];
+    }
   }
+
+  for (let i = 0; i < candles.length; i++) {
+    let price = candles[i].price;
+
+    // Apply news impact if available
+    if (useNews) {
+      const relevantNews = news.filter(n => n.time.getTime() === candles[i].time.getTime());
+      for (const n of relevantNews) {
+        price *= 1 + n.impact / 100; // simple proportional impact
+      }
+    }
+
+    // ...existing strategy execution & backtest logic...
+  }
+
+  // ...rest of runBacktest...
 }

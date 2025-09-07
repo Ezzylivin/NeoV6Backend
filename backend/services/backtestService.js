@@ -106,30 +106,50 @@ function executeStrategy(name, candles, i, params = {}) {
     }
     case "STOCHASTIC": {
       const kPeriod = Number(params.k) || 14;
-      const dPeriod = Number(params.d) || 3;
-      if (i < kPeriod + dPeriod) return null;
+      if (i < kPeriod) return null;
       const window = candles.slice(i - kPeriod, i);
-      const high = Math.max(...window.map(c => c.price));
-      const low = Math.min(...window.map(c => c.price));
-      const k = ((price - low) / Math.max(high - low, 1e-9)) * 100;
+      const high = Math.max(...window.map(c => c.high));
+      const low = Math.min(...window.map(c => c.low));
+      const k = ((candles[i].close - low) / Math.max(high - low, 1e-9)) * 100;
       if (k < 20) return "BUY";
       if (k > 80) return "SELL";
       return null;
     }
     case "VWAP": {
-      const vwap = SMA(prices, Number(params.period) || 20, i);
-      return vwap != null ? (price > vwap ? "BUY" : "SELL") : null;
+      let cumPV = 0, cumVol = 0;
+      const period = Number(params.period) || 20;
+      for (let j = Math.max(0, i - period + 1); j <= i; j++) {
+        const typicalPrice = (candles[j].high + candles[j].low + candles[j].close) / 3;
+        cumPV += typicalPrice * (candles[j].volume || 1);
+        cumVol += (candles[j].volume || 1);
+      }
+      if (cumVol === 0) return null;
+      const vwap = cumPV / cumVol;
+      return price > vwap ? "BUY" : "SELL";
     }
     case "ATR": {
-      const sd = STDEV(prices, Number(params.period) || 14, i);
-      const prevSd = STDEV(prices, Number(params.period) || 14, i - 1);
-      return sd != null && prevSd != null ? (sd >= prevSd ? "BUY" : "SELL") : null;
+      const period = Number(params.period) || 14;
+      if (i < period) return null;
+      const trs = [];
+      for (let j = i - period + 1; j <= i; j++) {
+        const prevClose = candles[j - 1]?.close ?? candles[j].close;
+        const tr = Math.max(
+          candles[j].high - candles[j].low,
+          Math.abs(candles[j].high - prevClose),
+          Math.abs(candles[j].low - prevClose)
+        );
+        trs.push(tr);
+      }
+      const atr = trs.reduce((a, b) => a + b, 0) / trs.length;
+      const prevAtr = trs.length > 1 ? trs.slice(0, -1).reduce((a, b) => a + b, 0) / (trs.length - 1) : atr;
+      return atr >= prevAtr ? "BUY" : "SELL";
     }
     default:
       if (i < 1) return null;
       return price > prices[i - 1] ? "BUY" : "SELL";
   }
 }
+
 
 /**
  * -----------------------------

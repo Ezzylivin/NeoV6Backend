@@ -187,7 +187,15 @@ async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000) {
   for (const ex of EXCHANGES) {
     try {
       const ohlcv = await fetchOHLCV(ex, symbol, timeframe, limit);
-      return ohlcv.map(c => ({ time: new Date(c[0]), price: c[4] }));
+      return ohlcv.map(c => ({
+        time: new Date(c[0]),
+        open: c[1],
+        high: c[2],
+        low: c[3],
+        close: c[4],
+        volume: c[5],
+        price: c[4], // keep for backward compatibility
+      }));
     } catch (err) {
       console.warn(`[Backtest] Failed on ${ex} for ${symbol}: ${err.message}`);
       lastErr = err;
@@ -195,6 +203,7 @@ async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000) {
   }
   throw new Error(`All exchanges failed for ${symbol}: ${lastErr?.message || "unknown"}`);
 }
+
 
 export async function runBacktest({
   userId,

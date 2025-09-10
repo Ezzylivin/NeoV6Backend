@@ -1,63 +1,80 @@
-// File: src/backend/controllers/strategyController.js
 import Strategy from "../dbStructure/strategy.js";
 
-// --- Get all strategies for a user ---
+// Create new strategy
+export const createStrategy = async (req, res) => {
+  try {
+    const { userId, name, description, params, realism } = req.body;
+
+    if (!userId || !name || !params) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    const newStrategy = new Strategy({
+      userId,
+      name,
+      description,
+      params,
+      realism,
+    });
+
+    await newStrategy.save();
+    return res.status(201).json({ success: true, message: "Strategy created", data: newStrategy });
+  } catch (err) {
+    console.error("Error creating strategy:", err);
+    return res.status(500).json({ success: false, message: "Error creating strategy" });
+  }
+};
+
+// Update strategy
+export const updateStrategy = async (req, res) => {
+  try {
+    const { strategyId, name, description, params, realism } = req.body;
+    const strategy = await Strategy.findById(strategyId);
+
+    if (!strategy) {
+      return res.status(404).json({ success: false, message: "Strategy not found" });
+    }
+
+    strategy.name = name || strategy.name;
+    strategy.description = description || strategy.description;
+    strategy.params = params || strategy.params;
+    strategy.realism = realism || strategy.realism;
+
+    await strategy.save();
+    return res.status(200).json({ success: true, message: "Strategy updated", data: strategy });
+  } catch (err) {
+    console.error("Error updating strategy:", err);
+    return res.status(500).json({ success: false, message: "Error updating strategy" });
+  }
+};
+
+// Delete strategy
+export const deleteStrategy = async (req, res) => {
+  try {
+    const { strategyId } = req.params;
+    const strategy = await Strategy.findById(strategyId);
+
+    if (!strategy) {
+      return res.status(404).json({ success: false, message: "Strategy not found" });
+    }
+
+    await strategy.remove();
+    return res.status(200).json({ success: true, message: "Strategy deleted" });
+  } catch (err) {
+    console.error("Error deleting strategy:", err);
+    return res.status(500).json({ success: false, message: "Error deleting strategy" });
+  }
+};
+
+// Get all strategies for the user
 export const getUserStrategies = async (req, res) => {
   try {
     const { userId } = req.params;
-    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
+    const strategies = await Strategy.find({ userId });
 
-    const strategies = await Strategy.find({ userId }).sort({ createdAt: -1 });
-    res.json({ success: true, strategies });
+    return res.status(200).json({ success: true, data: strategies });
   } catch (err) {
-    console.error("[Get Strategies Error]", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// --- Get a single strategy by ID ---
-export const getStrategyById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const strategy = await Strategy.findById(id);
-    if (!strategy) return res.status(404).json({ success: false, message: "Strategy not found" });
-
-    res.json({ success: true, strategy });
-  } catch (err) {
-    console.error("[Get StrategyById Error]", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// --- Create or update (upsert) a strategy ---
-export const upsertStrategy = async (req, res) => {
-  try {
-    const { userId, name, params } = req.body;
-    if (!userId || !name) return res.status(400).json({ success: false, message: "Missing fields" });
-
-    const strategy = await Strategy.findOneAndUpdate(
-      { userId, name },
-      { params, name },
-      { upsert: true, new: true }
-    );
-
-    res.json({ success: true, strategy });
-  } catch (err) {
-    console.error("[Upsert Strategy Error]", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// --- Delete a strategy ---
-export const deleteStrategy = async (req, res) => {
-  try {
-    const { userId, name } = req.params;
-    if (!userId || !name) return res.status(400).json({ success: false, message: "Missing fields" });
-
-    await Strategy.deleteOne({ userId, name });
-    res.json({ success: true, message: "Strategy deleted" });
-  } catch (err) {
-    console.error("[Delete Strategy Error]", err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Error fetching strategies:", err);
+    return res.status(500).json({ success: false, message: "Error fetching strategies" });
   }
 };

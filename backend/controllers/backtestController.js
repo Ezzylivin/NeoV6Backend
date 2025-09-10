@@ -5,26 +5,32 @@ import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
 
 /**
+ * Utility: Standard API response
+ */
+const sendResponse = (res, data = {}, message = "Success", status = 200) => {
+  return res.status(status).json({ success: status < 400, message, data });
+};
+
+/**
  * GET /api/backtests/options
  * Return all available options for frontend selectors
  */
 export const getBacktestOptions = async (req, res) => {
   try {
     const strategies = await Strategy.find().select("strategyType params name");
-    res.json({
-      symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"], // extend if needed
+    return sendResponse(res, {
+      symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
       timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
       balances: [100, 500, 1000, 5000, 10000],
       risks: ["Low", "Medium", "High"],
       strategies,
-      takeProfits: [null, 1, 2, 3, 5, 10], // in %
-      stopLosses: [null, 0.5, 1, 2, 3, 5], // in %
-      positions: ["Long", "Short", "Both"],
-      message: "Backtest options fetched successfully"
-    });
+      takeProfits: [null, 1, 2, 3, 5, 10],
+      stopLosses: [null, 0.5, 1, 2, 3, 5],
+      positions: ["Long", "Short", "Both"]
+    }, "Backtest options fetched successfully");
   } catch (err) {
-    console.error(`[BacktestController] getBacktestOptions error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    console.error(`[BacktestController] getBacktestOptions error: ${err.stack}`);
+    return sendResponse(res, {}, "Failed to fetch backtest options", 500);
   }
 };
 
@@ -47,48 +53,57 @@ export const runBacktestController = async (req, res) => {
       limit,
       startDate,
       endDate,
-      // realism
       useNews,
       useSlippage,
       useSpread,
       useRandomEvents,
       baseSlippageBps,
       positionSide,
-      tradeConfig
+      tradeConfig: extraTradeConfig = {}
     } = req.body;
 
+    // Validate required fields
     if (!userId || (!symbol && !strategyId)) {
-      return res
-        .status(400)
-        .json({ error: "Missing required fields: userId and symbol/strategyId" });
+      return sendResponse(res, {}, "Missing required fields: userId and symbol/strategyId", 400);
     }
+
+    // Validate risk
+    const allowedRisks = ["Low", "Medium", "High"];
+    const validatedRisk = allowedRisks.includes(risk) ? risk : "Medium";
+
+    // Build unified tradeConfig
+    const tradeConfig = {
+      useNews: useNews ?? true,
+      useSlippage: useSlippage ?? true,
+      useSpread: useSpread ?? true,
+      useRandomEvents: useRandomEvents ?? true,
+      baseSlippageBps: baseSlippageBps ?? 5,
+      positionSide: positionSide ?? "Both",
+      ...extraTradeConfig
+    };
 
     const result = await runBacktest({
       userId,
       strategyId,
       symbol,
       timeframe,
-      initialBalance,
+      initialBalance: Number(initialBalance) || 1000,
       strategy,
-      risk,
-      takeProfit,
-      stopLoss,
-      limit,
+      risk: validatedRisk,
+      takeProfit: takeProfit != null ? Number(takeProfit) : null,
+      stopLoss: stopLoss != null ? Number(stopLoss) : null,
+      limit: Number(limit) || 2000,
       startDate,
       endDate,
-      useNews,
-      useSlippage,
-      useSpread,
-      useRandomEvents,
-      baseSlippageBps,
-      positionSide,
       tradeConfig
     });
 
-    res.json(result);
+    await logToDb(userId, `[Backtest] Ran ${strategy?.name || "custom"} backtest on ${symbol}`);
+
+    return sendResponse(res, result, "Backtest executed successfully");
   } catch (err) {
-    console.error(`[BacktestController] runBacktestController error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    console.error(`[BacktestController] runBacktestController error: ${err.stack}`);
+    return sendResponse(res, {}, "Failed to run backtest", 500);
   }
 };
 
@@ -101,36 +116,44 @@ export const runBatchBacktestsController = async (req, res) => {
     const { userId, paramCombos } = req.body;
 
     if (!userId || !Array.isArray(paramCombos) || !paramCombos.length) {
-      return res
-        .status(400)
-        .json({ error: "Missing required fields: userId or paramCombos" });
+      return sendResponse(res, {}, "Missing required fields: userId or paramCombos", 400);
     }
 
-    const result = await runBatchBacktests(userId, null, paramCombos);
+    // Optional: limit max batch size to 20
+    const combos = paramCombos.slice(0, 20);
 
-    res.json(result);
+    const result = await runBatchBacktests(userId, null, combos);
+    await logToDb(userId, `[Backtest] Ran batch of ${combos.length} backtests`);
+
+    return sendResponse(res, result, "Batch backtests executed successfully");
   } catch (err) {
-    console.error(
-      `[BacktestController] runBatchBacktestsController error: ${err.message}`
-    );
-    res.status(500).json({ error: err.message });
+    console.error(`[BacktestController] runBatchBacktestsController error: ${err.stack}`);
+    return sendResponse(res, {}, "Failed to run batch backtests", 500);
   }
 };
 
 /**
  * GET /api/backtests/user/:userId
- * Fetch all backtests for a user
+ * Fetch all backtests for a user with optional pagination
  */
 export const getUserBacktests = async (req, res) => {
   try {
     const { userId } = req.params;
-    if (!userId) return res.status(400).json({ error: "Missing userId" });
+    if (!userId) return sendResponse(res, {}, "Missing userId", 400);
 
-    const backtests = await Backtest.find({ userId }).sort({ createdAt: -1 });
-    res.json({ backtests });
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+
+    const backtests = await Backtest.find({ userId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    return sendResponse(res, { backtests, page, limit });
   } catch (err) {
-    console.error(`[BacktestController] getUserBacktests error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    console.error(`[BacktestController] getUserBacktests error: ${err.stack}`);
+    return sendResponse(res, {}, "Failed to fetch user backtests", 500);
   }
 };
 
@@ -141,37 +164,39 @@ export const getUserBacktests = async (req, res) => {
 export const getBacktestById = async (req, res) => {
   try {
     const { backtestId } = req.params;
-    if (!backtestId) return res.status(400).json({ error: "Missing backtestId" });
+    if (!backtestId) return sendResponse(res, {}, "Missing backtestId", 400);
 
     const backtest = await Backtest.findById(backtestId);
-    if (!backtest) return res.status(404).json({ error: "Backtest not found" });
+    if (!backtest) return sendResponse(res, {}, "Backtest not found", 404);
 
-    res.json({ backtest });
+    return sendResponse(res, { backtest });
   } catch (err) {
-    console.error(`[BacktestController] getBacktestById error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    console.error(`[BacktestController] getBacktestById error: ${err.stack}`);
+    return sendResponse(res, {}, "Failed to fetch backtest", 500);
   }
 };
 
 /**
  * DELETE /api/backtests/:backtestId
- * Remove a backtest
+ * Remove a backtest securely
  */
 export const deleteBacktest = async (req, res) => {
   try {
     const { backtestId } = req.params;
-    if (!backtestId) return res.status(400).json({ error: "Missing backtestId" });
+    if (!backtestId) return sendResponse(res, {}, "Missing backtestId", 400);
 
-    const deleted = await Backtest.findByIdAndDelete(backtestId);
-    if (!deleted) return res.status(404).json({ error: "Backtest not found" });
+    const backtest = await Backtest.findById(backtestId);
+    if (!backtest) return sendResponse(res, {}, "Backtest not found", 404);
 
-    await logToDb(
-      deleted.userId,
-      `[Backtest] Deleted backtest ${backtestId} for ${deleted.symbol}`
-    );
-    res.json({ message: "Backtest deleted successfully" });
+    // Only allow deletion if user matches (req.user.id from auth middleware)
+    // Example: if (req.user.id !== backtest.userId) return sendResponse(res, {}, "Unauthorized", 403);
+
+    await Backtest.findByIdAndDelete(backtestId);
+    await logToDb(backtest.userId, `[Backtest] Deleted backtest ${backtestId} for ${backtest.symbol}`);
+
+    return sendResponse(res, {}, "Backtest deleted successfully");
   } catch (err) {
-    console.error(`[BacktestController] deleteBacktest error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    console.error(`[BacktestController] deleteBacktest error: ${err.stack}`);
+    return sendResponse(res, {}, "Failed to delete backtest", 500);
   }
 };

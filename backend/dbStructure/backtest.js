@@ -1,7 +1,7 @@
-// File: backend/dbStructure/backtest.js
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
 
+// Individual trade breakdown
 const tradeResultSchema = new Schema(
   {
     entryTime: Date,
@@ -16,6 +16,7 @@ const tradeResultSchema = new Schema(
   { _id: false }
 );
 
+// Strategy config used in this backtest
 const strategyConfigSchema = new Schema(
   {
     name: { type: String, required: true, default: "SMA" },
@@ -24,7 +25,7 @@ const strategyConfigSchema = new Schema(
   { _id: false }
 );
 
-// ✅ NEW: Equity curve schema for balance-over-time charting
+// Equity curve for balance-over-time charting
 const equityPointSchema = new Schema(
   {
     timestamp: { type: Date, required: true },
@@ -36,7 +37,7 @@ const equityPointSchema = new Schema(
 const backtestSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: "user", required: true, index: true },
-    symbol: { type: String, required: true, trim: true }, // ✅ store symbol
+    symbol: { type: String, required: true, trim: true },
     timeframe: { type: String, required: true, trim: true, uppercase: true },
 
     initialBalance: { type: Number, required: true, min: [0, "Initial balance must be positive"] },
@@ -46,18 +47,36 @@ const backtestSchema = new Schema(
     candlesTested: { type: Number, required: true, min: [1, "At least one candle must be tested"] },
 
     strategy: strategyConfigSchema,
-    tradeBreakdown: [tradeResultSchema], // ✅ trade-by-trade logs
-    equityCurve: [equityPointSchema],    // ✅ balance progression logs
-    metrics: { type: Schema.Types.Mixed }, // ✅ store full snapshot
+    tradeBreakdown: [tradeResultSchema],
+    equityCurve: [equityPointSchema],
+    metrics: { type: Schema.Types.Mixed }, // full snapshot for analysis
 
-    // ✅ Persisted risk/TP/SL so you can review later and ensure they were applied
+    // Persisted risk/TP/SL for auditing
     risk: { type: String, enum: ["Low", "Medium", "High"], default: "Medium" },
-    takeProfit: { type: Number, default: null }, // percent (nullable)
-    stopLoss: { type: Number, default: null },   // percent (nullable)
+    takeProfit: { type: Number, default: null },
+    stopLoss: { type: Number, default: null },
+
+    // Realism / advanced backtest options used
+    realismConfig: {
+      useNews: { type: Boolean, default: true },
+      useSlippage: { type: Boolean, default: true },
+      useSpread: { type: Boolean, default: true },
+      useRandomEvents: { type: Boolean, default: true },
+      slippageBps: { type: Number, default: 5 },
+      spreadPct: { type: Number, default: 0.1 },
+    },
+
+    // Track which position side was tested
+    positionSide: { type: String, enum: ["long", "short", "both"], default: "both" },
+
+    // Extra trade configuration for audit / reproducibility
+    tradeConfig: { type: Schema.Types.Mixed },
+
   },
   { timestamps: true }
 );
 
+// Compute total profit & final balance
 backtestSchema.pre("save", function (next) {
   if (Array.isArray(this.tradeBreakdown)) {
     const totalProfit = this.tradeBreakdown.reduce((sum, trade) => sum + (trade.profit || 0), 0);
@@ -68,7 +87,6 @@ backtestSchema.pre("save", function (next) {
     }
   }
 
-  // Sanitize NaNs
   if (isNaN(this.profit)) this.profit = 0;
   if (isNaN(this.finalBalance)) this.finalBalance = this.initialBalance;
 

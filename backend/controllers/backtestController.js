@@ -1,7 +1,9 @@
 // File: backend/controllers/backtestController.js
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
-import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
+import Price from "../dbStructure/price.js";
+import ccxt from "ccxt";
+import { runBacktest, runBatchBacktests, DEFAULT_STRATEGY_PARAMS } from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
 
 /**
@@ -17,21 +19,45 @@ const sendResponse = (res, data = {}, message = "Success", status = 200) => {
  */
 export const getBacktestOptions = async (req, res) => {
   try {
-    let strategies = await Strategy.find().select("strategyType params name");
-    if (!strategies || strategies.length === 0) {
-      strategies = [{ name: "Default Strategy", strategyType: "SMA", params: {} }];
+    // Distinct symbols stored in DB
+    const dbSymbols = await Price.distinct("symbol");
+
+    // Fetch from ccxt live (Binance USDT pairs)
+    let liveSymbols = [];
+    try {
+      const exchange = new ccxt.coinbase();
+      const markets = await exchange.loadMarkets();
+      liveSymbols = Object.keys(markets).filter((s) => s.endsWith("/USDT"));
+    } catch (err) {
+      console.warn("[BacktestController] Could not fetch live markets:", err.message);
     }
 
-    return sendResponse(res, {
-      symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
-      timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
-      balances: [100, 500, 1000, 5000, 10000],
-      risks: ["Low", "Medium", "High"],
-      strategies,
-      takeProfits: [null, 1, 2, 3, 5, 10],
-      stopLosses: [null, 0.5, 1, 2, 3, 5],
-      positions: ["Long", "Short", "Both"]
-    }, "Backtest options fetched successfully");
+    const symbols = [...new Set([...dbSymbols, ...liveSymbols])].slice(0, 50);
+
+    // Load strategies
+    let strategies = await Strategy.find().select("strategyType params name");
+    if (!strategies || strategies.length === 0) {
+      strategies = Object.keys(DEFAULT_STRATEGY_PARAMS).map((k) => ({
+        name: `${k} Strategy`,
+        strategyType: k,
+        params: DEFAULT_STRATEGY_PARAMS[k],
+      }));
+    }
+
+    return sendResponse(
+      res,
+      {
+        symbols,
+        timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+        balances: [100, 500, 1000, 5000, 10000],
+        risks: ["Low", "Medium", "High"],
+        strategies,
+        takeProfits: [null, 1, 2, 3, 5, 10],
+        stopLosses: [null, 0.5, 1, 2, 3, 5],
+        positions: ["Long", "Short", "Both"],
+      },
+      "Backtest options fetched successfully"
+    );
   } catch (err) {
     console.error(`[BacktestController] getBacktestOptions error: ${err.stack}`);
     return sendResponse(res, {}, "Failed to fetch backtest options", 500);
@@ -63,19 +89,16 @@ export const runBacktestController = async (req, res) => {
       useRandomEvents,
       baseSlippageBps,
       positionSide,
-      tradeConfig: extraTradeConfig = {}
+      tradeConfig: extraTradeConfig = {},
     } = req.body;
 
-    // Validate required fields
     if (!userId || (!symbol && !strategyId)) {
       return sendResponse(res, {}, "Missing required fields: userId and symbol/strategyId", 400);
     }
 
-    // Validate risk
     const allowedRisks = ["Low", "Medium", "High"];
     const validatedRisk = allowedRisks.includes(risk) ? risk : "Medium";
 
-    // Build unified tradeConfig
     const tradeConfig = {
       useNews: useNews ?? true,
       useSlippage: useSlippage ?? true,
@@ -83,7 +106,7 @@ export const runBacktestController = async (req, res) => {
       useRandomEvents: useRandomEvents ?? true,
       baseSlippageBps: baseSlippageBps ?? 5,
       positionSide: positionSide ?? "Both",
-      ...extraTradeConfig
+      ...extraTradeConfig,
     };
 
     const result = await runBacktest({
@@ -99,7 +122,7 @@ export const runBacktestController = async (req, res) => {
       limit: Number(limit) || 2000,
       startDate,
       endDate,
-      tradeConfig
+      tradeConfig,
     });
 
     await logToDb(userId, `[Backtest] Ran ${strategy?.name || "custom"} backtest on ${symbol}`);
@@ -118,17 +141,14 @@ export const runBacktestController = async (req, res) => {
 export const runBatchBacktestsController = async (req, res) => {
   try {
     const { userId, paramCombos } = req.body;
-
     if (!userId || !Array.isArray(paramCombos) || !paramCombos.length) {
       return sendResponse(res, {}, "Missing required fields: userId or paramCombos", 400);
     }
 
-    // Optional: limit max batch size to 20
     const combos = paramCombos.slice(0, 20);
-
     const result = await runBatchBacktests(userId, null, combos);
-    await logToDb(userId, `[Backtest] Ran batch of ${combos.length} backtests`);
 
+    await logToDb(userId, `[Backtest] Ran batch of ${combos.length} backtests`);
     return sendResponse(res, result, "Batch backtests executed successfully");
   } catch (err) {
     console.error(`[BacktestController] runBatchBacktestsController error: ${err.stack}`);
@@ -138,7 +158,6 @@ export const runBatchBacktestsController = async (req, res) => {
 
 /**
  * GET /api/backtests/user/:userId
- * Fetch all backtests for a user with optional pagination
  */
 export const getUserBacktests = async (req, res) => {
   try {
@@ -163,7 +182,6 @@ export const getUserBacktests = async (req, res) => {
 
 /**
  * GET /api/backtests/:backtestId
- * Fetch a single backtest by ID
  */
 export const getBacktestById = async (req, res) => {
   try {
@@ -182,7 +200,6 @@ export const getBacktestById = async (req, res) => {
 
 /**
  * DELETE /api/backtests/:backtestId
- * Remove a backtest securely
  */
 export const deleteBacktest = async (req, res) => {
   try {
@@ -192,12 +209,10 @@ export const deleteBacktest = async (req, res) => {
     const backtest = await Backtest.findById(backtestId);
     if (!backtest) return sendResponse(res, {}, "Backtest not found", 404);
 
-    // TODO: Use req.user.id from auth middleware for secure deletion
-    // if (req.user.id !== backtest.userId) return sendResponse(res, {}, "Unauthorized", 403);
-
+    // TODO: Add auth check with req.user.id
     await Backtest.findByIdAndDelete(backtestId);
-    await logToDb(backtest.userId, `[Backtest] Deleted backtest ${backtestId} for ${backtest.symbol}`);
 
+    await logToDb(backtest.userId, `[Backtest] Deleted backtest ${backtestId} for ${backtest.symbol}`);
     return sendResponse(res, {}, "Backtest deleted successfully");
   } catch (err) {
     console.error(`[BacktestController] deleteBacktest error: ${err.stack}`);

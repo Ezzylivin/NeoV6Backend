@@ -437,3 +437,16 @@ export async function runBacktest({
 
   return { saved: backtest, metrics, equityCurve, trades };
 }
+export const DEFAULT_STRATEGY_PARAMS = {
+  SMA: { short: 10, long: 50 },
+  EMA: { short: 12, long: 26 },
+  RSI: { period: 14, oversold: 30, overbought: 70 },
+  MACD: { fast: 12, slow: 26, signal: 9 },
+  BOLLINGERBANDS: { period: 20, multiplier: 2 },
+  STOCHASTIC: { k: 14 },
+  VWAP: { period: 20 },
+  ATR: { period: 14 }
+};
+
+// Optional alias for legacy imports
+export const runRealisticBacktest = runBacktest;

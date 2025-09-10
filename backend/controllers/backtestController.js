@@ -17,7 +17,11 @@ const sendResponse = (res, data = {}, message = "Success", status = 200) => {
  */
 export const getBacktestOptions = async (req, res) => {
   try {
-    const strategies = await Strategy.find().select("strategyType params name");
+    let strategies = await Strategy.find().select("strategyType params name");
+    if (!strategies || strategies.length === 0) {
+      strategies = [{ name: "Default Strategy", strategyType: "SMA", params: {} }];
+    }
+
     return sendResponse(res, {
       symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
       timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
@@ -188,8 +192,8 @@ export const deleteBacktest = async (req, res) => {
     const backtest = await Backtest.findById(backtestId);
     if (!backtest) return sendResponse(res, {}, "Backtest not found", 404);
 
-    // Only allow deletion if user matches (req.user.id from auth middleware)
-    // Example: if (req.user.id !== backtest.userId) return sendResponse(res, {}, "Unauthorized", 403);
+    // TODO: Use req.user.id from auth middleware for secure deletion
+    // if (req.user.id !== backtest.userId) return sendResponse(res, {}, "Unauthorized", 403);
 
     await Backtest.findByIdAndDelete(backtestId);
     await logToDb(backtest.userId, `[Backtest] Deleted backtest ${backtestId} for ${backtest.symbol}`);

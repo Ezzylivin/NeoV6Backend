@@ -1,4 +1,3 @@
-// File: src/backend/dbStructure/strategy.js
 import mongoose from "mongoose";
 
 const strategySchema = new mongoose.Schema({
@@ -18,11 +17,22 @@ const strategySchema = new mongoose.Schema({
     risk: { type: String, default: "Medium" }, // Low, Medium, High
     stopLoss: { type: Number, default: 0.02 }, // 2% default
     takeProfit: { type: Number, default: 0.05 }, // 5% default
+
     // Optional batch/backtest parameters
     batchParams: {
       stopLossOptions: [Number],
       takeProfitOptions: [Number],
       intervalOptions: [String],
+    },
+
+    // Realism / advanced backtest options
+    realism: {
+      useNews: { type: Boolean, default: true },
+      useSlippage: { type: Boolean, default: true },
+      useSpread: { type: Boolean, default: true },
+      useRandomEvents: { type: Boolean, default: true },
+      slippageBps: { type: Number, default: 5 }, // basis points
+      spreadPct: { type: Number, default: 0.1 }, // %
     },
   },
 
@@ -36,6 +46,17 @@ const strategySchema = new mongoose.Schema({
     maxDrawdown: Number,
     cagr: Number,
     profitFactor: Number,
+  },
+
+  // Optional: last backtest metrics for quick reference in UI
+  lastBacktestMetrics: {
+    netProfit: Number,
+    winRate: Number,
+    maxDrawdown: Number,
+    sharpeRatio: Number,
+    cagr: Number,
+    profitFactor: Number,
+    tradesCount: Number,
   },
 
 }, { timestamps: true });

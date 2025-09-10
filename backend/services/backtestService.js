@@ -1,5 +1,3 @@
-// File: backend/services/backtestService.js
-
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import { fetchOHLCV } from "./marketDataService.js";
@@ -8,11 +6,26 @@ import { fetchHistoricalNews } from "./newsService.js";
 
 /**
  * -----------------------------
+ * DEFAULT STRATEGY PARAMETERS
+ * -----------------------------
+ */
+const DEFAULT_STRATEGY_PARAMS = {
+  SMA: { fast: 5, slow: 20 },
+  EMA: { fast: 8, slow: 21 },
+  RSI: { period: 14, oversold: 30, overbought: 70 },
+  MACD: { fast: 12, slow: 26, signal: 9 },
+  BOLLINGERBANDS: { period: 20, multiplier: 2 },
+  STOCHASTIC: { k: 14 },
+  VWAP: { period: 20 },
+  ATR: { period: 14 }
+};
+
+/**
+ * -----------------------------
  * INDICATOR HELPERS
  * -----------------------------
  */
-const SMA = (arr, period, i) =>
-  i < period ? null : arr.slice(i - period, i).reduce((a, b) => a + b, 0) / period;
+const SMA = (arr, period, i) => i < period ? null : arr.slice(i - period, i).reduce((a, b) => a + b, 0) / period;
 
 const EMA = (arr, period, i) => {
   if (i < period) return null;
@@ -70,31 +83,34 @@ function executeStrategy(name, candles, i, params = {}) {
   const prices = candles.map(c => c.price);
   const price = prices[i];
 
+  // Fill missing parameters with defaults
+  params = { ...(DEFAULT_STRATEGY_PARAMS[name?.toUpperCase()] || {}), ...params };
+
   switch ((name || "").toUpperCase()) {
     case "SMA": {
-      const f = SMA(prices, Number(params.fast) || 5, i);
-      const s = SMA(prices, Number(params.slow) || 20, i);
+      const f = SMA(prices, Number(params.fast), i);
+      const s = SMA(prices, Number(params.slow), i);
       return f != null && s != null ? (f > s ? "BUY" : "SELL") : null;
     }
     case "EMA": {
-      const f = EMA(prices, Number(params.fast) || 8, i);
-      const s = EMA(prices, Number(params.slow) || 21, i);
+      const f = EMA(prices, Number(params.fast), i);
+      const s = EMA(prices, Number(params.slow), i);
       return f != null && s != null ? (f > s ? "BUY" : "SELL") : null;
     }
     case "RSI": {
-      const r = RSI(prices, Number(params.period) || 14, i);
+      const r = RSI(prices, Number(params.period), i);
       if (r == null) return null;
-      if (r < (params.oversold || 30)) return "BUY";
-      if (r > (params.overbought || 70)) return "SELL";
+      if (r < (params.oversold)) return "BUY";
+      if (r > (params.overbought)) return "SELL";
       return null;
     }
     case "MACD": {
-      const m = MACD(prices, Number(params.fast) || 12, Number(params.slow) || 26, Number(params.signal) || 9, i);
+      const m = MACD(prices, Number(params.fast), Number(params.slow), Number(params.signal), i);
       return m ? (m.macd > m.sig ? "BUY" : "SELL") : null;
     }
     case "BOLLINGERBANDS": {
-      const period = Number(params.period) || 20;
-      const mult = Number(params.multiplier) || 2;
+      const period = Number(params.period);
+      const mult = Number(params.multiplier);
       const ma = SMA(prices, period, i);
       const sd = STDEV(prices, period, i);
       if (ma == null || sd == null) return null;
@@ -105,7 +121,7 @@ function executeStrategy(name, candles, i, params = {}) {
       return null;
     }
     case "STOCHASTIC": {
-      const kPeriod = Number(params.k) || 14;
+      const kPeriod = Number(params.k);
       if (i < kPeriod) return null;
       const window = candles.slice(i - kPeriod, i);
       const high = Math.max(...window.map(c => c.high));
@@ -117,7 +133,7 @@ function executeStrategy(name, candles, i, params = {}) {
     }
     case "VWAP": {
       let cumPV = 0, cumVol = 0;
-      const period = Number(params.period) || 20;
+      const period = Number(params.period);
       for (let j = Math.max(0, i - period + 1); j <= i; j++) {
         const typicalPrice = (candles[j].high + candles[j].low + candles[j].close) / 3;
         cumPV += typicalPrice * (candles[j].volume || 1);
@@ -128,7 +144,7 @@ function executeStrategy(name, candles, i, params = {}) {
       return price > vwap ? "BUY" : "SELL";
     }
     case "ATR": {
-      const period = Number(params.period) || 14;
+      const period = Number(params.period);
       if (i < period) return null;
       const trs = [];
       for (let j = i - period + 1; j <= i; j++) {
@@ -149,7 +165,6 @@ function executeStrategy(name, candles, i, params = {}) {
       return price > prices[i - 1] ? "BUY" : "SELL";
   }
 }
-
 
 /**
  * -----------------------------
@@ -194,7 +209,7 @@ async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000) {
         low: c[3],
         close: c[4],
         volume: c[5],
-        price: c[4], // keep for backward compatibility
+        price: c[4], // backward compatibility
       }));
     } catch (err) {
       console.warn(`[Backtest] Failed on ${ex} for ${symbol}: ${err.message}`);
@@ -203,7 +218,6 @@ async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000) {
   }
   throw new Error(`All exchanges failed for ${symbol}: ${lastErr?.message || "unknown"}`);
 }
-
 
 export async function runBacktest({
   userId,
@@ -230,7 +244,7 @@ export async function runBacktest({
     ...tradeConfig
   };
 
-  // Load strategy
+  // Load strategy from ID if provided
   if (strategyId) {
     const stratDoc = await Strategy.findById(strategyId);
     if (stratDoc) {
@@ -246,34 +260,28 @@ export async function runBacktest({
 
   if (!userId || !symbol || !strategy?.name) throw new Error("Missing required fields");
 
-  // Fetch candles
   let candles = await fetchOHLCVMulti(symbol, timeframe, limit);
 
-  // Date filtering
+  // Filter by date
   if (startDate || endDate) {
     const start = startDate ? new Date(startDate) : null;
     const end = endDate ? new Date(endDate) : null;
     candles = candles.filter(c => (!start || c.time >= start) && (!end || c.time <= end));
   }
+
   if (!candles.length) return { saved: null, metrics: { netProfit: 0, tradesCount: 0 }, equityCurve: [], trades: [] };
 
-  // Fetch news/events if enabled
   let newsEvents = [];
   if (useNews) {
-    try {
-      newsEvents = await fetchHistoricalNews(symbol, startDate, endDate);
-    } catch (err) {
-      console.warn(`[Backtest] Failed to fetch news for ${symbol}: ${err.message}`);
-    }
+    try { newsEvents = await fetchHistoricalNews(symbol, startDate, endDate); } 
+    catch (err) { console.warn(`[Backtest] Failed to fetch news for ${symbol}: ${err.message}`); }
   }
 
-  // Initialize backtest
   let cash = initialBalance, asset = 0, entryPrice = null, openIndex = null, shortAsset = 0, shortEntryPrice = null;
   const trades = [], equityCurve = [];
   const sizeFrac = RISK_SIZES[risk] ?? 0.5;
 
   for (let i = 1; i < candles.length; i++) {
-    // Apply all realism features
     let price = applyNewsImpact(candles[i], newsEvents, config.newsImpactFactor);
     if (Math.random() < config.randomEventProb) price *= 1 + (Math.random() * 0.2 - 0.1); // ±10%
     const { buy: buyPrice, sell: sellPrice } = applySpread(price, config.spreadPct);
@@ -336,7 +344,6 @@ export async function runBacktest({
     }
   }
 
-  // Final metrics
   const finalEquity = +(cash + asset * candles[candles.length - 1].price - shortAsset * candles[candles.length - 1].price).toFixed(2);
   equityCurve.push({ time: candles[candles.length - 1].time, equity: finalEquity });
 

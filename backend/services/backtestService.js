@@ -1,5 +1,8 @@
+// File: backend/services/backtestService.js
+
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
+import Price from "../dbStructure/price.js";
 import { fetchOHLCV } from "./marketDataService.js";
 import { logToDb } from "./logService.js";
 import { fetchHistoricalNews } from "./newsService.js";
@@ -83,7 +86,6 @@ function executeStrategy(name, candles, i, params = {}) {
   const prices = candles.map(c => c.price);
   const price = prices[i];
 
-  // Fill missing parameters with defaults
   params = { ...(DEFAULT_STRATEGY_PARAMS[name?.toUpperCase()] || {}), ...params };
 
   switch ((name || "").toUpperCase()) {
@@ -191,17 +193,56 @@ function applyNewsImpact(candle, newsEvents, newsImpactFactor = 1) {
 
 /**
  * -----------------------------
- * BACKTEST ENGINE
+ * FETCH CACHED OHLCV
+ * -----------------------------
+ */
+async function getCachedOHLCV(symbol, startDate, endDate) {
+  const query = { symbol: symbol.toUpperCase() };
+  if (startDate || endDate) query.timestamp = {};
+  if (startDate) query.timestamp.$gte = new Date(startDate);
+  if (endDate) query.timestamp.$lte = new Date(endDate);
+
+  const prices = await Price.find(query).sort({ timestamp: 1 });
+  if (!prices.length) return null;
+
+  return prices.map(p => ({
+    time: p.timestamp,
+    open: p.open,
+    high: p.high,
+    low: p.low,
+    close: p.close,
+    volume: p.volume,
+    price: p.close // backward compatibility
+  }));
+}
+
+/**
+ * -----------------------------
+ * FETCH OHLCV MULTI
  * -----------------------------
  */
 const EXCHANGES = ["binance", "kraken", "coinbase", "gemini"];
-const RISK_SIZES = { Low: 0.25, Medium: 0.5, High: 1 };
 
-async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000) {
+async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000, useCache = true) {
+  if (useCache) {
+    const cached = await getCachedOHLCV(symbol);
+    if (cached && cached.length) return cached;
+  }
+
   let lastErr;
   for (const ex of EXCHANGES) {
     try {
       const ohlcv = await fetchOHLCV(ex, symbol, timeframe, limit);
+
+      // save to Price DB
+      for (const c of ohlcv) {
+        await Price.updateOne(
+          { symbol: symbol.toUpperCase(), timestamp: new Date(c[0]) },
+          { $set: { open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] } },
+          { upsert: true }
+        );
+      }
+
       return ohlcv.map(c => ({
         time: new Date(c[0]),
         open: c[1],
@@ -209,7 +250,7 @@ async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000) {
         low: c[3],
         close: c[4],
         volume: c[5],
-        price: c[4], // backward compatibility
+        price: c[4] // backward compatibility
       }));
     } catch (err) {
       console.warn(`[Backtest] Failed on ${ex} for ${symbol}: ${err.message}`);
@@ -218,6 +259,13 @@ async function fetchOHLCVMulti(symbol, timeframe = "1h", limit = 2000) {
   }
   throw new Error(`All exchanges failed for ${symbol}: ${lastErr?.message || "unknown"}`);
 }
+
+/**
+ * -----------------------------
+ * BACKTEST ENGINE
+ * -----------------------------
+ */
+const RISK_SIZES = { Low: 0.25, Medium: 0.5, High: 1 };
 
 export async function runBacktest({
   userId,
@@ -235,6 +283,8 @@ export async function runBacktest({
   useNews = true,
   tradeConfig = {}
 } = {}) {
+
+  if (!userId || !symbol || !strategy?.name) throw new Error("Missing required fields");
 
   const config = {
     spreadPct: 0.1,
@@ -258,9 +308,7 @@ export async function runBacktest({
     }
   }
 
-  if (!userId || !symbol || !strategy?.name) throw new Error("Missing required fields");
-
-  let candles = await fetchOHLCVMulti(symbol, timeframe, limit);
+  let candles = await fetchOHLCVMulti(symbol, timeframe, limit, true);
 
   // Filter by date
   if (startDate || endDate) {
@@ -283,7 +331,7 @@ export async function runBacktest({
 
   for (let i = 1; i < candles.length; i++) {
     let price = applyNewsImpact(candles[i], newsEvents, config.newsImpactFactor);
-    if (Math.random() < config.randomEventProb) price *= 1 + (Math.random() * 0.2 - 0.1); // ±10%
+    if (Math.random() < config.randomEventProb) price *= 1 + (Math.random() * 0.2 - 0.1);
     const { buy: buyPrice, sell: sellPrice } = applySpread(price, config.spreadPct);
 
     equityCurve.push({ time: candles[i].time, equity: +(cash + asset * price - shortAsset * price).toFixed(2) });

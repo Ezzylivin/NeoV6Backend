@@ -27,7 +27,7 @@ export const getBacktestOptions = async (req, res) => {
     try {
       const exchange = new ccxt.coinbase();
       const markets = await exchange.loadMarkets();
-      liveSymbols = Object.keys(markets).filter((s) => s.endsWith("/USDT"));
+      liveSymbols = Object.keys(markets).filter((s) => s.endsWith("/USD"));
     } catch (err) {
       console.warn("[BacktestController] Could not fetch live markets:", err.message);
     }

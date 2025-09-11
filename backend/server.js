@@ -1,4 +1,3 @@
-// File: src/backend/server.js
 import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
@@ -12,26 +11,35 @@ dotenv.config();
 const app = express();
 
 // --- CORS setup ---
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:8000",
+  // Add any other dev URLs here
+];
+
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // Postman, mobile apps
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
 
-    if (process.env.NODE_ENV === "development") {
-      const allowedLocalOrigins = ["http://localhost:5173", "http://localhost:8000"];
-      if (allowedLocalOrigins.includes(origin)) return callback(null, true);
+    // Development
+    if (process.env.NODE_ENV === "development" && allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
 
-    if (process.env.NODE_ENV === "production") {
-      // Allow any Vercel frontend domain
-      if (origin.includes(".vercel.app")) return callback(null, true);
+    // Production: allow all Vercel frontends
+    if (process.env.NODE_ENV === "production" && origin.includes(".vercel.app")) {
+      return callback(null, true);
     }
 
-    return callback(new Error("This origin is not allowed by CORS"));
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true, // allow cookies / JWT
   optionsSuccessStatus: 200,
 };
+
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions)); // handle preflight requests
 

@@ -1,3 +1,4 @@
+// File: backend/controllers/backtestController.js
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import Price from "../dbStructure/price.js";
@@ -18,15 +19,11 @@ const sendResponse = (res, data = {}, message = "Success", status = 200) => {
 
 /**
  * GET /api/backtests/options
- * Return all available options for frontend selectors
- * Includes beginner-friendly examples for each strategy parameter
  */
 export const getBacktestOptions = async (req, res) => {
   try {
-    // Symbols from DB
     const dbSymbols = await Price.distinct("symbol");
 
-    // Live symbols from exchange
     let liveSymbols = [];
     try {
       const exchange = new ccxt.coinbase();
@@ -38,7 +35,6 @@ export const getBacktestOptions = async (req, res) => {
 
     const symbols = [...new Set([...dbSymbols, ...liveSymbols])].slice(0, 50);
 
-    // Load strategies or fallback to defaults
     let strategies = await Strategy.find().select("strategyType params name");
     if (!strategies || strategies.length === 0) {
       strategies = Object.keys(STRATEGY_PARAMS_DESCRIPTION).map((key) => ({
@@ -59,6 +55,7 @@ export const getBacktestOptions = async (req, res) => {
         takeProfits: [null, 1, 2, 3, 5, 10],
         stopLosses: [null, 0.5, 1, 2, 3, 5],
         positions: ["Long", "Short", "Both"],
+        availableDates: {}, // optional placeholder for future date ranges
       },
       "Backtest options fetched successfully"
     );
@@ -70,7 +67,6 @@ export const getBacktestOptions = async (req, res) => {
 
 /**
  * POST /api/backtests/run
- * Run a single backtest
  */
 export const runBacktestController = async (req, res) => {
   try {
@@ -103,34 +99,43 @@ export const runBacktestController = async (req, res) => {
     const allowedRisks = ["Low", "Medium", "High"];
     const validatedRisk = allowedRisks.includes(risk) ? risk : "Medium";
 
-    // Merge trade config options for realism
     const tradeConfig = {
       useNews: useNews ?? true,
       useSlippage: useSlippage ?? true,
       useSpread: useSpread ?? true,
-      useRandomEvents: useRandomEvents ?? true,
+      useRandomEvents: useRandomEvents ?? false,
       baseSlippageBps: baseSlippageBps ?? 5,
       positionSide: positionSide ?? "Both",
       ...extraTradeConfig,
     };
+
+    const safeInitialBalance = Number(initialBalance) > 0 ? Number(initialBalance) : 1000;
+    const safeLimit = Number(limit) || 2000;
+
+    // If strategyId provided, fetch from DB
+    let finalStrategy = strategy;
+    if (strategyId && !strategy) {
+      const dbStrategy = await Strategy.findById(strategyId);
+      finalStrategy = dbStrategy ? { name: dbStrategy.name, parameters: dbStrategy.params } : { name: "Default Strategy", parameters: {} };
+    }
 
     const result = await runBacktest({
       userId,
       strategyId,
       symbol,
       timeframe,
-      initialBalance: Number(initialBalance) || 1000,
-      strategy,
+      initialBalance: safeInitialBalance,
+      strategy: finalStrategy,
       risk: validatedRisk,
       takeProfit: takeProfit != null ? Number(takeProfit) : null,
       stopLoss: stopLoss != null ? Number(stopLoss) : null,
-      limit: Number(limit) || 2000,
+      limit: safeLimit,
       startDate,
       endDate,
       tradeConfig,
     });
 
-    await logToDb(userId, `[Backtest] Ran ${strategy?.name || "custom"} backtest on ${symbol}`);
+    await logToDb(userId, `[Backtest] Ran ${finalStrategy?.name || "custom"} backtest on ${symbol}`);
 
     return sendResponse(res, result, "Backtest executed successfully");
   } catch (err) {
@@ -141,7 +146,6 @@ export const runBacktestController = async (req, res) => {
 
 /**
  * POST /api/backtests/batch
- * Run multiple backtests in batch
  */
 export const runBatchBacktestsController = async (req, res) => {
   try {
@@ -150,10 +154,10 @@ export const runBatchBacktestsController = async (req, res) => {
       return sendResponse(res, {}, "Missing required fields: userId or paramCombos", 400);
     }
 
-    const combos = paramCombos.slice(0, 20); // Limit batch size
-    const result = await runBatchBacktests(userId, null, combos);
+    const limitedCombos = paramCombos.slice(0, 20); // Safety limit
+    const result = await runBatchBacktests(userId, null, limitedCombos);
 
-    await logToDb(userId, `[Backtest] Ran batch of ${combos.length} backtests`);
+    await logToDb(userId, `[Backtest] Ran batch of ${limitedCombos.length} backtests`);
     return sendResponse(res, result, "Batch backtests executed successfully");
   } catch (err) {
     console.error(`[BacktestController] runBatchBacktestsController error: ${err.stack}`);

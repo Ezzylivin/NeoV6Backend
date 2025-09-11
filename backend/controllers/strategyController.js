@@ -30,10 +30,10 @@ export const upsertStrategy = async (req, res) => {
     }
 
     await strategy.save();
-    return res.status(201).json({ success: true, message: "Strategy created/updated", data: strategy });
+    return res.status(201).json(strategy); // ✅ Return the saved strategy directly
   } catch (err) {
     console.error("Error upserting strategy:", err);
-    return res.status(500).json({ success: false, message: "Error upserting strategy", error: err.message });
+    return res.status(500).json({ message: "Error upserting strategy", error: err.message });
   }
 };
 
@@ -44,13 +44,13 @@ export const getStrategyById = async (req, res) => {
     const strategy = await Strategy.findById(id);
 
     if (!strategy) {
-      return res.status(404).json({ success: false, message: "Strategy not found" });
+      return res.status(404).json({ message: "Strategy not found" });
     }
 
-    return res.status(200).json({ success: true, data: strategy });
+    return res.status(200).json(strategy); // ✅ Return strategy object
   } catch (err) {
     console.error("Error fetching strategy by ID:", err);
-    return res.status(500).json({ success: false, message: "Error fetching strategy by ID", error: err.message });
+    return res.status(500).json({ message: "Error fetching strategy by ID", error: err.message });
   }
 };
 
@@ -61,14 +61,14 @@ export const deleteStrategy = async (req, res) => {
     const strategy = await Strategy.findOne({ userId, name });
 
     if (!strategy) {
-      return res.status(404).json({ success: false, message: "Strategy not found" });
+      return res.status(404).json({ message: "Strategy not found" });
     }
 
     await strategy.remove();
-    return res.status(200).json({ success: true, message: "Strategy deleted" });
+    return res.status(200).json({ message: "Strategy deleted" }); // ✅ Simple success response
   } catch (err) {
     console.error("Error deleting strategy:", err);
-    return res.status(500).json({ success: false, message: "Error deleting strategy", error: err.message });
+    return res.status(500).json({ message: "Error deleting strategy", error: err.message });
   }
 };
 
@@ -78,13 +78,10 @@ export const getUserStrategies = async (req, res) => {
     const { userId } = req.params;
     const strategies = await Strategy.find({ userId });
 
-    if (!strategies || strategies.length === 0) {
-      return res.status(404).json({ success: false, message: "No strategies found for this user" });
-    }
-
-    return res.status(200).json({ success: true, data: strategies });
+    // ✅ Always return an array, even if empty
+    return res.status(200).json(strategies);
   } catch (err) {
     console.error("Error fetching strategies:", err);
-    return res.status(500).json({ success: false, message: "Error fetching strategies", error: err.message });
+    return res.status(500).json({ message: "Error fetching strategies", error: err.message });
   }
 };

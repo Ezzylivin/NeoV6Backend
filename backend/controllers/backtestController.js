@@ -145,6 +145,75 @@ export const runBacktestController = async (req, res) => {
 };
 
 /**
+ * POST /api/backtests/preview-strategy
+ * Simulate a backtest for a strategy preview (does NOT save to DB)
+ */
+export const previewStrategy = async (req, res) => {
+  try {
+    const {
+      userId,
+      symbol,
+      timeframe,
+      initialBalance,
+      strategy,
+      risk,
+      takeProfit,
+      stopLoss,
+      startDate,
+      endDate,
+      useNews,
+      useSlippage,
+      useSpread,
+      useRandomEvents,
+      baseSlippageBps,
+      positionSide,
+      tradeConfig: extraTradeConfig = {},
+    } = req.body;
+
+    if (!userId || !symbol || !strategy?.name) {
+      return sendResponse(res, {}, "Missing required fields: userId, symbol, or strategy name", 400);
+    }
+
+    const allowedRisks = ["Low", "Medium", "High"];
+    const validatedRisk = allowedRisks.includes(risk) ? risk : "Medium";
+
+    const tradeConfig = {
+      useNews: useNews ?? true,
+      useSlippage: useSlippage ?? true,
+      useSpread: useSpread ?? true,
+      useRandomEvents: useRandomEvents ?? false,
+      baseSlippageBps: baseSlippageBps ?? 5,
+      positionSide: positionSide ?? "Both",
+      ...extraTradeConfig,
+    };
+
+    const safeInitialBalance = Number(initialBalance) > 0 ? Number(initialBalance) : 1000;
+
+    // Run backtest in simulation mode (do NOT save)
+    const result = await runBacktest({
+      userId,
+      symbol,
+      timeframe,
+      initialBalance: safeInitialBalance,
+      strategy,
+      risk: validatedRisk,
+      takeProfit: takeProfit != null ? Number(takeProfit) : null,
+      stopLoss: stopLoss != null ? Number(stopLoss) : null,
+      startDate,
+      endDate,
+      tradeConfig,
+      simulateOnly: true, // flag to avoid saving
+    });
+
+    // No logging to DB for preview
+    return sendResponse(res, result, "Preview executed successfully");
+  } catch (err) {
+    console.error(`[BacktestController] previewStrategy error: ${err.stack}`);
+    return sendResponse(res, {}, "Failed to preview strategy", 500);
+  }
+};
+
+/**
  * POST /api/backtests/batch
  */
 export const runBatchBacktestsController = async (req, res) => {

@@ -10,7 +10,7 @@ import {
 const router = express.Router();
 
 // --- Get all strategies for a user ---
-router.get("/:userId", getUserStrategies);
+router.get("/user/:userId", getUserStrategies);
 
 // --- Get a single strategy by ID ---
 router.get("/id/:id", getStrategyById);
@@ -18,7 +18,7 @@ router.get("/id/:id", getStrategyById);
 // --- Create or update (upsert) a strategy ---
 router.post("/", upsertStrategy);
 
-// --- Delete a strategy ---
-router.delete("/:userId/:name", deleteStrategy);
+// --- Delete a strategy by ID ---
+router.delete("/:id", deleteStrategy);
 
 export default router;

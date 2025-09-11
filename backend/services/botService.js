@@ -1,11 +1,11 @@
 // File: src/backend/services/botService.js
-// Unified trading bot service — starts/stops in-memory loops per user, uses runRealisticBacktest
+// Unified trading bot service — starts/stops in-memory loops per user, uses runBacktest
 // to compute simulated trades when requested, and also supports light live-simulation loop.
 
 import Bot from "../dbStructure/bot.js";
 import TradingBotHistory from "../dbStructure/tradingBotHistory.js";
 import Price from "../dbStructure/price.js";
-import { runRealisticBacktest } from "./backtestService.js";
+import { runBacktest } from "./backtestService.js"; // fixed import
 import { logToDb } from "./logService.js";
 
 // in-memory store of intervals keyed by userId
@@ -36,15 +36,17 @@ async function botIteration(userId) {
 
   try {
     // quick-run a short backtest window to determine current metrics
-    const { saved, metrics } = await runRealisticBacktest({
+    const result = await runBacktest({
       userId,
       symbol: bot.symbol,
       timeframe: bot.timeframes?.[0] || "1h",
       initialBalance: bot.balance ?? bot.initialBalance ?? 1000,
       strategy: bot.strategy || { name: "SMA", parameters: {} },
       risk: bot.risk || "Medium",
-      limit: 500
+      limit: 500,
     });
+
+    const metrics = result.metrics ?? { finalBalance: bot.balance, netProfit: 0 };
 
     // append a snapshot to history
     const snapshot = await TradingBotHistory.create({

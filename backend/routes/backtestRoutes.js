@@ -17,8 +17,8 @@ router.get("/options", getBacktestOptions);
 // POST run a single backtest
 router.post("/run", runBacktestController);
 
-// POST run batch backtests
-router.post("/batch", runBatchBacktestsController);
+// POST run batch backtests (frontend expects /run-batch)
+router.post("/run-batch", runBatchBacktestsController);
 
 // GET all backtests for a specific user
 router.get("/user/:userId", getUserBacktests);

@@ -7,7 +7,7 @@ import { runBacktest, runBatchBacktests, DEFAULT_STRATEGY_PARAMS } from "../serv
 import { logToDb } from "../services/logService.js";
 
 /**
- * Utility: Standard API response
+ * Standard API response helper
  */
 const sendResponse = (res, data = {}, message = "Success", status = 200) => {
   return res.status(status).json({ success: status < 400, message, data });
@@ -16,13 +16,14 @@ const sendResponse = (res, data = {}, message = "Success", status = 200) => {
 /**
  * GET /api/backtests/options
  * Return all available options for frontend selectors
+ * Includes beginner-friendly examples for each strategy parameter
  */
 export const getBacktestOptions = async (req, res) => {
   try {
-    // Distinct symbols stored in DB
+    // Symbols from DB
     const dbSymbols = await Price.distinct("symbol");
 
-    // Fetch from ccxt live (Binance USDT pairs)
+    // Live symbols from exchange
     let liveSymbols = [];
     try {
       const exchange = new ccxt.coinbase();
@@ -34,13 +35,13 @@ export const getBacktestOptions = async (req, res) => {
 
     const symbols = [...new Set([...dbSymbols, ...liveSymbols])].slice(0, 50);
 
-    // Load strategies
+    // Load strategies or fallback to defaults
     let strategies = await Strategy.find().select("strategyType params name");
     if (!strategies || strategies.length === 0) {
-      strategies = Object.keys(DEFAULT_STRATEGY_PARAMS).map((k) => ({
-        name: `${k} Strategy`,
-        strategyType: k,
-        params: DEFAULT_STRATEGY_PARAMS[k],
+      strategies = Object.keys(DEFAULT_STRATEGY_PARAMS).map((key) => ({
+        name: `${key} Strategy`,
+        strategyType: key,
+        params: DEFAULT_STRATEGY_PARAMS[key],
       }));
     }
 
@@ -99,6 +100,7 @@ export const runBacktestController = async (req, res) => {
     const allowedRisks = ["Low", "Medium", "High"];
     const validatedRisk = allowedRisks.includes(risk) ? risk : "Medium";
 
+    // Merge trade config options for realism
     const tradeConfig = {
       useNews: useNews ?? true,
       useSlippage: useSlippage ?? true,
@@ -145,7 +147,7 @@ export const runBatchBacktestsController = async (req, res) => {
       return sendResponse(res, {}, "Missing required fields: userId or paramCombos", 400);
     }
 
-    const combos = paramCombos.slice(0, 20);
+    const combos = paramCombos.slice(0, 20); // Limit batch size
     const result = await runBatchBacktests(userId, null, combos);
 
     await logToDb(userId, `[Backtest] Ran batch of ${combos.length} backtests`);
@@ -209,7 +211,7 @@ export const deleteBacktest = async (req, res) => {
     const backtest = await Backtest.findById(backtestId);
     if (!backtest) return sendResponse(res, {}, "Backtest not found", 404);
 
-    // TODO: Add auth check with req.user.id
+    // TODO: Add auth check with req.user.id if needed
     await Backtest.findByIdAndDelete(backtestId);
 
     await logToDb(backtest.userId, `[Backtest] Deleted backtest ${backtestId} for ${backtest.symbol}`);

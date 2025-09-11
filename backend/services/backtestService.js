@@ -1,3 +1,4 @@
+// File: backend/services/backtestService.js
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import Price from "../dbStructure/price.js";
@@ -122,13 +123,7 @@ function executeStrategy(name, candles, i, params = {}) {
       return null;
     }
     case "MACD": {
-      const m = MACD(
-        prices,
-        Number(params.fast?.default),
-        Number(params.slow?.default),
-        Number(params.signal?.default),
-        i
-      );
+      const m = MACD(prices, Number(params.fast?.default), Number(params.slow?.default), Number(params.signal?.default), i);
       return m ? (m.macd > m.sig ? "BUY" : "SELL") : null;
     }
     case "BOLLINGERBANDS": {
@@ -247,6 +242,7 @@ export async function runBacktest({
   startDate,
   endDate,
   tradeConfig = {},
+  simulateOnly = false, // NEW: preview-safe
 }) {
   const candles = await getCachedOHLCV(symbol, startDate, endDate);
   const news = await fetchHistoricalNews(symbol, startDate, endDate);
@@ -274,18 +270,21 @@ export async function runBacktest({
 
   if (position > 0) balance = position * candles[candles.length - 1].close;
 
-  const backtest = new Backtest({
-    userId,
-    symbol,
-    strategy: strategy?.name || strategyId,
-    trades,
-    finalBalance: balance,
-    startDate,
-    endDate,
-    createdAt: new Date()
-  });
-  await backtest.save();
-  await logToDb(userId, `[BacktestService] Completed backtest for ${symbol} with ${strategy?.name || strategyId}`);
+  if (!simulateOnly) {
+    // Save to DB only if NOT preview
+    const backtest = new Backtest({
+      userId,
+      symbol,
+      strategy: strategy?.name || strategyId,
+      trades,
+      finalBalance: balance,
+      startDate,
+      endDate,
+      createdAt: new Date()
+    });
+    await backtest.save();
+    await logToDb(userId, `[BacktestService] Completed backtest for ${symbol} with ${strategy?.name || strategyId}`);
+  }
 
   return { finalBalance: balance, trades };
 }
@@ -295,10 +294,17 @@ export async function runBacktest({
  * RUN BATCH BACKTESTS
  * -----------------------------
  */
-export async function runBatchBacktests(userId, strategy, strategyConfigs, startDate, endDate) {
+export async function runBatchBacktests(userId, strategy, strategyConfigs, startDate, endDate, simulateOnly = false) {
   const results = [];
   for (const config of strategyConfigs) {
-    const res = await runBacktest({ userId, strategy, ...config, startDate, endDate });
+    const res = await runBacktest({
+      userId,
+      strategy,
+      ...config,
+      startDate,
+      endDate,
+      simulateOnly,
+    });
     results.push({ ...config, ...res });
   }
   return results;

@@ -1,5 +1,3 @@
-// File: backend/services/backtestService.js
-
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import Price from "../dbStructure/price.js";
@@ -14,110 +12,35 @@ import { fetchHistoricalNews } from "./newsService.js";
  */
 export const STRATEGY_PARAMS_DESCRIPTION = {
   SMA: {
-    fast: {
-      default: 5,
-      description: "The short-term period for the Simple Moving Average. Helps detect quick trend changes. Example: 5 means averaging the last 5 candles.",
-      min: 1,
-      max: 50
-    },
-    slow: {
-      default: 20,
-      description: "The long-term period for the Simple Moving Average. Helps detect the overall trend. Example: 20 means averaging the last 20 candles.",
-      min: 5,
-      max: 200
-    }
+    fast: { default: 5, description: "Short-term period for SMA, averaging last 5 candles", min: 1, max: 50 },
+    slow: { default: 20, description: "Long-term period for SMA, averaging last 20 candles", min: 5, max: 200 }
   },
   EMA: {
-    fast: {
-      default: 8,
-      description: "The short-term period for the Exponential Moving Average. EMA reacts faster to recent price changes than SMA. Example: 8",
-      min: 1,
-      max: 50
-    },
-    slow: {
-      default: 21,
-      description: "The long-term period for the Exponential Moving Average. Provides a smoother trend detection. Example: 21",
-      min: 5,
-      max: 200
-    }
+    fast: { default: 8, description: "Short-term period for EMA, faster reaction than SMA", min: 1, max: 50 },
+    slow: { default: 21, description: "Long-term period for EMA, smoother trend detection", min: 5, max: 200 }
   },
   RSI: {
-    period: {
-      default: 14,
-      description: "The number of candles to calculate the Relative Strength Index (RSI). Example: 14",
-      min: 5,
-      max: 50
-    },
-    oversold: {
-      default: 30,
-      description: "The RSI level below which the asset is considered oversold and might be a BUY opportunity. Example: 30",
-      min: 0,
-      max: 50
-    },
-    overbought: {
-      default: 70,
-      description: "The RSI level above which the asset is considered overbought and might be a SELL opportunity. Example: 70",
-      min: 50,
-      max: 100
-    }
+    period: { default: 14, description: "Number of candles to calculate RSI", min: 5, max: 50 },
+    oversold: { default: 30, description: "RSI level below which asset is considered oversold (BUY)", min: 0, max: 50 },
+    overbought: { default: 70, description: "RSI level above which asset is overbought (SELL)", min: 50, max: 100 }
   },
   MACD: {
-    fast: {
-      default: 12,
-      description: "The fast EMA period used in MACD calculation. Detects short-term momentum. Example: 12",
-      min: 5,
-      max: 50
-    },
-    slow: {
-      default: 26,
-      description: "The slow EMA period used in MACD calculation. Detects long-term momentum. Example: 26",
-      min: 10,
-      max: 100
-    },
-    signal: {
-      default: 9,
-      description: "The signal line period for MACD, used to generate buy/sell signals. Example: 9",
-      min: 1,
-      max: 50
-    }
+    fast: { default: 12, description: "Fast EMA for MACD", min: 5, max: 50 },
+    slow: { default: 26, description: "Slow EMA for MACD", min: 10, max: 100 },
+    signal: { default: 9, description: "Signal line for MACD", min: 1, max: 50 }
   },
   BOLLINGERBANDS: {
-    period: {
-      default: 20,
-      description: "The period for calculating the moving average for Bollinger Bands. Example: 20",
-      min: 5,
-      max: 100
-    },
-    multiplier: {
-      default: 2,
-      description: "Number of standard deviations to calculate upper and lower bands. Example: 2",
-      min: 1,
-      max: 5
-    }
+    period: { default: 20, description: "MA period for Bollinger Bands", min: 5, max: 100 },
+    multiplier: { default: 2, description: "Number of std deviations for upper/lower bands", min: 1, max: 5 }
   },
   STOCHASTIC: {
-    k: {
-      default: 14,
-      description: "Number of periods to calculate the %K line of the Stochastic Oscillator. Example: 14",
-      min: 5,
-      max: 50
-    }
+    k: { default: 14, description: "%K period for Stochastic Oscillator", min: 5, max: 50 }
   },
   VWAP: {
-    period: {
-      default: 20,
-      description: "Number of candles used to calculate the Volume Weighted Average Price. Example: 20",
-      min: 5,
-      max: 100
-    }
+    period: { default: 20, description: "Candles used to calculate Volume Weighted Average Price", min: 5, max: 100 }
   },
   ATR: {
-    period: {
-      default: 14,
-      description: "Number of periods used to calculate the Average True Range (ATR), which measures market volatility. Example: 14",
-      min: 5,
-      max: 50
-    }
+    period: { default: 14, description: "Candles used to calculate Average True Range (ATR)", min: 5, max: 50 }
   }
 };
 
@@ -182,24 +105,30 @@ function executeStrategy(name, candles, i, params = {}) {
 
   switch ((name || "").toUpperCase()) {
     case "SMA": {
-      const f = SMA(prices, Number(params.fast?.default || 5), i);
-      const s = SMA(prices, Number(params.slow?.default || 20), i);
+      const f = SMA(prices, Number(params.fast?.default), i);
+      const s = SMA(prices, Number(params.slow?.default), i);
       return f != null && s != null ? (f > s ? "BUY" : "SELL") : null;
     }
     case "EMA": {
-      const f = EMA(prices, Number(params.fast?.default || 8), i);
-      const s = EMA(prices, Number(params.slow?.default || 21), i);
+      const f = EMA(prices, Number(params.fast?.default), i);
+      const s = EMA(prices, Number(params.slow?.default), i);
       return f != null && s != null ? (f > s ? "BUY" : "SELL") : null;
     }
     case "RSI": {
-      const r = RSI(prices, Number(params.period?.default || 14), i);
+      const r = RSI(prices, Number(params.period?.default), i);
       if (r == null) return null;
       if (r < (params.oversold?.default ?? 30)) return "BUY";
       if (r > (params.overbought?.default ?? 70)) return "SELL";
       return null;
     }
     case "MACD": {
-      const m = MACD(prices, Number(params.fast?.default || 12), Number(params.slow?.default || 26), Number(params.signal?.default || 9), i);
+      const m = MACD(
+        prices,
+        Number(params.fast?.default),
+        Number(params.slow?.default),
+        Number(params.signal?.default),
+        i
+      );
       return m ? (m.macd > m.sig ? "BUY" : "SELL") : null;
     }
     case "BOLLINGERBANDS": {
@@ -277,7 +206,7 @@ function applySlippage(price, slippageBps) {
 
 function applyNewsImpact(candle, newsEvents, newsImpactFactor = 1) {
   if (!newsEvents || !newsEvents.length) return candle.price;
-  const relevant = newsEvents.filter(n => Math.abs(new Date(n.time) - candle.time) < 60 * 60 * 1000);
+  const relevant = newsEvents.filter(n => Math.abs(new Date(n.time) - candle.timestamp) < 3600000);
   let price = candle.price;
   for (const n of relevant) price *= 1 + (n.impact || 0) * newsImpactFactor;
   return price;
@@ -304,18 +233,34 @@ async function getCachedOHLCV(symbol, startDate, endDate) {
  * RUN SINGLE BACKTEST
  * -----------------------------
  */
-export async function runBacktest(symbol, strategyName, strategyParams, startDate, endDate) {
+export async function runBacktest({
+  userId,
+  symbol,
+  strategy,
+  strategyId,
+  timeframe,
+  initialBalance = 10000,
+  risk = "Medium",
+  takeProfit = null,
+  stopLoss = null,
+  limit = 2000,
+  startDate,
+  endDate,
+  tradeConfig = {},
+}) {
   const candles = await getCachedOHLCV(symbol, startDate, endDate);
   const news = await fetchHistoricalNews(symbol, startDate, endDate);
 
-  let balance = 10000, position = 0;
+  let balance = initialBalance, position = 0;
   const trades = [];
-  for (let i = 0; i < candles.length; i++) {
-    let price = applyNewsImpact(candles[i], news);
-    price = applySpread(price, 0.05);
-    price = applySlippage(price, 5);
 
-    const signal = executeStrategy(strategyName, candles, i, strategyParams);
+  for (let i = 0; i < candles.length; i++) {
+    let price = applyNewsImpact(candles[i], tradeConfig.useNews ? news : []);
+    if (tradeConfig.useSpread) price = applySpread(price, 0.05).buy;
+    if (tradeConfig.useSlippage) price = applySlippage(price, tradeConfig.baseSlippageBps ?? 5);
+
+    const signal = executeStrategy(strategy?.strategyType, candles, i, strategy?.params);
+
     if (signal === "BUY" && balance > 0) {
       position = balance / price;
       balance = 0;
@@ -326,7 +271,22 @@ export async function runBacktest(symbol, strategyName, strategyParams, startDat
       trades.push({ time: candles[i].timestamp, action: "SELL", price });
     }
   }
+
   if (position > 0) balance = position * candles[candles.length - 1].close;
+
+  const backtest = new Backtest({
+    userId,
+    symbol,
+    strategy: strategy?.name || strategyId,
+    trades,
+    finalBalance: balance,
+    startDate,
+    endDate,
+    createdAt: new Date()
+  });
+  await backtest.save();
+  await logToDb(userId, `[BacktestService] Completed backtest for ${symbol} with ${strategy?.name || strategyId}`);
+
   return { finalBalance: balance, trades };
 }
 
@@ -335,10 +295,10 @@ export async function runBacktest(symbol, strategyName, strategyParams, startDat
  * RUN BATCH BACKTESTS
  * -----------------------------
  */
-export async function runBatchBacktests(symbol, strategyConfigs, startDate, endDate) {
+export async function runBatchBacktests(userId, strategy, strategyConfigs, startDate, endDate) {
   const results = [];
   for (const config of strategyConfigs) {
-    const res = await runBacktest(symbol, config.name, config.params, startDate, endDate);
+    const res = await runBacktest({ userId, strategy, ...config, startDate, endDate });
     results.push({ ...config, ...res });
   }
   return results;

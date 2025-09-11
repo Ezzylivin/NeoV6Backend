@@ -1,9 +1,12 @@
-// File: backend/controllers/backtestController.js
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import Price from "../dbStructure/price.js";
 import ccxt from "ccxt";
-import { runBacktest, runBatchBacktests, DEFAULT_STRATEGY_PARAMS } from "../services/backtestService.js";
+import {
+  runBacktest,
+  runBatchBacktests,
+  STRATEGY_PARAMS_DESCRIPTION,
+} from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
 
 /**
@@ -38,10 +41,10 @@ export const getBacktestOptions = async (req, res) => {
     // Load strategies or fallback to defaults
     let strategies = await Strategy.find().select("strategyType params name");
     if (!strategies || strategies.length === 0) {
-      strategies = Object.keys(DEFAULT_STRATEGY_PARAMS).map((key) => ({
+      strategies = Object.keys(STRATEGY_PARAMS_DESCRIPTION).map((key) => ({
         name: `${key} Strategy`,
         strategyType: key,
-        params: DEFAULT_STRATEGY_PARAMS[key],
+        params: STRATEGY_PARAMS_DESCRIPTION[key],
       }));
     }
 
@@ -211,10 +214,9 @@ export const deleteBacktest = async (req, res) => {
     const backtest = await Backtest.findById(backtestId);
     if (!backtest) return sendResponse(res, {}, "Backtest not found", 404);
 
-    // TODO: Add auth check with req.user.id if needed
     await Backtest.findByIdAndDelete(backtestId);
-
     await logToDb(backtest.userId, `[Backtest] Deleted backtest ${backtestId} for ${backtest.symbol}`);
+
     return sendResponse(res, {}, "Backtest deleted successfully");
   } catch (err) {
     console.error(`[BacktestController] deleteBacktest error: ${err.stack}`);

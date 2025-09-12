@@ -1,57 +1,24 @@
 import express from "express";
-import ccxt from "ccxt";
+import { getCandles } from '../controllers/candleController.js';
 
-// Import your other route files if you have them
+// If you have other controllers for different features, you would import them here.
 // For example:
-// import userRoutes from './userRoutes.js';
+// import { loginUser, registerUser } from '../controllers/userController.js';
 
 const router = express.Router();
 
-// --- Re-implemented Candle Data Route ---
-router.get("/candles", async (req, res) => {
-  // 1. Extract the query parameters from the URL
-  const { exchange, symbol, timeframe } = req.query;
-
-  // 2. Basic validation to ensure we have what we need
-  if (!exchange || !symbol || !timeframe) {
-    return res.status(400).json({ 
-      message: "Missing required query parameters: exchange, symbol, timeframe" 
-    });
-  }
-
-  try {
-    // 3. Check if the requested exchange is available in CCXT
-    if (!ccxt.hasOwnProperty(exchange)) {
-      return res.status(404).json({ message: `Exchange '${exchange}' not found.` });
-    }
-
-    // 4. Initialize the exchange instance
-    const exchangeInstance = new ccxt[exchange]();
-
-    // 5. Fetch the OHLCV (Open, High, Low, Close, Volume) data
-    // The 'since' parameter is set to undefined to get the most recent data
-    // The 'limit' parameter fetches the last 100 candles. Adjust if needed.
-    const candles = await exchangeInstance.fetchOHLCV(symbol, timeframe, undefined, 100);
-    
-    // 6. Send the successfully fetched data back to the frontend
-    res.json(candles);
-
-  } catch (error) {
-    // 7. If anything goes wrong (e.g., symbol not found, exchange API down),
-    // send a detailed error message.
-    console.error(`Error fetching candles for ${symbol} on ${exchange}:`, error.message);
-    res.status(500).json({ 
-      message: `Failed to fetch candle data from ${exchange}.`,
-      error: error.message 
-    });
-  }
-});
+// --- Candle Data Route ---
+// This is the upgraded part. Its only job is to connect the URL 
+// to the correct controller function. All the complex logic is now
+// handled by the controller and the service.
+router.get('/candles', getCandles);
 
 
-// --- Your Other Routes ---
-// If you have a user router, it would be used here like this:
-// router.use('/users', userRoutes);
-// Make sure to add any other routes you need for your application.
+// --- Other Application Routes ---
+// This is where you would add routes for users, bots, etc.
+// For example:
+// router.post('/users/login', loginUser);
+// router.post('/users/register', registerUser);
 
 
 export default router;

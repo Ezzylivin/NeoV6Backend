@@ -27,8 +27,7 @@ const startServer = async () => {
     });
     console.log("✅ MongoDB connected");
 
-    // Start live price feed (background)
-    startPriceFeed();
+
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

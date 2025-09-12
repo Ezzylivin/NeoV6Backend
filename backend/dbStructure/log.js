@@ -1,32 +1,32 @@
-// File: backend/models/Log.js
+// File: backend/dbStructure/log.js
 import mongoose from 'mongoose';
-
 const { Schema, model } = mongoose;
 
 const logSchema = new Schema(
   {
     userId: {
       type: Schema.Types.ObjectId,
-      ref: 'user',
+      ref: 'User',
       required: true,
+      index: true,
     },
     message: {
       type: String,
       required: true,
       trim: true,
     },
-    timestamp: {
-      type: Date,
-      default: Date.now,
-    },
+    level: {
+      type: String,
+      enum: ['info', 'warn', 'error', 'debug'],
+      default: 'info'
+    }
   },
   {
-    timestamps: true, // Adds createdAt and updatedAt
-    collection: 'logs', // Optional: explicitly sets collection name
+    timestamps: true, // Automatically adds createdAt and updatedAt
+    collection: 'logs',
   }
 );
 
-// Use PascalCase for model name
-const Log = model('log', logSchema);
+const Log = model('Log', logSchema);
 
 export default Log;

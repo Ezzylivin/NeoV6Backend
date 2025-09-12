@@ -1,4 +1,3 @@
-// services/candleService.js
 import ccxt from "ccxt";
 
 const CACHE_TTL_MS = 1000 * 60 * 5; // 5 minutes
@@ -53,6 +52,7 @@ async function tryFetchOHLCV(ex, symbol, timeframe, since, limit) {
 
   for (const candidate of candidates) {
     try {
+      // CCXT fetchOHLCV is robust and will handle fetching the latest candles if 'since' is undefined.
       return await ex.fetchOHLCV(candidate, timeframe, since, limit);
     } catch (err) {
       lastErr = err;
@@ -67,12 +67,14 @@ async function tryFetchOHLCV(ex, symbol, timeframe, since, limit) {
 export async function fetchOHLCVMultiSafe(
   symbol,
   timeframe,
-  limit,
+  limit, // Limit is now optional, will be defaulted below
   startDate,
   endDate,
   exchangeId = "binance"
 ) {
-  const key = cacheKey(exchangeId, symbol, timeframe, limit, startDate, endDate);
+  // Use a slightly different key for the default limit case vs. an explicit one.
+  const effectiveLimit = limit || 200;
+  const key = cacheKey(exchangeId, symbol, timeframe, effectiveLimit, startDate, endDate);
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.value;
@@ -90,29 +92,35 @@ export async function fetchOHLCVMultiSafe(
   }
 
   let candles = [];
+  let truncated = false;
 
-  // ✅ Limit-only mode (old behavior)
-  if (limit && !startDate && !endDate) {
-    candles = await tryFetchOHLCV(ex, symbol, timeframe, undefined, limit);
-    const result = { candles, truncated: false };
-    cache.set(key, { ts: Date.now(), value: result });
-    return result;
+  // --- THIS IS THE FIX ---
+  // The logic is now restructured to prioritize date-range queries,
+  // but will correctly fall back to a limit-based query otherwise.
+
+  // ✅ Priority Mode: Fetch by date range if provided.
+  if (startDate && endDate) {
+    let since = new Date(startDate).getTime();
+    const until = new Date(endDate).getTime();
+    const step = TIMEFRAME_MS[timeframe] || 3_600_000;
+
+    while (since < until && candles.length < MAX_CANDLES) {
+      const batch = await tryFetchOHLCV(ex, symbol, timeframe, since, 1000);
+      if (!batch.length) break;
+
+      candles.push(...batch);
+      since = batch[batch.length - 1][0] + step;
+    }
+    truncated = candles.length >= MAX_CANDLES;
+  }
+  // ✅ Default Mode: Fetch the last N candles.
+  else {
+    candles = await tryFetchOHLCV(ex, symbol, timeframe, undefined, effectiveLimit);
+    // This mode, by definition, is not truncated in the same way as a date range.
+    truncated = false;
   }
 
-  // ✅ Date-range mode (new behavior)
-  let since = new Date(startDate).getTime();
-  const until = new Date(endDate).getTime();
-  const step = TIMEFRAME_MS[timeframe] || 3_600_000;
-
-  while (since < until && candles.length < MAX_CANDLES) {
-    const batch = await tryFetchOHLCV(ex, symbol, timeframe, since, 1000);
-    if (!batch.length) break;
-
-    candles.push(...batch);
-    since = batch[batch.length - 1][0] + step;
-  }
-
-  const result = { candles, truncated: candles.length >= MAX_CANDLES };
+  const result = { candles, truncated };
   cache.set(key, { ts: Date.now(), value: result });
   return result;
 }

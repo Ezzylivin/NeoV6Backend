@@ -55,12 +55,29 @@ export const fetchPrice = async (symbol) => {
 
 // --- Save price to DB + cache ---
 export const savePrice = async (symbol, fetchPriceFn = fetchPrice) => {
-  const data = await fetchPriceFn(symbol);
-  const price = new Price({ ...data, symbol });
+  const fetchedData = await fetchPriceFn(symbol);
+
+  // --- THIS IS THE FIX ---
+  // The fetchedData object only contains 'close' and 'timestamp'.
+  // We must create a new object that includes all the fields required by the Mongoose schema.
+  // We'll set 'open', 'high', and 'low' to the 'close' price to satisfy the validation.
+  const priceDataForDB = {
+    symbol: symbol,
+    open: fetchedData.close,
+    high: fetchedData.close,
+    low: fetchedData.close,
+    close: fetchedData.close,
+    timestamp: fetchedData.timestamp,
+  };
+
+  // Now, create the Mongoose document with the complete data object.
+  const price = new Price(priceDataForDB);
   await price.save();
-  prices[symbol] = data.close;
+
+  prices[symbol] = fetchedData.close; // Update the in-memory cache
   return price;
 };
+
 
 // --- Get historical prices ---
 export const getHistory = async (symbol, period = 24, interval = 60) => {
@@ -119,8 +136,13 @@ export const startPriceFeed = (symbols = ["BTCUSDT","ETHUSDT","BNBUSDT"], interv
 
   const updateAll = async () => {
     for (const symbol of symbols) {
-      try { await savePrice(symbol, fetchPriceFn); }
-      catch(err) { console.error(`[PriceService] Failed to update ${symbol}:`, err.message); }
+      try {
+        await savePrice(symbol, fetchPriceFn);
+      }
+      catch(err) {
+        // Now we catch the specific Mongoose validation error message here
+        console.error(`[PriceService] Failed to update ${symbol}:`, err.message);
+      }
     }
   };
   updateAll();

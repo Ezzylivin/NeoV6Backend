@@ -9,17 +9,18 @@ import { fileURLToPath } from "url";
 import { startPriceFeed } from "./services/priceService.js";
 
 // --- DYNAMIC ROUTE LOADER ---
-// We now only need to import the central apiRoutes file.
+// Import the central apiRoutes file that loads all other routes.
 import apiRoutes from './routes/apiRoutes.js';
 
 dotenv.config();
 const app = express();
 
 // --- FLEXIBLE CORS SETUP ---
-// This new configuration allows any *.vercel.app domain.
+// This configuration allows any *.vercel.app domain for production/previews.
 const corsOptions = {
   origin: function (origin, callback) {
     const vercelRegex = /\.vercel\.app$/;
+
     // Allow localhost, any vercel.app domain, and requests with no origin (like Postman)
     if (!origin || origin.startsWith("http://localhost") || vercelRegex.test(origin)) {
       callback(null, true);

@@ -1,24 +1,20 @@
+// File: backend/routes/userRoutes.js
 import express from 'express';
-
-// 1. Import your controller functions and security middleware.
-import { registerUser, loginUser, getMe } from '../controllers/userController.js';
+import { 
+    registerUser, 
+    loginUser, 
+    getMe, 
+    updateApiKeys // Import the new controller function
+} from '../controllers/userController.js';
 import { protect } from '../middleware/authMiddleware.js';
-
 const router = express.Router();
 
-// --- Public Routes (No token required) ---
-
-// Handles POST /api/users/register
+// Public routes
 router.post('/register', registerUser);
-
-// Handles POST /api/users/login
 router.post('/login', loginUser);
 
-// --- Protected Route (Token IS required) ---
-
-// Handles GET /api/users/me
-// The `protect` middleware runs first to protect this route.
+// Protected routes
 router.get('/me', protect, getMe);
+router.post('/keys', protect, updateApiKeys); // <-- New route for API keys
 
-// --- Export the Router ---
 export default router;

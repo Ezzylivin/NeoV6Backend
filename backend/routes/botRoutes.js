@@ -1,23 +1,17 @@
-import express from "express";
+// File: backend/routes/botRoutes.js
+import express from 'express';
 import {
-  startBotController,
-  stopBotController,
-  getBotStatusController,
-  getHistoryController
-} from "../controllers/botController.js";
-
+  startBotController, stopBotController, getBotStatusController, getHistoryController
+} from '../controllers/botController.js';
+import { protect } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
-// POST: start a bot
-router.post("/start", startBotController);
+// Protect all bot-related routes
+router.use(protect);
 
-// POST: stop a bot
-router.post("/stop", stopBotController);
-
-// GET: get bot status
-router.get("/status/:userId", getBotStatusController);
-
-// GET: get bot history
-router.get("/history/:userId", getHistoryController);
+router.post('/start', startBotController);
+router.post('/stop', stopBotController);
+router.get('/status', getBotStatusController);
+router.get('/history', getHistoryController);
 
 export default router;

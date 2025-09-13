@@ -1,6 +1,7 @@
 // File: backend/services/backtestService.js
 import Backtest from "../dbStructure/backtest.js";
 import { fetchOHLCVMultiSafe } from "./candleService.js";
+import { getStrategy } from '../strategies/strategyManager.js';
 import { logToDb } from "./logService.js";
 
 // --- PERFORMANCE: Efficient Bulk Indicator Calculators ---
@@ -78,6 +79,7 @@ const calculateAllRSIs = (values, period) => {
   return rsis;
 };
 
+
 // --- Position Management ---
 
 class PositionManager {
@@ -93,21 +95,13 @@ class PositionManager {
     return this.position !== null;
   }
 
-  openPosition(side, price, timestamp, config) {
+  openPosition(side, price, timestamp, config = {}) {
     if (this.isInPosition()) return;
 
-    const { useSpread = true, useSlippage = true, useCommission = true, spreadPct = 0.1, slippageBps = 5, commissionRate = 0.001 } = config;
-    let executionPrice = price;
-    if (useSpread) {
-      const spread = applySpread(price, spreadPct);
-      executionPrice = side === "long" ? spread.buy : spread.sell;
-    }
-    if (useSlippage) {
-      executionPrice = applySlippage(executionPrice, slippageBps);
-    }
-
-    const positionSizeDollars = this.balance * 0.95;
-    const commission = useCommission ? calculateCommission(positionSizeDollars, commissionRate) : 0;
+    // Realism helpers can be added back here for slippage, spread, commission.
+    const executionPrice = price;
+    const positionSizeDollars = this.balance * 0.95; // Use 95% of available balance.
+    const commission = 0; // Placeholder for commission logic.
     
     if (positionSizeDollars <= 0 || this.balance < positionSizeDollars) return;
 
@@ -123,27 +117,18 @@ class PositionManager {
     };
   }
 
-  closePosition(price, timestamp, config) {
+  closePosition(price, timestamp, config = {}) {
     if (!this.isInPosition()) return;
 
-    const { useSpread = true, useSlippage = true, useCommission = true, spreadPct = 0.1, slippageBps = 5, commissionRate = 0.001 } = config;
-    let executionPrice = price;
-    if (useSpread) {
-      const spread = applySpread(price, spreadPct);
-      executionPrice = this.position.side === "long" ? spread.sell : spread.buy;
-    }
-    if (useSlippage) {
-      executionPrice = applySlippage(executionPrice, slippageBps);
-    }
-
+    const executionPrice = price;
     const orderValue = this.position.size * executionPrice;
-    const exitCommission = useCommission ? calculateCommission(orderValue, commissionRate) : 0;
+    const exitCommission = 0; // Placeholder for exit commission.
     this.balance += orderValue - exitCommission;
 
     let profit;
     if (this.position.side === "long") {
       profit = (executionPrice - this.position.entryPrice) * this.position.size;
-    } else {
+    } else { // short
       profit = (this.position.entryPrice - executionPrice) * this.position.size;
     }
     const netProfit = profit - this.position.commission - exitCommission;
@@ -184,16 +169,25 @@ class PositionManager {
   updateEquityCurve(timestamp, currentPrice) {
     let currentValue = this.balance;
     if (this.isInPosition()) {
-      currentValue += this.position.size * currentPrice;
+      let unrealizedPnl = 0;
+      if (this.position.side === 'long') {
+          unrealizedPnl = (currentPrice - this.position.entryPrice) * this.position.size;
+      } else {
+          unrealizedPnl = (this.position.entryPrice - currentPrice) * this.position.size;
+      }
+      // Equity includes cash balance plus the current value of the open position
+      currentValue += (this.position.size * this.position.entryPrice) + unrealizedPnl;
     }
     this.equityCurve.push({ timestamp, balance: currentValue });
   }
 }
 
-// --- Main Backtest Engine ---
 
+/**
+ * Runs a complete backtest synchronously, saves the result, and returns the full document.
+ */
 export async function runBacktest(params) {
-  const { userId, symbol, strategy, timeframe = "1h", initialBalance = 10000, risk = "Medium", takeProfit = null, stopLoss = null, startDate, endDate, tradeConfig = {}, simulateOnly = false } = params;
+  const { userId, symbol, strategy, timeframe = "1h", initialBalance = 10000, stopLoss = null, takeProfit = null, startDate, endDate, realismConfig = {}, simulateOnly = false } = params;
   
   try {
     if (!symbol || !strategy || !strategy.type) {
@@ -202,80 +196,87 @@ export async function runBacktest(params) {
 
     const marketData = await fetchOHLCVMultiSafe(symbol, timeframe, undefined, startDate, endDate);
     const candles = marketData.candles.map(c => ({
-      timestamp: new Date(c[0]),
-      open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5]
+      timestamp: new Date(c[0]), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5]
     }));
     
     if (candles.length < 2) {
       throw new Error(`Insufficient market data for ${symbol} in the given range.`);
     }
 
-    const positionManager = new PositionManager(initialBalance, risk, stopLoss, takeProfit);
+    const positionManager = new PositionManager(initialBalance, "Medium", stopLoss, takeProfit);
     const prices = candles.map(c => c.close);
     const indicators = {};
     const stratParams = strategy.parameters || {};
+    const strategyModule = getStrategy(strategy.type);
     
-    switch(strategy.type.toUpperCase()) {
-      case "SMA":
-        indicators.fast = calculateAllSMAs(prices, stratParams.fast);
-        indicators.slow = calculateAllSMAs(prices, stratParams.slow);
-        break;
-      case "EMA":
-        indicators.fast = calculateAllEMAs(prices, stratParams.fast);
-        indicators.slow = calculateAllEMAs(prices, stratParams.slow);
-        break;
-      case "RSI":
-        indicators.rsi = calculateAllRSIs(prices, stratParams.period);
-        break;
-    }
-    
-    for (let i = 1; i < candles.length; i++) {
-      const candle = candles[i];
-      positionManager.updateEquityCurve(candle.timestamp, candle.close);
-
-      if (positionManager.isInPosition()) {
-        if (positionManager.shouldStopLoss(candle.close) || positionManager.shouldTakeProfit(candle.close)) {
-          positionManager.closePosition(candle.close, candle.timestamp, tradeConfig);
+    const requiredIndicators = strategyModule.requiredIndicators(stratParams);
+    for (const ind of requiredIndicators) {
+        switch(ind.type.toUpperCase()) {
+            case 'SMA': indicators[ind.name] = calculateAllSMAs(prices, ind.period); break;
+            case 'EMA': indicators[ind.name] = calculateAllEMAs(prices, ind.period); break;
+            case 'RSI': indicators[ind.name] = calculateAllRSIs(prices, ind.period); break;
         }
-      }
-      
-      const signal = executeStrategy(strategy.type, i, stratParams, indicators);
+    }
 
-      if (signal === "BUY" && !positionManager.isInPosition()) {
-        positionManager.openPosition("long", candle.close, candle.timestamp, tradeConfig);
-      } else if (signal === "SELL" && positionManager.isInPosition()) {
-        positionManager.closePosition(candle.close, candle.timestamp, tradeConfig);
-      }
+    for (let i = 1; i < candles.length; i++) {
+        const candle = candles[i];
+        positionManager.updateEquityCurve(candle.timestamp, candle.close);
+
+        if (positionManager.isInPosition()) {
+            if (positionManager.shouldStopLoss(candle.close) || positionManager.shouldTakeProfit(candle.close)) {
+                positionManager.closePosition(candle.close, candle.timestamp, realismConfig);
+            }
+        }
+
+        const indicatorData = {};
+        for (const ind of requiredIndicators) {
+            indicatorData[ind.name] = indicators[ind.name][i];
+            const prevName = `prev${ind.name.charAt(0).toUpperCase() + ind.name.slice(1)}`;
+            indicatorData[prevName] = indicators[ind.name][i-1];
+        }
+        
+        const signal = strategyModule.getSignal(indicatorData, stratParams);
+
+        if (signal === "BUY" && !positionManager.isInPosition()) {
+            positionManager.openPosition("long", candle.close, candle.timestamp, realismConfig);
+        } else if (signal === "SELL" && positionManager.isInPosition()) {
+            positionManager.closePosition(candle.close, candle.timestamp, realismConfig);
+        }
     }
     
     if (positionManager.isInPosition()) {
-      const lastCandle = candles[candles.length - 1];
-      positionManager.closePosition(lastCandle.close, lastCandle.timestamp, tradeConfig);
+        const lastCandle = candles[candles.length - 1];
+        positionManager.closePosition(lastCandle.close, lastCandle.timestamp, realismConfig);
     }
 
-    const finalBalance = positionManager.equityCurve[positionManager.equityCurve.length - 1].balance;
+    const finalBalance = positionManager.equityCurve.slice(-1)[0].balance;
+    const results = {
+        userId,
+        symbol: symbol.toUpperCase(),
+        timeframe,
+        initialBalance,
+        finalBalance,
+        strategy: {
+          name: strategy.name || strategy.type,
+          type: strategy.type,
+          parameters: strategy.parameters
+        },
+        tradeBreakdown: positionManager.trades,
+        equityCurve: positionManager.equityCurve,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        candlesTested: candles.length,
+        status: 'completed',
+    };
     
     if (simulateOnly) {
-      return { finalBalance, trades: positionManager.trades, equityCurve: positionManager.equityCurve };
+        return results;
     }
 
-    const backtestResult = new Backtest({
-      userId,
-      symbol: symbol.toUpperCase(),
-      timeframe,
-      initialBalance,
-      finalBalance,
-      profit: finalBalance - initialBalance,
-      strategy: {
-        name: strategy.name || strategy.type,
-        type: strategy.type,
-        parameters: strategy.parameters
-      },
-      tradeBreakdown: positionManager.trades,
-      equityCurve: positionManager.equityCurve,
-    });
+    const backtestResult = new Backtest(results);
     await backtestResult.save();
-    await logToDb(userId, `Backtest for ${symbol} completed. Final Balance: ${finalBalance.toFixed(2)}`);
+    
+    await logToDb(userId, `Backtest for ${symbol} completed. Final Balance: ${backtestResult.finalBalance.toFixed(2)}`);
     return backtestResult;
 
   } catch (error) {
@@ -285,82 +286,4 @@ export async function runBacktest(params) {
     }
     throw error;
   }
-}
-
-// --- Batch Backtest Function ---
-
-export async function runBatchBacktests(userId, configs) {
-  const results = [];
-  const errors = [];
-
-  const promises = configs.map(config => runBacktest({ userId, ...config }));
-  const outcomes = await Promise.allSettled(promises);
-
-  outcomes.forEach((outcome, index) => {
-    if (outcome.status === 'fulfilled') {
-      results.push({ config: configs[index], success: true, result: outcome.value });
-    } else {
-      errors.push({ config: configs[index], success: false, error: outcome.reason.message });
-    }
-  });
-
-  const successfulResults = results.map(r => r.result);
-  const bestPerforming = successfulResults.length > 0
-    ? successfulResults.sort((a, b) => b.finalBalance - a.finalBalance)[0]
-    : null;
-
-  const summary = {
-    totalRuns: configs.length,
-    successful: results.length,
-    failed: errors.length,
-    bestNetProfit: bestPerforming ? bestPerforming.profit : 0,
-    bestStrategyConfig: bestPerforming ? bestPerforming.strategy : null,
-  };
-
-  await logToDb(userId, `Batch backtest completed: ${summary.successful}/${summary.totalRuns} successful.`);
-  return { results, errors, summary };
-}
-
-// --- Strategy Execution Helper ---
-
-function executeStrategy(strategyType, index, params, indicators) {
-  switch (strategyType.toUpperCase()) {
-    case "SMA":
-    case "EMA": {
-      const fast = indicators.fast[index];
-      const slow = indicators.slow[index];
-      const prevFast = indicators.fast[index - 1];
-      const prevSlow = indicators.slow[index - 1];
-      if (fast === null || slow === null || prevFast === null || prevSlow === null) return null;
-      if (prevFast <= prevSlow && fast > slow) return "BUY";
-      if (prevFast >= prevSlow && fast < slow) return "SELL";
-      return null;
-    }
-    case "RSI": {
-      const rsi = indicators.rsi[index];
-      const prevRsi = indicators.rsi[index - 1];
-      if (rsi === null || prevRsi === null) return null;
-      if (prevRsi <= params.oversold && rsi > params.oversold) return "BUY";
-      if (prevRsi >= params.overbought && rsi < params.overbought) return "SELL";
-      return null;
-    }
-    default:
-      return null;
-  }
-}
-
-// --- Realism Helpers ---
-
-function applySpread(price, spreadPct = 0.1) {
-  const spread = (spreadPct / 100) / 2;
-  return { buy: price * (1 + spread), sell: price * (1 - spread) };
-}
-
-function applySlippage(price, slippageBps = 5) {
-  const slippage = (slippageBps / 10000) * (0.5 + Math.random());
-  return price * (1 + slippage);
-}
-
-function calculateCommission(orderValue, commissionRate = 0.001) {
-  return orderValue * commissionRate;
 }

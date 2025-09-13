@@ -1,66 +1,58 @@
-// File: src/backend/controllers/botController.js
+// File: backend/controllers/botController.js
 import * as botService from "../services/botService.js";
 
-/**
- * POST /api/bots/start
- * body: { userId, symbol, timeframes, initialBalance, strategy, risk }
- */
+// Helper for consistent responses
+const sendResponse = (res, data, message = 'Success', status = 200) => {
+    res.status(status).json({ success: status < 400, message, data });
+};
+
 export const startBotController = async (req, res) => {
   try {
-    const { userId, symbol, timeframes, initialBalance, strategy, risk } = req.body;
-    if (!userId || !symbol || initialBalance == null) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+    const userId = req.user.id; // SECURE: Get user ID from the token
+    const { symbol, timeframes, initialBalance, strategy, risk } = req.body;
+    
+    if (!symbol || initialBalance == null) {
+      return sendResponse(res, null, "Missing required fields: symbol, initialBalance", 400);
     }
+
     const bot = await botService.startTradingBot(userId, { symbol, timeframes, initialBalance, strategy, risk });
-    res.json({ success: true, bot });
+    sendResponse(res, { bot }, "Bot started successfully");
   } catch (err) {
     console.error("[Start Bot Error]", err);
-    res.status(500).json({ success: false, message: err.message });
+    sendResponse(res, { error: err.message }, err.message, 500);
   }
 };
 
-/**
- * POST /api/bots/stop
- * body: { userId }
- */
 export const stopBotController = async (req, res) => {
   try {
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
+    const userId = req.user.id; // SECURE: Get user ID from the token
     const bot = await botService.stopTradingBot(userId);
-    res.json({ success: true, bot });
+    sendResponse(res, { bot }, "Bot stopped successfully");
   } catch (err) {
     console.error("[Stop Bot Error]", err);
-    res.status(500).json({ success: false, message: err.message });
+    sendResponse(res, { error: err.message }, err.message, 500);
   }
 };
 
-/**
- * GET /api/bots/status/:userId
- */
 export const getBotStatusController = async (req, res) => {
   try {
-    const { userId } = req.params;
-    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
+    const userId = req.user.id; // SECURE: Get user ID from the token
     const status = await botService.getBotStatus(userId);
-    res.json({ success: true, status });
+    sendResponse(res, { status });
   } catch (err) {
     console.error("[Bot Status Error]", err);
-    res.status(500).json({ success: false, message: err.message });
+    sendResponse(res, { error: err.message }, err.message, 500);
   }
 };
 
-/**
- * GET /api/bots/history/:userId
- */
 export const getHistoryController = async (req, res) => {
   try {
-    const { userId } = req.params;
-    if (!userId) return res.status(400).json({ success: false, message: "Missing userId" });
-    const history = await botService.getBotHistory(userId);
-    res.json({ success: true, history });
+    const userId = req.user.id; // SECURE: Get user ID from the token
+    const limit = parseInt(req.query.limit) || 1000;
+    const history = await botService.getBotHistory(userId, limit);
+    sendResponse(res, { history });
   } catch (err) {
     console.error("[Bot History Error]", err);
-    res.status(500).json({ success: false, message: err.message });
+    sendResponse(res, { error: err.message }, err.message, 500);
   }
 };

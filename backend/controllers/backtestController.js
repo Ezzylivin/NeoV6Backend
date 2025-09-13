@@ -2,7 +2,7 @@
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import Price from "../dbStructure/price.js";
-import { runBacktest } from "../services/backtestService.js";
+import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
 
 const sendResponse = (res, data = {}, message = "Success", status = 200) => {
@@ -12,7 +12,6 @@ const sendResponse = (res, data = {}, message = "Success", status = 200) => {
 export const getBacktestOptions = async (req, res) => {
   try {
     const userId = req.user.id;
-    // Using .lean() for performance on read-only queries
     const symbols = await Price.distinct("symbol");
     const strategies = await Strategy.find({ userId }).select("name params").lean();
     return sendResponse(res, { 
@@ -41,7 +40,6 @@ export const runBacktestController = async (req, res) => {
       const dbStrategy = await Strategy.findById(strategyId).lean();
       if (!dbStrategy) return sendResponse(res, {}, `Strategy with ID ${strategyId} not found.`, 404);
       if (dbStrategy.userId.toString() !== userId) return sendResponse(res, {}, "Not authorized to use this strategy.", 403);
-      // Construct the strategy object in the format the backtester expects
       finalStrategy = { 
           name: dbStrategy.name, 
           type: dbStrategy.params.strategyType, 
@@ -87,13 +85,33 @@ export const previewStrategyController = async (req, res) => {
       strategy,
       startDate,
       endDate,
-      simulateOnly: true, // This flag prevents saving to the database
+      simulateOnly: true,
     });
 
     return sendResponse(res, result, "Preview executed successfully");
   } catch (err) {
     console.error(`[previewStrategyController Error]: ${err.stack}`);
     return sendResponse(res, { error: err.message }, "Failed to run preview", 500);
+  }
+};
+
+export const runBatchBacktestsController = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { configs } = req.body;
+
+    if (!configs || !Array.isArray(configs) || configs.length === 0) {
+      return sendResponse(res, {}, "Request body must contain a 'configs' array.", 400);
+    }
+    
+    const limitedConfigs = configs.slice(0, 50); 
+    
+    const batchResult = await runBatchBacktests(userId, limitedConfigs);
+    
+    return sendResponse(res, batchResult, "Batch backtests executed successfully");
+  } catch (err) {
+    console.error(`[runBatchBacktestsController Error]: ${err.stack}`);
+    return sendResponse(res, { error: err.message }, "Failed to run batch backtests", 500);
   }
 };
 

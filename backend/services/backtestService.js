@@ -6,6 +6,84 @@ import { logToDb } from "./logService.js";
 
 // --- PERFORMANCE: Efficient Bulk Indicator Calculators ---
 
+const calculateAllMACDs = (values, fastPeriod, slowPeriod, signalPeriod) => {
+  const macds = new Array(values.length).fill(null);
+  if (values.length < slowPeriod) return macds;
+
+  const fastEMAs = calculateAllEMAs(values, fastPeriod);
+  const slowEMAs = calculateAllEMAs(values, slowPeriod);
+
+  const macdLine = fastEMAs.map((fast, i) => {
+    const slow = slowEMAs[i];
+    return fast !== null && slow !== null ? fast - slow : null;
+  });
+
+  const signalLine = calculateAllEMAs(macdLine.filter(v => v !== null), signalPeriod);
+  
+  let signalIndex = 0;
+  for (let i = 0; i < macdLine.length; i++) {
+    if (macdLine[i] !== null) {
+      macds[i] = {
+        MACD: macdLine[i],
+        signal: signalLine[signalIndex] || null,
+        histogram: signalLine[signalIndex] ? macdLine[i] - signalLine[signalIndex] : null,
+      };
+      signalIndex++;
+    }
+  }
+  return macds;
+};
+
+const calculateAllBollingerBands = (values, period, stdDev) => {
+  const bands = new Array(values.length).fill(null);
+  if (values.length < period) return bands;
+
+  const smas = calculateAllSMAs(values, period);
+  
+  for (let i = period - 1; i < values.length; i++) {
+    const slice = values.slice(i - period + 1, i + 1);
+    const mean = smas[i];
+    const variance = slice.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / period;
+    const sd = Math.sqrt(variance);
+    
+    bands[i] = {
+      middle: mean,
+      upper: mean + (sd * stdDev),
+      lower: mean - (sd * stdDev),
+    };
+  }
+  return bands;
+};
+
+const calculateAllStochastics = (candles, kPeriod, dPeriod) => {
+  const stochs = new Array(candles.length).fill(null);
+  if (candles.length < kPeriod) return stochs;
+
+  const kValues = [];
+  for (let i = kPeriod - 1; i < candles.length; i++) {
+    const slice = candles.slice(i - kPeriod + 1, i + 1);
+    const lowestLow = Math.min(...slice.map(c => c.low));
+    const highestHigh = Math.max(...slice.map(c => c.high));
+    const currentClose = candles[i].close;
+    
+    const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
+    kValues.push(k);
+    
+    stochs[i] = { K: k, D: null };
+  }
+  
+  const dValues = calculateAllSMAs(kValues, dPeriod);
+
+  let dIndex = 0;
+  for (let i = kPeriod - 1; i < stochs.length; i++) {
+      if(stochs[i]) {
+          stochs[i].D = dValues[dIndex] || null;
+          dIndex++;
+      }
+  }
+  return stochs;
+};
+
 const calculateAllSMAs = (values, period) => {
   const smas = new Array(values.length).fill(null);
   if (values.length < period) return smas;
@@ -192,6 +270,7 @@ export async function runBacktest(params) {
       throw new Error("Symbol and a valid strategy object with a 'type' are required");
     }
 
+    
     const marketData = await fetchOHLCVMultiSafe(symbol, timeframe, undefined, startDate, endDate);
     const candles = marketData.candles.map(c => ({
       timestamp: new Date(c[0]), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5]
@@ -207,14 +286,19 @@ export async function runBacktest(params) {
     const stratParams = strategy.parameters || {};
     const strategyModule = getStrategy(strategy.type);
     
-    const requiredIndicators = strategyModule.requiredIndicators(stratParams);
-    for (const ind of requiredIndicators) {
-        switch(ind.type.toUpperCase()) {
-            case 'SMA': indicators[ind.name] = calculateAllSMAs(prices, ind.period); break;
-            case 'EMA': indicators[ind.name] = calculateAllEMAs(prices, ind.period); break;
-            case 'RSI': indicators[ind.name] = calculateAllRSIs(prices, ind.period); break;
-        }
-    }
+   // ... inside the runBacktest function ...
+  const requiredIndicators = strategyModule.requiredIndicators(stratParams);
+  for (const ind of requiredIndicators) {
+      switch(ind.type.toUpperCase()) {
+          case 'SMA': indicators[ind.name] = calculateAllSMAs(prices, ind.period); break;
+          case 'EMA': indicators[ind.name] = calculateAllEMAs(prices, ind.period); break;
+          case 'RSI': indicators[ind.name] = calculateAllRSIs(prices, ind.period); break;
+          // --- ADD THESE NEW CASES ---
+          case 'MACD': indicators[ind.name] = calculateAllMACDs(prices, stratParams.fast, stratParams.slow, stratParams.signal); break;
+          case 'BBANDS': indicators[ind.name] = calculateAllBollingerBands(prices, ind.period, ind.stdDev); break;
+          case 'STOCH': indicators[ind.name] = calculateAllStochastics(candles, stratParams.kPeriod, stratParams.dPeriod); break;
+      }
+  }
 
     for (let i = 1; i < candles.length; i++) {
         const candle = candles[i];

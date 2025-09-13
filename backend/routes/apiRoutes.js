@@ -1,5 +1,3 @@
-// File: backend/routes/apiRoutes.js
-
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -7,14 +5,9 @@ import { fileURLToPath } from 'url';
 
 const router = express.Router();
 
-/**
- * @route   GET /api/
- * @desc    API health check / root endpoint.
- * @access  Public
- */
 router.get('/', (req, res) => {
   res.status(200).json({
-    message: 'Welcome to the NeoV6 API! The server is online and running.',
+    message: 'Welcome to the NeoV6 API!',
     status: 'OK',
   });
 });
@@ -22,7 +15,6 @@ router.get('/', (req, res) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load all route files dynamically except this one
 const routeFiles = fs.readdirSync(__dirname).filter(
   (file) => file.endsWith('.js') && file !== 'apiRoutes.js'
 );
@@ -31,10 +23,12 @@ for (const file of routeFiles) {
   try {
     const routeModule = await import(`./${file}`);
 
-    // ✅ Smart pluralization: avoids double "s"
+    // --- THIS IS THE FIX ---
+    // This simpler logic correctly removes 'Routes.js' to create the path.
+    // e.g., 'dataRoutes.js' becomes '/data', 'userRoutes.js' becomes '/user'.
     const baseName = file.replace('Routes.js', '');
-    const routePath = '/' + (baseName.endsWith('s') ? baseName : baseName + 's');
-
+    const routePath = `/${baseName}`;
+    
     if (routeModule.default) {
       router.use(routePath, routeModule.default);
       console.log(`✅ Dynamically mounted ${file} to /api${routePath}`);

@@ -98,10 +98,9 @@ class PositionManager {
   openPosition(side, price, timestamp, config = {}) {
     if (this.isInPosition()) return;
 
-    // Realism helpers can be added back here for slippage, spread, commission.
     const executionPrice = price;
-    const positionSizeDollars = this.balance * 0.95; // Use 95% of available balance.
-    const commission = 0; // Placeholder for commission logic.
+    const positionSizeDollars = this.balance * 0.95;
+    const commission = 0;
     
     if (positionSizeDollars <= 0 || this.balance < positionSizeDollars) return;
 
@@ -122,13 +121,13 @@ class PositionManager {
 
     const executionPrice = price;
     const orderValue = this.position.size * executionPrice;
-    const exitCommission = 0; // Placeholder for exit commission.
+    const exitCommission = 0;
     this.balance += orderValue - exitCommission;
 
     let profit;
     if (this.position.side === "long") {
       profit = (executionPrice - this.position.entryPrice) * this.position.size;
-    } else { // short
+    } else {
       profit = (this.position.entryPrice - executionPrice) * this.position.size;
     }
     const netProfit = profit - this.position.commission - exitCommission;
@@ -175,7 +174,6 @@ class PositionManager {
       } else {
           unrealizedPnl = (this.position.entryPrice - currentPrice) * this.position.size;
       }
-      // Equity includes cash balance plus the current value of the open position
       currentValue += (this.position.size * this.position.entryPrice) + unrealizedPnl;
     }
     this.equityCurve.push({ timestamp, balance: currentValue });
@@ -286,4 +284,49 @@ export async function runBacktest(params) {
     }
     throw error;
   }
+}
+
+/**
+ * Runs a batch of backtests concurrently and returns the results.
+ * @param {string} userId - The ID of the user running the batch.
+ * @param {Array<object>} configs - An array of backtest configuration objects.
+ * @returns {Promise<object>} A summary of the batch run.
+ */
+export async function runBatchBacktests(userId, configs) {
+  const successfulResults = [];
+  const failedRuns = [];
+
+  const outcomes = await Promise.allSettled(
+    configs.map(config => runBacktest({ userId, ...config }))
+  );
+
+  outcomes.forEach((outcome, index) => {
+    if (outcome.status === 'fulfilled') {
+      successfulResults.push(outcome.value);
+    } else {
+      failedRuns.push({ 
+        config: configs[index], 
+        error: outcome.reason.message 
+      });
+    }
+  });
+
+  const bestPerforming = successfulResults.length > 0
+    ? successfulResults.reduce((best, current) => 
+        (current.profit > best.profit) ? current : best
+      )
+    : null;
+
+  const summary = {
+    totalRuns: configs.length,
+    successful: successfulResults.length,
+    failed: failedRuns.length,
+    bestNetProfit: bestPerforming ? bestPerforming.profit : 0,
+    bestStrategyConfig: bestPerforming ? bestPerforming.strategy : null,
+    bestBacktestId: bestPerforming ? bestPerforming._id : null,
+  };
+  
+  await logToDb(userId, `Batch backtest completed: ${summary.successful}/${summary.totalRuns} successful.`);
+  
+  return { summary, results: successfulResults, errors: failedRuns };
 }

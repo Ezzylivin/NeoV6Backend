@@ -1,12 +1,19 @@
-// File: backend/controllers/backtestController.js
-import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
-import Price from "../dbStructure/price.js";
 import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
+import Price from "../dbStructure/price.js";
+import Backtest from "../dbStructure/backtest.js";
 
-const sendResponse = (res, data = {}, message = "Success", status = 200) => {
-  return res.status(status).json({ success: status < 400, message, data });
+const sendResponse = (res, data = {}, message = "Success") => {
+  return res.status(200).json({ success: true, message, data });
+};
+
+const sendError = (res, error, controllerName) => {
+    console.error(`[Controller Error: ${controllerName}]`, error);
+    res.status(500).json({ 
+        success: false, 
+        message: error.message || "An internal server error occurred." 
+    });
 };
 
 export const getBacktestOptions = async (req, res) => {
@@ -15,83 +22,49 @@ export const getBacktestOptions = async (req, res) => {
     const symbols = await Price.distinct("symbol");
     const strategies = await Strategy.find({ userId }).select("name params").lean();
     return sendResponse(res, { 
-        symbols, 
+        symbols: symbols.length > 0 ? symbols : ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'], 
         strategies, 
-        timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"], 
-        risks: ["Low", "Medium", "High"] 
+        timeframes: ["15m", "1h", "4h", "1d"], 
     }, "Backtest options fetched successfully");
   } catch (err) {
-    console.error(`[getBacktestOptions Error]: ${err.stack}`);
-    return sendResponse(res, { error: err.message }, "Failed to fetch backtest options", 500);
+    sendError(res, err, 'getBacktestOptions');
   }
 };
 
 export const runBacktestController = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { symbol, timeframe, initialBalance, strategyId, strategy, startDate, endDate } = req.body;
+    const { strategyId, ...restOfBody } = req.body;
 
-    if (!symbol || (!strategyId && !strategy)) {
-      return sendResponse(res, {}, "Symbol and either a strategyId or a strategy object are required.", 400);
-    }
-
-    let finalStrategy = strategy;
-    if (strategyId) {
-      const dbStrategy = await Strategy.findById(strategyId).lean();
-      if (!dbStrategy) return sendResponse(res, {}, `Strategy with ID ${strategyId} not found.`, 404);
-      if (dbStrategy.userId.toString() !== userId) return sendResponse(res, {}, "Not authorized to use this strategy.", 403);
-      finalStrategy = { 
-          name: dbStrategy.name, 
-          type: dbStrategy.params.strategyType, 
-          parameters: dbStrategy.params 
-      };
+    if (!strategyId) {
+      return res.status(400).json({ success: false, message: "A strategyId is required." });
     }
     
-    if (!finalStrategy || !finalStrategy.type) {
-        return sendResponse(res, {}, "A valid strategy with a 'type' property is required.", 400);
-    }
+    const dbStrategy = await Strategy.findById(strategyId).lean();
+    if (!dbStrategy) return res.status(404).json({ success: false, message: `Strategy with ID ${strategyId} not found.` });
+    if (dbStrategy.userId.toString() !== userId) return res.status(403).json({ success: false, message: "Not authorized to use this strategy." });
+      
+    const finalStrategy = { 
+        name: dbStrategy.name, 
+        type: dbStrategy.params.strategyType, 
+        parameters: dbStrategy.params 
+    };
 
-    const result = await runBacktest({
-      userId,
-      symbol,
-      timeframe,
-      initialBalance: Number(initialBalance) || 10000,
-      strategy: finalStrategy,
-      startDate,
-      endDate,
-    });
+    const result = await runBacktest({ userId, ...restOfBody, strategy: finalStrategy });
 
     return sendResponse(res, result, "Backtest executed successfully");
   } catch (err) {
-    console.error(`[runBacktestController Error]: ${err.stack}`);
-    return sendResponse(res, { error: err.message }, "Failed to run backtest", 500);
+    sendError(res, err, 'runBacktestController');
   }
 };
 
 export const previewStrategyController = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { symbol, timeframe, initialBalance, strategy, startDate, endDate } = req.body;
-
-    if (!symbol || !strategy || !strategy.type) {
-      return sendResponse(res, {}, "Symbol and a valid strategy object with a 'type' are required.", 400);
-    }
-    
-    const result = await runBacktest({
-      userId,
-      symbol,
-      timeframe,
-      initialBalance: Number(initialBalance) || 10000,
-      strategy,
-      startDate,
-      endDate,
-      simulateOnly: true,
-    });
-
+    const result = await runBacktest({ ...req.body, userId, simulateOnly: true });
     return sendResponse(res, result, "Preview executed successfully");
   } catch (err) {
-    console.error(`[previewStrategyController Error]: ${err.stack}`);
-    return sendResponse(res, { error: err.message }, "Failed to run preview", 500);
+    sendError(res, err, 'previewStrategyController');
   }
 };
 
@@ -99,19 +72,14 @@ export const runBatchBacktestsController = async (req, res) => {
   try {
     const userId = req.user.id;
     const { configs } = req.body;
-
     if (!configs || !Array.isArray(configs) || configs.length === 0) {
-      return sendResponse(res, {}, "Request body must contain a 'configs' array.", 400);
+      return res.status(400).json({ success: false, message: "Request body must contain a 'configs' array." });
     }
-    
     const limitedConfigs = configs.slice(0, 50); 
-    
     const batchResult = await runBatchBacktests(userId, limitedConfigs);
-    
     return sendResponse(res, batchResult, "Batch backtests executed successfully");
   } catch (err) {
-    console.error(`[runBatchBacktestsController Error]: ${err.stack}`);
-    return sendResponse(res, { error: err.message }, "Failed to run batch backtests", 500);
+    sendError(res, err, 'runBatchBacktestsController');
   }
 };
 
@@ -127,8 +95,7 @@ export const getUserBacktests = async (req, res) => {
     
     return sendResponse(res, { backtests, page, limit, total });
   } catch (err) {
-    console.error(`[getUserBacktests Error]: ${err.stack}`);
-    return sendResponse(res, { error: err.message }, "Failed to fetch user backtests", 500);
+    sendError(res, err, 'getUserBacktests');
   }
 };
 
@@ -137,13 +104,12 @@ export const getBacktestById = async (req, res) => {
     const { backtestId } = req.params;
     const backtest = await Backtest.findById(backtestId).lean();
 
-    if (!backtest) return sendResponse(res, {}, "Backtest not found", 404);
-    if (backtest.userId.toString() !== req.user.id) return sendResponse(res, {}, "Not authorized", 403);
+    if (!backtest) return res.status(404).json({ success: false, message: "Backtest not found" });
+    if (backtest.userId.toString() !== req.user.id) return res.status(403).json({ success: false, message: "Not authorized" });
     
     return sendResponse(res, { backtest });
   } catch (err) {
-    console.error(`[getBacktestById Error]: ${err.stack}`);
-    return sendResponse(res, { error: err.message }, "Failed to fetch backtest", 500);
+    sendError(res, err, 'getBacktestById');
   }
 };
 
@@ -153,13 +119,11 @@ export const deleteBacktest = async (req, res) => {
     const result = await Backtest.deleteOne({ _id: backtestId, userId: req.user.id });
 
     if (result.deletedCount === 0) {
-        return sendResponse(res, {}, "Backtest not found or you do not have permission to delete it", 404);
+        return res.status(404).json({ success: false, message: "Backtest not found or you do not have permission to delete it" });
     }
-
     await logToDb(req.user.id, `Deleted backtest ${backtestId}`);
     return sendResponse(res, {}, "Backtest deleted successfully");
   } catch (err) {
-    console.error(`[deleteBacktest Error]: ${err.stack}`);
-    return sendResponse(res, { error: err.message }, "Failed to delete backtest", 500);
+    sendError(res, err, 'deleteBacktest');
   }
 };

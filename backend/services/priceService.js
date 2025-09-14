@@ -4,10 +4,25 @@ import fetch from "node-fetch";
 
 let prices = {}; // in-memory cache
 
+// --- Symbol Normalizer (keeps your input flexible) ---
+const normalizeSymbol = (symbol, exchange) => {
+  const base = symbol.replace("USDT", ""); // strip USDT, we’ll reformat
+  switch (exchange) {
+    case "coinbase":
+      return `${base}-USD`;
+    case "gemini":
+      return `${base.toLowerCase()}usd`;
+    case "binanceus":
+      return `${base}USD`;
+    default:
+      return symbol;
+  }
+};
+
 // --- US-based exchange fetchers ---
 const fetchFromCoinbase = async (symbol) => {
-  const base = symbol.replace("USDT", "");
-  const url = `https://api.exchange.coinbase.com/products/${base}-USD/ticker`;
+  const product = normalizeSymbol(symbol, "coinbase");
+  const url = `https://api.exchange.coinbase.com/products/${product}/ticker`;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -27,8 +42,8 @@ const fetchFromCoinbase = async (symbol) => {
 };
 
 const fetchFromGemini = async (symbol) => {
-  const base = symbol.replace("USDT", "").toLowerCase();
-  const url = `https://api.gemini.com/v1/pubticker/${base}usd`;
+  const product = normalizeSymbol(symbol, "gemini");
+  const url = `https://api.gemini.com/v1/pubticker/${product}`;
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
@@ -37,8 +52,8 @@ const fetchFromGemini = async (symbol) => {
 };
 
 const fetchFromBinanceUS = async (symbol) => {
-  const base = symbol.replace("USDT", "USD"); // Binance.US uses USD pairs, not USDT
-  const url = `https://api.binance.us/api/v3/ticker/price?symbol=${base}`;
+  const product = normalizeSymbol(symbol, "binanceus");
+  const url = `https://api.binance.us/api/v3/ticker/price?symbol=${product}`;
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`BinanceUS HTTP ${res.status}`);
@@ -67,7 +82,7 @@ export const savePrice = async (symbol, fetchPriceFn = fetchPrice) => {
   const fetchedData = await fetchPriceFn(symbol);
 
   const priceDataForDB = {
-    symbol: symbol,
+    symbol: symbol, // keep original input symbol ("BTCUSDT")
     open: fetchedData.close,
     high: fetchedData.close,
     low: fetchedData.close,

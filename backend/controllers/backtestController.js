@@ -1,3 +1,4 @@
+import axios from 'axios';
 import Strategy from "../dbStructure/strategy.js";
 import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
@@ -39,20 +40,43 @@ export const runBacktestController = async (req, res) => {
     if (!strategyId) {
       return res.status(400).json({ success: false, message: "A strategyId is required." });
     }
-    
-    const dbStrategy = await Strategy.findById(strategyId).lean();
-    if (!dbStrategy) return res.status(404).json({ success: false, message: `Strategy with ID ${strategyId} not found.` });
-    if (dbStrategy.userId.toString() !== userId) return res.status(403).json({ success: false, message: "Not authorized to use this strategy." });
+
+    // **UPGRADE**: This logic routes the request based on the selected strategy.
+    if (strategyId === 'python_sma_crossover') {
+      console.log('Routing request to Python backtest service...');
+      const pythonServiceUrl = process.env.PYTHON_SERVICE_URL;
+      if (!pythonServiceUrl) throw new Error("Python service URL is not configured.");
+
+      const response = await axios.post(`${pythonServiceUrl}/api/run-backtest`, req.body);
       
-    const finalStrategy = { 
-        name: dbStrategy.name, 
-        type: dbStrategy.params.strategyType, 
-        parameters: dbStrategy.params 
-    };
+      const mappedResult = {
+        metrics: {
+          totalReturn: response.data.total_return_percent,
+          winRate: response.data.sharpe_ratio, // Using Sharpe as a proxy for this metric field
+          totalTrades: response.data.total_trades
+        }
+      };
+      
+      return sendResponse(res, mappedResult, "Python backtest executed successfully");
 
-    const result = await runBacktest({ userId, ...restOfBody, strategy: finalStrategy });
+    } else {
+      // This is your original logic for database-driven strategies.
+      console.log(`Routing to Node.js backtest service for strategyId: ${strategyId}`);
+      
+      const dbStrategy = await Strategy.findById(strategyId).lean();
+      if (!dbStrategy) return res.status(404).json({ success: false, message: `Strategy with ID ${strategyId} not found.` });
+      if (dbStrategy.userId.toString() !== userId) return res.status(403).json({ success: false, message: "Not authorized to use this strategy." });
+        
+      const finalStrategy = { 
+          name: dbStrategy.name, 
+          type: dbStrategy.params.strategyType, 
+          parameters: dbStrategy.params 
+      };
 
-    return sendResponse(res, result, "Backtest executed successfully");
+      const result = await runBacktest({ userId, ...restOfBody, strategy: finalStrategy });
+
+      return sendResponse(res, result, "Backtest executed successfully");
+    }
   } catch (err) {
     sendError(res, err, 'runBacktestController');
   }

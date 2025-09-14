@@ -6,7 +6,7 @@ const CACHE_TTL_MS = 60 * 1000; // Cache for 1 minute
 async function fetchCandlesWithRetry(exchange, symbol, timeframe) {
     console.log(`[CandleService] Attempting to fetch ${symbol} on ${exchange.id}`);
     try {
-        const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, 200); // Fetch last 200 candles
+        const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, 200);
         if (candles && candles.length > 0) {
             console.log(`[CandleService] Successfully fetched ${candles.length} candles for ${symbol}`);
             return candles;
@@ -15,7 +15,7 @@ async function fetchCandlesWithRetry(exchange, symbol, timeframe) {
         return null;
     } catch (e) {
         console.error(`[CandleService] Error fetching ${symbol} on ${exchange.id}:`, e.message);
-        return null; // Return null to allow fallback
+        return null;
     }
 }
 
@@ -26,17 +26,18 @@ export async function fetchOHLCVMultiSafe(symbol, timeframe) {
         return cached.value;
     }
 
-    // List of exchanges to try in order
-    const exchanges = ['binance', 'kucoin', 'gateio'];
+    // --- THIS IS THE FIX ---
+    // Only use US-compliant exchanges.
+    const exchanges = ['coinbase', 'kraken', 'gemini'];
     
     for (const exchangeId of exchanges) {
-        console.log(`[CandleService] Trying exchange: ${exchangeId}`);
-        const exchange = new ccxt[exchangeId]({ enableRateLimit: true, timeout: 30000 }); // 30-second timeout
+        console.log(`[CandleService] Trying US exchange: ${exchangeId}`);
+        const exchange = new ccxt[exchangeId]({ enableRateLimit: true, timeout: 30000 });
 
-        // Try different symbol formats, e.g., 'BTC/USDT', 'BTCUSDT'
+        // Try different US symbol formats, e.g., 'BTC/USD', 'BTC-USD'
         const symbolFormats = [
-            symbol.includes('/') ? symbol : `${symbol.slice(0, -4)}/${symbol.slice(-4)}`,
-            symbol.replace('/', '')
+            symbol.includes('/') ? symbol : `${symbol.slice(0, -3)}/${symbol.slice(-3)}`,
+            symbol.replace('/', '-')
         ];
 
         for (const format of symbolFormats) {
@@ -49,6 +50,5 @@ export async function fetchOHLCVMultiSafe(symbol, timeframe) {
         }
     }
 
-    // If all exchanges and formats fail, throw an error
-    throw new Error(`Failed to fetch candle data for ${symbol} from all available exchanges.`);
+    throw new Error(`Failed to fetch candle data for ${symbol} from all available US exchanges.`);
 }

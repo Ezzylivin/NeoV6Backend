@@ -1,3 +1,4 @@
+// File: backend/strategies/strategyManager.js
 import { smaCrossoverStrategy } from './smaCrossover.js';
 import { rsiStrategy } from './rsi.js';
 import { macdStrategy } from './macd.js';
@@ -14,6 +15,8 @@ const strategies = {
 
 export const getStrategy = (strategyType) => {
   const strategy = strategies[strategyType.toUpperCase()];
-  if (!strategy) throw new Error(`Strategy type '${strategyType}' is not supported.`);
+  if (!strategy) {
+    throw new Error(`Strategy type '${strategyType}' is not supported.`);
+  }
   return strategy;
 };

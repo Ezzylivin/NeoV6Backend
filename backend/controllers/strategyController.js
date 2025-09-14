@@ -50,8 +50,19 @@ export const getUserStrategies = async (req, res) => {
 export const deleteStrategy = async (req, res) => {
   try {
     const result = await Strategy.deleteOne({ _id: req.params.id, userId: req.user.id });
-    if (result.deletedCount === 0) return res.status(404).json({ message: "Strategy not found or you do not have permission to delete it" });
-    res.status(200).json({ message: "Strategy deleted" });
+     // --- THIS IS THE FIX ---
+    // First, check if the provided ID is a valid MongoDB ObjectId format.
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid strategy ID format." });
+    }
+
+    const result = await Strategy.deleteOne({ _id: id, userId: req.user.id });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Strategy not found or you do not have permission to delete it" });
+    }
+    
+    res.status(200).json({ message: "Strategy deleted successfully" });
   } catch (err) {
     sendError(res, err);
   }

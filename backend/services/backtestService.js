@@ -1,10 +1,82 @@
-// File: backend/services/backtestService.js
 import Backtest from "../dbStructure/backtest.js";
 import { fetchOHLCVMultiSafe } from "./candleService.js";
 import { getStrategy } from '../strategies/strategyManager.js';
 import { logToDb } from "./logService.js";
 
 // --- PERFORMANCE: Efficient Bulk Indicator Calculators ---
+
+const calculateAllSMAs = (values, period) => {
+  const smas = new Array(values.length).fill(null);
+  if (values.length < period) return smas;
+
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += values[i];
+  }
+  smas[period - 1] = sum / period;
+
+  for (let i = period; i < values.length; i++) {
+    sum = sum - values[i - period] + values[i];
+    smas[i] = sum / period;
+  }
+  return smas;
+};
+
+const calculateAllEMAs = (values, period) => {
+  const emas = new Array(values.length).fill(null);
+  if (values.length < period) return emas;
+
+  const multiplier = 2 / (period + 1);
+  let smaSum = 0;
+  for (let i = 0; i < period; i++) {
+    smaSum += values[i];
+  }
+  emas[period - 1] = smaSum / period;
+
+  for (let i = period; i < values.length; i++) {
+    emas[i] = (values[i] - emas[i - 1]) * multiplier + emas[i - 1];
+  }
+  return emas;
+};
+
+const calculateAllRSIs = (values, period) => {
+  const rsis = new Array(values.length).fill(null);
+  if (values.length < period + 1) return rsis;
+
+  let avgGain = 0;
+  let avgLoss = 0;
+
+  for (let i = 1; i <= period; i++) {
+    const change = values[i] - values[i - 1];
+    if (change > 0) {
+      avgGain += change;
+    } else {
+      avgLoss += Math.abs(change);
+    }
+  }
+  avgGain /= period;
+  avgLoss /= period;
+
+  const calculateRSI = (gain, loss) => {
+    if (loss === 0) return 100;
+    const rs = gain / loss;
+    return 100 - (100 / (1 + rs));
+  };
+  
+  rsis[period] = calculateRSI(avgGain, avgLoss);
+
+  for (let i = period + 1; i < values.length; i++) {
+    const change = values[i] - values[i - 1];
+    let currentGain = change > 0 ? change : 0;
+    let currentLoss = change < 0 ? Math.abs(change) : 0;
+
+    avgGain = (avgGain * (period - 1) + currentGain) / period;
+    avgLoss = (avgLoss * (period - 1) + currentLoss) / period;
+    
+    rsis[i] = calculateRSI(avgGain, avgLoss);
+  }
+  return rsis;
+};
 
 const calculateAllMACDs = (values, fastPeriod, slowPeriod, signalPeriod) => {
   const macds = new Array(values.length).fill(null);
@@ -82,79 +154,6 @@ const calculateAllStochastics = (candles, kPeriod, dPeriod) => {
       }
   }
   return stochs;
-};
-
-const calculateAllSMAs = (values, period) => {
-  const smas = new Array(values.length).fill(null);
-  if (values.length < period) return smas;
-
-  let sum = 0;
-  for (let i = 0; i < period; i++) {
-    sum += values[i];
-  }
-  smas[period - 1] = sum / period;
-
-  for (let i = period; i < values.length; i++) {
-    sum = sum - values[i - period] + values[i];
-    smas[i] = sum / period;
-  }
-  return smas;
-};
-
-const calculateAllEMAs = (values, period) => {
-  const emas = new Array(values.length).fill(null);
-  if (values.length < period) return emas;
-
-  const multiplier = 2 / (period + 1);
-  let smaSum = 0;
-  for (let i = 0; i < period; i++) {
-    smaSum += values[i];
-  }
-  emas[period - 1] = smaSum / period;
-
-  for (let i = period; i < values.length; i++) {
-    emas[i] = (values[i] - emas[i - 1]) * multiplier + emas[i - 1];
-  }
-  return emas;
-};
-
-const calculateAllRSIs = (values, period) => {
-  const rsis = new Array(values.length).fill(null);
-  if (values.length < period + 1) return rsis;
-
-  let avgGain = 0;
-  let avgLoss = 0;
-
-  for (let i = 1; i <= period; i++) {
-    const change = values[i] - values[i - 1];
-    if (change > 0) {
-      avgGain += change;
-    } else {
-      avgLoss += Math.abs(change);
-    }
-  }
-  avgGain /= period;
-  avgLoss /= period;
-
-  const calculateRSI = (gain, loss) => {
-    if (loss === 0) return 100;
-    const rs = gain / loss;
-    return 100 - (100 / (1 + rs));
-  };
-  
-  rsis[period] = calculateRSI(avgGain, avgLoss);
-
-  for (let i = period + 1; i < values.length; i++) {
-    const change = values[i] - values[i - 1];
-    let currentGain = change > 0 ? change : 0;
-    let currentLoss = change < 0 ? Math.abs(change) : 0;
-
-    avgGain = (avgGain * (period - 1) + currentGain) / period;
-    avgLoss = (avgLoss * (period - 1) + currentLoss) / period;
-    
-    rsis[i] = calculateRSI(avgGain, avgLoss);
-  }
-  return rsis;
 };
 
 
@@ -263,14 +262,13 @@ class PositionManager {
  * Runs a complete backtest synchronously, saves the result, and returns the full document.
  */
 export async function runBacktest(params) {
-  const { userId, symbol, strategy, timeframe = "1h", initialBalance = 10000, stopLoss = null, takeProfit = null, startDate, endDate, realismConfig = {}, simulateOnly = false } = params;
+  const { userId, symbol, strategy, timeframe = "1h", initialBalance = 10000, stopLoss = null, takeProfit = null, startDate, endDate = new Date(), realismConfig = {}, simulateOnly = false } = params;
   
   try {
     if (!symbol || !strategy || !strategy.type) {
       throw new Error("Symbol and a valid strategy object with a 'type' are required");
     }
 
-    
     const marketData = await fetchOHLCVMultiSafe(symbol, timeframe, undefined, startDate, endDate);
     const candles = marketData.candles.map(c => ({
       timestamp: new Date(c[0]), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5]
@@ -286,19 +284,17 @@ export async function runBacktest(params) {
     const stratParams = strategy.parameters || {};
     const strategyModule = getStrategy(strategy.type);
     
-   // ... inside the runBacktest function ...
-  const requiredIndicators = strategyModule.requiredIndicators(stratParams);
-  for (const ind of requiredIndicators) {
-      switch(ind.type.toUpperCase()) {
-          case 'SMA': indicators[ind.name] = calculateAllSMAs(prices, ind.period); break;
-          case 'EMA': indicators[ind.name] = calculateAllEMAs(prices, ind.period); break;
-          case 'RSI': indicators[ind.name] = calculateAllRSIs(prices, ind.period); break;
-          // --- ADD THESE NEW CASES ---
-          case 'MACD': indicators[ind.name] = calculateAllMACDs(prices, stratParams.fast, stratParams.slow, stratParams.signal); break;
-          case 'BBANDS': indicators[ind.name] = calculateAllBollingerBands(prices, ind.period, ind.stdDev); break;
-          case 'STOCH': indicators[ind.name] = calculateAllStochastics(candles, stratParams.kPeriod, stratParams.dPeriod); break;
-      }
-  }
+    const requiredIndicators = strategyModule.requiredIndicators(stratParams);
+    for (const ind of requiredIndicators) {
+        switch(ind.type.toUpperCase()) {
+            case 'SMA': indicators[ind.name] = calculateAllSMAs(prices, ind.period); break;
+            case 'EMA': indicators[ind.name] = calculateAllEMAs(prices, ind.period); break;
+            case 'RSI': indicators[ind.name] = calculateAllRSIs(prices, ind.period); break;
+            case 'MACD': indicators[ind.name] = calculateAllMACDs(prices, stratParams.fast, stratParams.slow, stratParams.signal); break;
+            case 'BBANDS': indicators[ind.name] = calculateAllBollingerBands(prices, ind.period, ind.stdDev); break;
+            case 'STOCH': indicators[ind.name] = calculateAllStochastics(candles, stratParams.kPeriod, stratParams.dPeriod); break;
+        }
+    }
 
     for (let i = 1; i < candles.length; i++) {
         const candle = candles[i];
@@ -317,7 +313,9 @@ export async function runBacktest(params) {
             indicatorData[prevName] = indicators[ind.name][i-1];
         }
         
-        const signal = strategyModule.getSignal(indicatorData, stratParams);
+        // --- THIS IS THE FIX ---
+        // Pass the current 'candle' to the getSignal function.
+        const signal = strategyModule.getSignal(indicatorData, stratParams, candle);
 
         if (signal === "BUY" && !positionManager.isInPosition()) {
             positionManager.openPosition("long", candle.close, candle.timestamp, realismConfig);
@@ -372,9 +370,6 @@ export async function runBacktest(params) {
 
 /**
  * Runs a batch of backtests concurrently and returns the results.
- * @param {string} userId - The ID of the user running the batch.
- * @param {Array<object>} configs - An array of backtest configuration objects.
- * @returns {Promise<object>} A summary of the batch run.
  */
 export async function runBatchBacktests(userId, configs) {
   const successfulResults = [];

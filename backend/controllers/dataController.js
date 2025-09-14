@@ -2,54 +2,41 @@
 import * as priceService from '../services/priceService.js';
 import { fetchOHLCVMultiSafe } from '../services/candleService.js';
 
-// === GET live prices for symbols ===
+// Helper for consistent responses
+const sendResponse = (res, data, message = 'Success', status = 200) => {
+    res.status(status).json({ success: true, message, data });
+};
+
+const sendError = (res, error, controllerName) => {
+    // Log the detailed error on the server for debugging
+    console.error(`[${controllerName} Error]:`, error.message);
+    res.status(500).json({ success: false, message: "An internal server error occurred." });
+};
+
 export const getLivePrices = async (req, res) => {
   try {
-    const { symbols } = req.query; // e.g. ?symbols=BTCUSDT,ETHUSDT
+    const { symbols } = req.query;
     if (!symbols) {
-      return res.status(400).json({ message: "Symbols query parameter is required (comma-separated)" });
+      return res.status(400).json({ success: false, message: "Symbols are required" });
     }
-    const symbolList = symbols.split(",");
-    
-    // CORRECT: Calls the 'getPrices' function from the service
-    const prices = priceService.getPrices(symbolList);
-    res.json(prices);
+    const list = symbols.split(",");
+    const prices = priceService.getPrices(list);
+    sendResponse(res, prices);
   } catch (err) {
-    console.error("[getLivePrices Error]", err.message);
-    res.status(500).json({ message: "Error fetching live prices", error: err.message });
+    sendError(res, err, 'getLivePrices');
   }
 };
 
-// === GET price history for a symbol (for line charts) ===
-export const getPriceHistory = async (req, res) => {
-  try {
-    const { symbol, period = '24', interval = '60' } = req.query;
-    if (!symbol) {
-      return res.status(400).json({ message: "Symbol query parameter is required" });
-    }
-    
-    // CORRECT: Calls the 'getHistory' function from the service
-    const history = await priceService.getHistory(symbol, parseInt(period), parseInt(interval));
-    res.json(history);
-  } catch (err) {
-    console.error("[getPriceHistory Error]", err.message);
-    res.status(500).json({ message: "Error fetching price history", error: err.message });
-  }
-};
-
-// === GET candlestick data for a symbol ===
 export const getCandles = async (req, res) => {
-    try {
-        const { symbol, timeframe = '1h', startDate, endDate } = req.query;
-        if (!symbol) {
-            return res.status(400).json({ message: "Symbol query parameter is required" });
-        }
-        
-        // This controller now correctly uses the robust candleService
-        const result = await fetchOHLCVMultiSafe(symbol, timeframe, undefined, startDate, endDate);
-        res.json(result.candles);
-    } catch (err) {
-        console.error('[getCandles Error]', err.message);
-        res.status(500).json({ message: 'Error fetching candle data', error: err.message });
+  try {
+    const { symbol, timeframe = '1h', startDate, endDate } = req.query;
+    if (!symbol) {
+        return res.status(400).json({ success: false, message: "Symbol is required" });
     }
+    
+    const result = await fetchOHLCVMultiSafe(symbol, timeframe, undefined, startDate, endDate);
+    sendResponse(res, result.candles);
+  } catch (err) {
+    sendError(res, err, 'getCandles');
+  }
 };

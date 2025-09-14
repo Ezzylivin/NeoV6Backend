@@ -1,20 +1,16 @@
-// File: backend/routes/strategyRoutes.js
 import express from 'express';
-import {
-  upsertStrategy, getUserStrategies, getStrategyById, deleteStrategy
-} from '../controllers/strategyController.js';
+import { createStrategy, updateStrategy, getUserStrategies, deleteStrategy } from '../controllers/strategyController.js';
 import { protect } from '../middleware/authMiddleware.js';
-const router = express.Router();
 
-// Protect all strategy routes
+const router = express.Router();
 router.use(protect);
 
 router.route('/')
-  .post(upsertStrategy)
-  .get(getUserStrategies);
+  .post(createStrategy)    // POST /api/strategy
+  .get(getUserStrategies); // GET /api/strategy
 
 router.route('/:id')
-  .get(getStrategyById)
-  .delete(deleteStrategy);
+  .put(updateStrategy)     // PUT /api/strategy/:id
+  .delete(deleteStrategy); // DELETE /api/strategy/:id
 
 export default router;

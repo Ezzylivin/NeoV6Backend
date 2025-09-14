@@ -1,4 +1,3 @@
-// File: backend/dbStructure/backtest.js
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
 
@@ -85,7 +84,7 @@ const backtestSchema = new Schema({
     type: String,
     required: true,
     trim: true,
-    uppercase: true,
+    lowercase: true, // FIX: Ensures case-insensitivity
     enum: ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'],
     default: '1h'
   },
@@ -165,14 +164,10 @@ const backtestSchema = new Schema({
   timestamps: true
 });
 
-// Correctly define indexes
 backtestSchema.index({ userId: 1, createdAt: -1 });
 backtestSchema.index({ symbol: 1, timeframe: 1 });
 backtestSchema.index({ 'strategy.type': 1 });
-backtestSchema.index({ status: 1 });
-backtestSchema.index({ archived: 1 });
 
-// Validate date range
 backtestSchema.pre('validate', function(next) {
   if (this.startDate && this.endDate && this.startDate >= this.endDate) {
     next(new Error('Start date must be before end date'));
@@ -181,70 +176,30 @@ backtestSchema.pre('validate', function(next) {
   }
 });
 
-// Compute metrics and derived values before saving
 backtestSchema.pre("save", function(next) {
   try {
-    if (this.isModified('tradeBreakdown') && Array.isArray(this.tradeBreakdown) && this.tradeBreakdown.length > 0) {
-      const completedTrades = this.tradeBreakdown.filter(trade =>
-        trade.result && trade.result !== 'open'
-      );
-      const winningTrades = completedTrades.filter(trade => trade.profit > 0);
-      const losingTrades = completedTrades.filter(trade => trade.profit < 0);
-      
-      const totalProfit = completedTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
-      const totalCommissions = completedTrades.reduce((sum, trade) =>
-        sum + (trade.commission || 0) + (trade.exitCommission || 0), 0);
-      
-      this.totalTrades = completedTrades.length;
-      this.profit = totalProfit - totalCommissions;
-      this.finalBalance = this.initialBalance + this.profit;
-      
-      if (!this.metrics) this.metrics = {};
-      
-      this.metrics.totalReturn = this.initialBalance > 0
-        ? (this.profit / this.initialBalance) * 100
-        : 0;
-      
-      this.metrics.winRate = completedTrades.length > 0
-        ? (winningTrades.length / completedTrades.length) * 100
-        : 0;
-      
-      this.metrics.totalTrades = completedTrades.length;
-      this.metrics.winningTrades = winningTrades.length;
-      this.metrics.losingTrades = losingTrades.length;
-      
-      if (winningTrades.length > 0) {
-        this.metrics.averageWin = winningTrades.reduce((sum, t) => sum + t.profit, 0) / winningTrades.length;
-        this.metrics.largestWin = Math.max(...winningTrades.map(t => t.profit));
-      }
-      
-      if (losingTrades.length > 0) {
-        this.metrics.averageLoss = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0) / losingTrades.length);
-        this.metrics.largestLoss = Math.abs(Math.min(...losingTrades.map(t => t.profit)));
-      }
-      
-      const totalWins = winningTrades.reduce((sum, t) => sum + t.profit, 0);
-      const totalLosses = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
-      
-      this.metrics.profitFactor = totalLosses > 0 ? totalWins / totalLosses : (totalWins > 0 ? Infinity : 1);
+    if (this.isModified('tradeBreakdown') && Array.isArray(this.tradeBreakdown)) {
+        const completedTrades = this.tradeBreakdown.filter(trade => trade.result && trade.result !== 'open');
+        const winningTrades = completedTrades.filter(trade => trade.profit > 0);
+        const losingTrades = completedTrades.filter(trade => trade.profit < 0);
+        
+        const totalProfit = completedTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
+        this.totalTrades = completedTrades.length;
+        this.profit = totalProfit;
+        this.finalBalance = this.initialBalance + this.profit;
+        
+        if (!this.metrics) this.metrics = {};
+        
+        this.metrics.totalReturn = this.initialBalance > 0 ? (this.profit / this.initialBalance) * 100 : 0;
+        this.metrics.winRate = completedTrades.length > 0 ? (winningTrades.length / completedTrades.length) * 100 : 0;
+        this.metrics.totalTrades = completedTrades.length;
+        this.metrics.winningTrades = winningTrades.length;
+        this.metrics.losingTrades = losingTrades.length;
     }
-    
-    if (isNaN(this.profit)) this.profit = 0;
-    if (isNaN(this.finalBalance) || this.finalBalance < 0) {
-      this.finalBalance = Math.max(0, this.initialBalance + this.profit);
-    }
-    
     next();
   } catch (error) {
     next(error);
   }
 });
-
-
-backtestSchema.statics.findByUserId = function(userId, limit = 50) {
-  return this.find({ userId, archived: false })
-    .sort({ createdAt: -1 })
-    .limit(limit);
-};
 
 export default model("Backtest", backtestSchema);

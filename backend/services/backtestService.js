@@ -214,5 +214,22 @@ export async function runBacktest(params) {
 }
 
 export async function runBatchBacktests(userId, configs) {
-    // ... batch logic ...
+    try {
+    const outcomes = await Promise.allSettled(configs.map(config => runBacktest({ userId, ...config })));
+    const successfulResults = outcomes.filter(o => o.status === 'fulfilled').map(o => o.value);
+    const failedRuns = outcomes.filter(o => o.status === 'rejected').map((o, i) => ({ config: configs[i], error: o.reason.message }));
+    const bestPerforming = successfulResults.length > 0 ? successfulResults.reduce((best, current) => (current.profit > best.profit) ? current : best) : null;
+    const summary = {
+      totalRuns: configs.length,
+      successful: successfulResults.length,
+      failed: failedRuns.length,
+      bestNetProfit: bestPerforming ? bestPerforming.profit : 0,
+      bestStrategyConfig: bestPerforming ? bestPerforming.strategy : null,
+    };
+    await logToDb(userId, `Batch backtest completed: ${summary.successful}/${summary.totalRuns} successful.`);
+    return { summary, results: successfulResults, errors: failedRuns };
+  } catch (error) {
+    console.error("A critical error occurred in the batch backtest service:", error);
+    throw new Error(error.message || "Batch backtest engine failed unexpectedly.");
+  }
 }

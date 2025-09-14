@@ -99,42 +99,79 @@ const calculateAllStochastics = (candles, kPeriod, dPeriod) => {
 
 // --- POSITION MANAGER ---
 class PositionManager {
-  constructor(initialBalance) {
+  constructor({ initialBalance, stopLoss, takeProfit, risk, positionSide }) {
     this.balance = initialBalance;
     this.position = null;
     this.trades = [];
-    this.equityCurve = []; // FIX: Initialize empty
+    this.equityCurve = [];
+    this.config = {
+      stopLoss: stopLoss / 100,
+      takeProfit: takeProfit / 100,
+      positionSide,
+      risk,
+    };
   }
+  
+  getPortfolioPctForRisk() {
+    switch(this.config.risk) {
+      case 'Low': return 0.10;
+      case 'Medium': return 0.25;
+      case 'High': return 0.50;
+      default: return 0.25;
+    }
+  }
+
   isInPosition = () => this.position !== null;
+
   openPosition = (side, price, timestamp) => {
-    if (this.isInPosition()) return;
-    const sizeDollars = this.balance * 0.95;
-    if (sizeDollars <= 0) return;
-    this.balance -= sizeDollars;
+    if (this.isInPosition() || (this.config.positionSide !== 'both' && this.config.positionSide !== side)) return;
+    const portfolioPct = this.getPortfolioPctForRisk();
+    const positionSizeDollars = this.balance * portfolioPct;
+    const commission = 0; // Commission removed
+    if (positionSizeDollars <= 0) return;
+    this.balance -= positionSizeDollars;
     this.position = {
       entryTime: timestamp,
       entryPrice: price,
-      position: side, // FIX: Use 'position' to match schema
-      size: sizeDollars / price,
-      commission: 0,
+      position: side,
+      size: (positionSizeDollars - commission) / price,
+      commission,
     };
   };
+
   closePosition = (price, timestamp) => {
     if (!this.isInPosition()) return;
-    const value = this.position.size * price;
-    this.balance += value;
-    const pnl = this.position.position === 'long'
+    const orderValue = this.position.size * price;
+    const exitCommission = 0; // Commission removed
+    this.balance += orderValue - exitCommission;
+    const profit = this.position.position === 'long'
       ? (price - this.position.entryPrice) * this.position.size
       : (this.position.entryPrice - price) * this.position.size;
     this.trades.push({
       ...this.position,
       exitTime: timestamp,
       exitPrice: price,
-      profit: pnl,
-      result: pnl > 0 ? 'win' : 'loss',
+      profit: profit - this.position.commission - exitCommission,
+      exitCommission,
+      result: profit > 0 ? 'win' : 'loss',
     });
     this.position = null;
   };
+  
+  shouldStopLoss = (currentPrice) => {
+    if (!this.isInPosition() || !this.config.stopLoss) return false;
+    const { position, entryPrice } = this.position;
+    if (position === "long") return currentPrice <= entryPrice * (1 - this.config.stopLoss);
+    return currentPrice >= entryPrice * (1 + this.config.stopLoss);
+  };
+
+  shouldTakeProfit = (currentPrice) => {
+    if (!this.isInPosition() || !this.config.takeProfit) return false;
+    const { position, entryPrice } = this.position;
+    if (position === "long") return currentPrice >= entryPrice * (1 + this.config.takeProfit);
+    return currentPrice <= entryPrice * (1 - this.config.takeProfit);
+  };
+
   updateEquityCurve = (timestamp, price) => {
     let equity = this.balance;
     if (this.isInPosition()) {
@@ -150,16 +187,16 @@ class PositionManager {
 // --- MAIN BACKTEST ENGINE ---
 export async function runBacktest(params) {
   try {
-    const { userId, symbol, strategy, timeframe, initialBalance, startDate, endDate = new Date(), simulateOnly } = params;
+    const { userId, symbol, strategy, timeframe, startDate, endDate = new Date(), ...config } = params;
     if (!symbol || !strategy) throw new Error("Symbol and strategy are required");
     
     const marketData = await fetchOHLCVMultiSafe(symbol, timeframe, undefined, startDate, endDate);
     const candles = marketData.candles.map(c => ({ timestamp: new Date(c[0]), open: c[1], high: c[2], low: c[3], close: c[4] }));
     if (candles.length < 2) throw new Error("Insufficient market data");
 
-    const pm = new PositionManager(initialBalance);
-    if (candles.length > 0) { // FIX: Add first valid equity point
-        pm.equityCurve.push({ timestamp: candles[0].timestamp, balance: initialBalance });
+    const pm = new PositionManager(config);
+    if (candles.length > 0) {
+        pm.equityCurve.push({ timestamp: candles[0].timestamp, balance: config.initialBalance });
     }
 
     const prices = candles.map(c => c.close);
@@ -181,6 +218,11 @@ export async function runBacktest(params) {
 
     for (let i = 1; i < candles.length; i++) {
       pm.updateEquityCurve(candles[i].timestamp, candles[i].close);
+      if (pm.isInPosition()) {
+        if (pm.shouldStopLoss(candles[i].close) || pm.shouldTakeProfit(candles[i].close)) {
+          pm.closePosition(candles[i].close, candles[i].timestamp);
+        }
+      }
       const indData = {};
       for (const ind of reqInds) {
         indData[ind.name] = indicators[ind.name][i];
@@ -188,20 +230,21 @@ export async function runBacktest(params) {
       }
       const signal = stratModule.getSignal(indData, stratParams, candles[i]);
       if (signal === "BUY" && !pm.isInPosition()) pm.openPosition("long", candles[i].close, candles[i].timestamp);
-      else if (signal === "SELL" && pm.isInPosition()) pm.closePosition(candles[i].close, candles[i].timestamp);
+      else if (signal === "SELL" && !pm.isInPosition()) pm.openPosition("short", candles[i].close, candles[i].timestamp);
+      else if (signal === "EXIT" && pm.isInPosition()) pm.closePosition(candles[i].close, candles[i].timestamp);
     }
     if (pm.isInPosition()) pm.closePosition(candles[candles.length-1].close, candles[candles.length-1].timestamp);
 
     const results = {
-      userId, symbol, timeframe, initialBalance,
+      userId, symbol, timeframe, initialBalance: config.initialBalance,
       finalBalance: pm.equityCurve.slice(-1)[0].balance,
       strategy: { name: strategy.name, type: strategy.type, parameters: stratParams },
       tradeBreakdown: pm.trades,
       equityCurve: pm.equityCurve,
       startDate, endDate, candlesTested: candles.length,
     };
-
-    if (simulateOnly) return results;
+    
+    if (params.simulateOnly) return results;
     
     const backtestResult = new Backtest(results);
     await backtestResult.save();
@@ -212,6 +255,7 @@ export async function runBacktest(params) {
     throw new Error(error.message || "Backtest engine failed unexpectedly.");
   }
 }
+// ... (runBatchBacktests function remains the same) ...
 
 export async function runBatchBacktests(userId, configs) {
     try {

@@ -1,15 +1,18 @@
 import Strategy from "../dbStructure/strategy.js";
+import mongoose from 'mongoose';
 
 const sendError = (res, err, status = 500) => {
     console.error(err);
-    res.status(status).json({ message: err.message });
+    res.status(status).json({ message: err.message || "An unexpected error occurred." });
 };
 
 export const createStrategy = async (req, res) => {
   try {
     const userId = req.user.id;
     const { name, description, params } = req.body;
-    if (!name || !params) return res.status(400).json({ message: "Missing required fields" });
+    if (!name || !params) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
     
     const newStrategy = await Strategy.create({ userId, name, description, params });
     res.status(201).json(newStrategy);
@@ -25,12 +28,14 @@ export const updateStrategy = async (req, res) => {
     const { name, description, params } = req.body;
 
     const updatedStrategy = await Strategy.findOneAndUpdate(
-      { _id: id, userId: userId }, // Ensure user owns this strategy
+      { _id: id, userId: userId },
       { name, description, params },
-      { new: true, runValidators: true } // Return the updated document
+      { new: true, runValidators: true }
     );
 
-    if (!updatedStrategy) return res.status(404).json({ message: "Strategy not found or you do not have permission to edit it" });
+    if (!updatedStrategy) {
+      return res.status(404).json({ message: "Strategy not found or you do not have permission to edit it" });
+    }
     
     res.status(200).json(updatedStrategy);
   } catch(err) {
@@ -49,9 +54,8 @@ export const getUserStrategies = async (req, res) => {
 
 export const deleteStrategy = async (req, res) => {
   try {
-    const result = await Strategy.deleteOne({ _id: req.params.id, userId: req.user.id });
-     // --- THIS IS THE FIX ---
-    // First, check if the provided ID is a valid MongoDB ObjectId format.
+    const { id } = req.params;
+
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid strategy ID format." });
     }

@@ -1,11 +1,19 @@
 // File: backend/routes/dataRoutes.js
 import express from "express";
-import { downloadData } from "../controllers/dataController.js";
+import {
+  getBacktestOptions,
+  getLivePrices,
+  getCandles,
+  getPriceHistory,
+} from "../controllers/dataController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Now secured ✅
-router.post("/download", authMiddleware, downloadData);
+// ✅ Secure all routes
+router.get("/options", authMiddleware, getBacktestOptions);
+router.get("/live-prices", authMiddleware, getLivePrices);
+router.get("/candles", authMiddleware, getCandles);
+router.get("/price-history", authMiddleware, getPriceHistory);
 
 export default router;

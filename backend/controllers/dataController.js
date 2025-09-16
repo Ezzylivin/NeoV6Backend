@@ -16,6 +16,18 @@ async function fetchCandles(exchangeId, symbol, timeframe) {
     }
 }
 
+// Helper to fetch live ticker data from a single exchange
+async function fetchLiveTickers(exchangeId, symbols) {
+    try {
+        const exchange = new ccxt[exchangeId]({ enableRateLimit: true });
+        const tickers = await exchange.fetchTickers(symbols);
+        return tickers;
+    } catch (e) {
+        console.error(`Error fetching live tickers from ${exchangeId}: ${e.message}`);
+        return null;
+    }
+}
+
 // Fetches a list of valid symbols and timeframes directly from a trusted exchange.
 export const getBacktestOptions = async (req, res) => {
     try {
@@ -40,7 +52,28 @@ export const getBacktestOptions = async (req, res) => {
     }
 };
 
-// This is the missing function that your routes file needs.
+// NEW: Fetches live prices for a set of symbols
+export const getLivePrices = async (req, res) => {
+    const { symbols } = req.query;
+    if (!symbols) {
+        return res.status(400).json({ success: false, message: "Symbols parameter is required." });
+    }
+    
+    const symbolsList = symbols.split(',');
+
+    try {
+        const tickers = await fetchLiveTickers('coinbasepro', symbolsList);
+        if (tickers) {
+            return res.status(200).json({ success: true, data: tickers });
+        } else {
+            return res.status(500).json({ success: false, message: "Failed to retrieve live prices." });
+        }
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Fetches candlestick data from multiple exchanges.
 export const getCandles = async (req, res) => {
     const { symbol, timeframe } = req.query;
     if (!symbol || !timeframe) {
@@ -58,7 +91,7 @@ export const getCandles = async (req, res) => {
     }
 };
 
-// Fetches candlestick data from multiple exchanges.
+// This is the function that your backtestService.js needs.
 export const fetchOHLCVMultiSafe = async (symbol, timeframe) => {
     for (const exchangeId of EXCHANGES) {
         const candles = await fetchCandles(exchangeId, symbol, timeframe);
@@ -67,4 +100,9 @@ export const fetchOHLCVMultiSafe = async (symbol, timeframe) => {
         }
     }
     throw new Error(`Failed to fetch candle data for ${symbol} from all available exchanges.`);
+};
+
+// This is a placeholder for your price history logic.
+export const getPriceHistory = async (req, res) => {
+    res.status(200).json({ success: true, message: "Price history not yet implemented." });
 };

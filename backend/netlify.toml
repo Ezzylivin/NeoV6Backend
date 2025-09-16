@@ -1,0 +1,34 @@
+# File: netlify.toml
+
+# Build settings for the entire project
+[build]
+  # This command builds your React frontend.
+  # Assumes your frontend's package.json is in the root.
+  command = "npm run build"
+  
+  # The directory where your serverless functions are located.
+  functions = "netlify/functions"
+  
+  # The directory that contains the built frontend site.
+  # For Vite/Create React App, this is typically "dist" or "build".
+  publish = "dist"
+
+# Environment variables that are safe to be public
+[build.environment]
+  # Example: Set your React app's API prefix
+  VITE_API_URL = "/api"
+
+# Redirects and Rewrites
+[[redirects]]
+  # This rule rewrites all API calls from the frontend to your serverless function.
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200 # 200 indicates a rewrite, not a redirect
+
+[[redirects]]
+  # This is the rule for Single Page Applications (SPA).
+  # It ensures that any direct navigation to a client-side route (e.g., /dashboard)
+  # serves the main index.html file.
+  from = "/*"
+  to = "/index.html"
+  status = 200

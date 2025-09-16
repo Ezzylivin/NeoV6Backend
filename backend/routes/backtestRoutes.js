@@ -1,6 +1,6 @@
 import express from "express";
 import { getBacktests, getBacktestOptions, runBacktest, runBatchBacktests } from "../controllers/backtestController.js";
-import { authMiddleware } from "../middleware/auth.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 

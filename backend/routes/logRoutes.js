@@ -1,7 +1,7 @@
 // File: backend/routes/logRoutes.js
 import express from 'express';
 import { getLogs, createLog } from '../controllers/logController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import protect from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 

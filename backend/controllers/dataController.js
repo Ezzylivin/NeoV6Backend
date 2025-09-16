@@ -1,8 +1,8 @@
 // File: backend/controllers/dataController.js
 import ccxt from 'ccxt';
 
-const EXCHANGES = ['coinbase'];
-const CANDLE_LIMIT = 2000;
+const EXCHANGES = ['coinbasepro'];
+const CANDLE_LIMIT = 200;
 
 // Helper to fetch data from a single exchange
 async function fetchCandles(exchangeId, symbol, timeframe) {
@@ -26,23 +26,35 @@ export const getBacktestOptions = async (req, res) => {
 
         // Dynamically get all symbols from the exchange that are against a common quote currency
         const symbols = Object.values(exchange.markets)
-            .filter(market => market.active && market.quote === 'USDT' || market.quote === 'USD')
+            .filter(market => market.active && (market.quote === 'USDT' || market.quote === 'USD'))
             .map(market => market.symbol)
             .slice(0, 50); // Limit to the top 50 for performance
 
         // These are the common timeframes supported by most exchanges
         const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
-        return res.status(200).json({
-            success: true,
-            message: "Backtest options fetched successfully",
-            data: {
-                symbols,
-                timeframes
-            }
-        });
+        return { symbols, timeframes };
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch backtest options from exchange." });
+        console.error("Failed to fetch backtest options from exchange:", error);
+        throw new Error("Failed to fetch backtest options from exchange.");
+    }
+};
+
+// This is the missing function that your routes file needs.
+export const getCandles = async (req, res) => {
+    const { symbol, timeframe } = req.query;
+    if (!symbol || !timeframe) {
+        return res.status(400).json({ success: false, message: "Symbol and timeframe are required." });
+    }
+    try {
+        const candles = await fetchCandles('coinbasepro', symbol, timeframe);
+        if (candles) {
+             return res.status(200).json({ success: true, data: { candles } });
+        } else {
+             return res.status(500).json({ success: false, message: `Failed to retrieve candles for ${symbol}.` });
+        }
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 

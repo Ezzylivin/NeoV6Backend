@@ -1,5 +1,6 @@
 // File: src/backend/controllers/backtestController.js
-import BacktestModel from "../models/backtestModel.js";
+import Backtest from "../dbStructure/backtest.js";
+import { runBacktest as serviceRunBacktest, runBatchBacktests as serviceRunBatch } from "../services/backtestService.js";
 
 // --- Get paginated past backtests ---
 export const getBacktests = async (req, res) => {
@@ -8,12 +9,12 @@ export const getBacktests = async (req, res) => {
     const limit = 10;
     const skip = (page - 1) * limit;
 
-    const backtests = await BacktestModel.find({ user: req.user._id })
+    const backtests = await BacktestModel.find({ userId: req.user._id })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    const total = await BacktestModel.countDocuments({ user: req.user._id });
+    const total = await BacktestModel.countDocuments({ userId: req.user._id });
 
     res.json({
       backtests,
@@ -27,7 +28,7 @@ export const getBacktests = async (req, res) => {
   }
 };
 
-// --- Get options for dropdowns (symbols, strategies, timeframes) ---
+// --- Get options for dropdowns ---
 export const getBacktestOptions = async (req, res) => {
   try {
     res.json({
@@ -41,18 +42,12 @@ export const getBacktestOptions = async (req, res) => {
   }
 };
 
-// --- Run a single backtest ---
+// --- Run single backtest ---
 export const runBacktest = async (req, res) => {
   try {
     const payload = req.body;
-    // TODO: Implement actual backtest logic here
-    const newBacktest = await BacktestModel.create({
-      user: req.user._id,
-      ...payload,
-      result: {}, // Placeholder for result
-    });
-
-    res.status(201).json(newBacktest);
+    const result = await serviceRunBacktest({ userId: req.user._id, ...payload });
+    res.status(201).json(result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to run backtest." });
@@ -62,41 +57,11 @@ export const runBacktest = async (req, res) => {
 // --- Run batch backtests ---
 export const runBatchBacktests = async (req, res) => {
   try {
-    const configs = req.body; // Array of backtest configs
-    const results = [];
-
-    for (let payload of configs) {
-      const bt = await BacktestModel.create({
-        user: req.user._id,
-        ...payload,
-        result: {}, // Placeholder
-      });
-      results.push(bt);
-    }
-
+    const configs = req.body;
+    const results = await serviceRunBatch(req.user._id, configs);
     res.status(201).json({ batchResults: results });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to run batch backtests." });
-  }
-};
-
-// --- Delete a backtest ---
-export const deleteBacktest = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const deleted = await BacktestModel.findOneAndDelete({
-      _id: id,
-      user: req.user._id,
-    });
-
-    if (!deleted) {
-      return res.status(404).json({ message: "Backtest not found." });
-    }
-
-    res.json({ message: "Backtest deleted successfully." });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to delete backtest." });
   }
 };

@@ -18,10 +18,10 @@ const sendError = (res, error, controllerName) => {
 };
 
 // NEW FUNCTION: Fetches symbols and timeframes from a dedicated Python service
+
 export const getBacktestOptions = async (req, res) => {
     try {
         const userId = req.user.id;
-        // Use the new environment variable
         const pythonServiceUrl = process.env.PYTHON_SERVICE_URL2;
         if (!pythonServiceUrl) throw new Error("Python service URL is not configured.");
 
@@ -30,12 +30,16 @@ export const getBacktestOptions = async (req, res) => {
 
         // Fetch user-defined strategies from the database
         const strategies = await Strategy.find({ userId }).select("name params").lean();
+        
+        // Correctly extract symbols and timeframes from the response data.
+        const symbols = optionsResponse.data.symbols;
+        const timeframes = optionsResponse.data.timeframes;
 
-        // Combine the results and send them as the backtest options
+        // --- The FIX: Combine all the data into a single object ---
         return sendResponse(res, {
-            symbols: optionsResponse.data.symbols,
-            timeframes: optionsResponse.data.timeframes,
-            strategies: strategies,
+            symbols: symbols,
+            timeframes: timeframes,
+            strategies: strategies, // This is the list of strategies from your DB
         }, "Backtest options fetched successfully");
 
     } catch (err) {

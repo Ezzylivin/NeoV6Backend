@@ -9,12 +9,12 @@ export const getBacktests = async (req, res) => {
     const limit = 10;
     const skip = (page - 1) * limit;
 
-    const backtests = await BacktestModel.find({ userId: req.user._id })
+    const backtests = await Backtest.find({ userId: req.user._id })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    const total = await BacktestModel.countDocuments({ userId: req.user._id });
+    const total = await Backtest.countDocuments({ userId: req.user._id });
 
     res.json({
       backtests,

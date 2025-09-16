@@ -29,10 +29,10 @@ export const getBacktestOptions = async (req, res) => {
         // Fetch strategies from the database
         const strategies = await Strategy.find({ userId }).select("name params").lean();
         
+        // --- THE FIX ---
         // Fetch symbols and timeframes from the local data controller
-        // Note: The dataController function is not designed to be called directly from here with a response object.
-        // We will call it in a way that allows it to return a value to this function.
-        const optionsData = await fetchDataOptions(req, res);
+        // The fetchDataOptions function should now be called without the req and res objects
+        const optionsData = await fetchDataOptions();
         
         // This is a common pattern to ensure data is correctly formatted
         const symbols = optionsData.symbols;

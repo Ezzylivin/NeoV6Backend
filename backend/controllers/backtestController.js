@@ -21,21 +21,20 @@ const sendError = (res, error, controllerName) => {
 export const getBacktestOptions = async (req, res) => {
     try {
         const userId = req.user.id;
-        const pythonServiceUrl = process.env.PYTHON_SERVICE_URL;
+        // Use the new environment variable
+        const pythonServiceUrl = process.env.PYTHON_SERVICE_URL2;
         if (!pythonServiceUrl) throw new Error("Python service URL is not configured.");
 
-        // NOTE: This assumes your Python service provides /symbols and /timeframes endpoints.
-        // You would need to implement these on the Python side if they don't exist.
-        const symbolsResponse = await axios.get(`${pythonServiceUrl}/api/data/symbols`);
-        const timeframesResponse = await axios.get(`${pythonServiceUrl}/api/data/timeframes`);
+        // NOTE: This assumes your Python service provides a single /options endpoint
+        const optionsResponse = await axios.get(`${pythonServiceUrl}/api/data/options`);
 
         // Fetch user-defined strategies from the database
         const strategies = await Strategy.find({ userId }).select("name params").lean();
 
         // Combine the results and send them as the backtest options
         return sendResponse(res, {
-            symbols: symbolsResponse.data.data,
-            timeframes: timeframesResponse.data.data,
+            symbols: optionsResponse.data.symbols,
+            timeframes: optionsResponse.data.timeframes,
             strategies: strategies,
         }, "Backtest options fetched successfully");
 
@@ -56,9 +55,12 @@ export const runBacktestController = async (req, res) => {
         // **UPGRADE**: This logic routes the request based on the selected strategy.
         if (strategyId === 'python_sma_crossover') {
             console.log('Routing request to Python backtest service...');
-            const pythonServiceUrl = process.env.PYTHON_SERVICE_URL;
+            // Use the new environment variable
+            const pythonServiceUrl = process.env.PYTHON_SERVICE_URL2;
             if (!pythonServiceUrl) throw new Error("Python service URL is not configured.");
 
+            // Axios can send a POST request with the URL as the first argument
+            // and the data as the second argument.
             const response = await axios.post(`${pythonServiceUrl}/api/run-backtest`, req.body);
 
             const mappedResult = {

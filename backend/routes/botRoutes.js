@@ -1,17 +1,17 @@
 // File: backend/routes/botRoutes.js
-import express from 'express';
+import express from "express";
 import {
-  startBotController, stopBotController, getBotStatusController, getHistoryController
-} from '../controllers/botController.js';
-import { protect } from '../middleware/authMiddleware.js';
+  startBot,
+  stopBot,
+  getBotStatus,
+} from "../controllers/botController.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
+
 const router = express.Router();
 
-// Protect all bot-related routes
-router.use(protect);
-
-router.post('/start', startBotController);
-router.post('/stop', stopBotController);
-router.get('/status', getBotStatusController);
-router.get('/history', getHistoryController);
+// All bot actions require auth
+router.post("/start", authMiddleware, startBot);
+router.post("/stop", authMiddleware, stopBot);
+router.get("/status", authMiddleware, getBotStatus);
 
 export default router;

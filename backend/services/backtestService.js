@@ -1,5 +1,6 @@
 // File: backend/services/backtestService.js
 // UPGRADED: Imports data dependency from the correct service layer.
+// FIXED: Corrected a major syntax error in the 'STOCH' indicator block.
 
 import * as ti from 'technicalindicators';
 import Backtest from "../dbStructure/backtest.js";
@@ -167,6 +168,7 @@ export async function runBacktest(params) {
           padLength = candles.length - results.length;
           indicators[ind.name] = [...Array(padLength).fill(null), ...results];
           break;
+        // --- THIS BLOCK IS NOW FIXED ---
         case 'STOCH':
           results = ti.Stochastic.calculate({
             high: highPrices,
@@ -174,10 +176,13 @@ export async function runBacktest(params) {
             close: prices,
             period: stratParams.kPeriod,
             signalPeriod: stratParams.dPeriod
-    .map(r => ({ K: r.k, D: r.d }));
+          });
+          // The .map was moved from above and assigned correctly
+          const formattedStoch = results.map(r => ({ K: r.k, D: r.d }));
           padLength = candles.length - formattedStoch.length;
           indicators[ind.name] = [...Array(padLength).fill(null), ...formattedStoch];
           break;
+        // --- END FIX ---
         case 'ADX':
           results = ti.ADX.calculate(ohlcInput);
           padLength = candles.length - results.length;

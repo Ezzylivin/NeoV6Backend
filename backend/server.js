@@ -1,32 +1,29 @@
-// File: backend/app.js
+// File: backend/server.js
 
-import express from "express";
-import cors from "cors";
-import apiRoutes from './routes/apiRoutes.js';
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+import app from "./app.js"; // Import the configured Express app
+import { startPriceFeed } from "./services/priceService.js";
 
-const app = express();
+dotenv.config();
 
-// --- FLEXIBLE CORS SETUP ---
-const corsOptions = {
-    origin: function (origin, callback) {
-        const vercelRegex = /\.vercel\.app$/;
-        const netlifyRegex = /\.netlify\.app$/;
-        if (!origin || origin.startsWith("http://localhost") || vercelRegex.test(origin) || netlifyRegex.test(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error("Request from this origin is not allowed by CORS"));
-        }
-    },
-    credentials: true,
+// --- Start MongoDB + Server (for local development) ---
+const startServer = async () => {
+    try {
+        await mongoose.connect(process.env.MONGO_URI);
+        console.log("✅ MongoDB connected successfully.");
+
+        startPriceFeed();
+        console.log("📈 Background price feed started.");
+
+        const PORT = process.env.PORT || 8000;
+        app.listen(PORT, () =>
+            console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`)
+        );
+    } catch (err) {
+        console.error("❌ Server startup failed:", err.message);
+        process.exit(1);
+    }
 };
 
-app.use(cors(corsOptions));
-
-// --- Middleware ---
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-// --- MOUNT ALL API ROUTES ---
-app.use("/api", apiRoutes);
-
-export default app; // Export the app instance
+startServer();

@@ -1,6 +1,7 @@
 // ./services/backtestService.js
 // FULL UPGRADED VERSION
 // Replaced all manual indicator math with the 'technicalindicators' library
+// ADDED: The runBatchBacktests function that was missing
 
 import * as ti from 'technicalindicators';
 import Backtest from "../dbStructure/backtest.js";
@@ -110,30 +111,25 @@ export async function runBacktest(params) {
         pm.equityCurve.push({ timestamp: candles[0].timestamp, balance: config.initialBalance });
     }
 
-    // --- NEW: Prepare inputs for 'technicalindicators' library ---
-    // The library can accept full candle arrays or individual price arrays
     const prices = candles.map(c => c.close);
     const highPrices = candles.map(c => c.high);
     const lowPrices = candles.map(c => c.low);
-    // Create an input object for indicators that need more than just 'close'
     const ohlcInput = {
       open: candles.map(c => c.open),
       high: highPrices,
       low: lowPrices,
       close: prices,
-      timestamp: candles.map(c => c.timestamp), // Some indicators might use this
+      timestamp: candles.map(c => c.timestamp),
     };
-    // --- End of new inputs ---
 
     const indicators = {};
     const stratParams = strategy.parameters || {};
     const stratModule = getStrategy(strategy.type);
     const reqInds = stratModule.requiredIndicators(stratParams);
 
-    // --- NEW: Refactored Indicator Loop ---
     for (const ind of reqInds) {
-      let results = []; // This will hold the indicator data
-      let padLength = 0; // This will hold the 'null' padding length
+      let results = [];
+      let padLength = 0;
 
       switch (ind.type.toUpperCase()) {
         case 'SMA':
@@ -157,11 +153,9 @@ export async function runBacktest(params) {
             fastPeriod: stratParams.fast,
             slowPeriod: stratParams.slow,
             signalPeriod: stratParams.signal,
-            SimpleMAOscillator: false, // Use EMA (standard)
-            SimpleMASignal: false      // Use EMA (standard)
+            SimpleMAOscillator: false,
+            SimpleMASignal: false
           });
-          // MACD returns an array of { MACD, signal, histogram }
-          // We must pad it to match your candle length
           padLength = candles.length - results.length;
           indicators[ind.name] = [...Array(padLength).fill(null), ...results];
           break;
@@ -175,7 +169,6 @@ export async function runBacktest(params) {
           indicators[ind.name] = [...Array(padLength).fill(null), ...results];
           break;
         case 'STOCH':
-          // Stochastic needs High, Low, and Close
           results = ti.Stochastic.calculate({
             high: highPrices,
             low: lowPrices,
@@ -183,7 +176,6 @@ export async function runBacktest(params) {
             period: stratParams.kPeriod,
             signalPeriod: stratParams.dPeriod
           });
-          // The library calls them 'k' and 'd', your code expects 'K' and 'D'
           const formattedStoch = results.map(r => ({ K: r.k, D: r.d }));
           padLength = candles.length - formattedStoch.length;
           indicators[ind.name] = [...Array(padLength).fill(null), ...formattedStoch];
@@ -217,7 +209,8 @@ export async function runBacktest(params) {
         const currentCandle = candles[i];
         pm.updateEquityCurve(currentCandle.timestamp, currentCandle.close);
         
-        if (i < Math.max(...reqInds.map(ind => ind.period || 0)) -1) continue; // Not enough data for indicators
+        const minPeriod = Math.min(...reqInds.map(ind => ind.period || 0));
+        if (i < minPeriod -1) continue;
 
         if (pm.isInPosition()) {
             if (pm.shouldStopLoss(currentCandle.close)) {
@@ -274,4 +267,24 @@ export async function runBacktest(params) {
   } catch (err) {
     throw err;
   }
+}
+
+/**
+ * Runs multiple backtests from a list of configurations.
+ * This function was previously in backtestController.js, but is better suited here.
+ * @param {string} userId - The user ID.
+ * @param {Array<object>} configs - The list of backtest configurations.
+ * @returns {Array<object>} - A list of backtest results.
+ */
+export async function runBatchBacktests(userId, configs) {
+    const results = [];
+    for (const config of configs) {
+        try {
+            const result = await runBacktest({ ...config, userId });
+            results.push({ ...result, success: true });
+        } catch (error) {
+            results.push({ config, success: false, message: error.message });
+        }
+    }
+    return results;
 }

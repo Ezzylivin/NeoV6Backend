@@ -1,32 +1,32 @@
-// File: backend/routes/backtestRoutes.js
+// File: src/backend/routes/backtestRoutes.js
 import express from "express";
 import {
+  getBacktests,
   getBacktestOptions,
-  runBacktestController,
-  previewStrategyController,
-  runBatchBacktestsController,
-  getUserBacktests,
-  getBacktestById,
-  deleteBacktest
+  runBacktest,
+  runBatchBacktests,
+  deleteBacktest,
 } from "../controllers/backtestController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { authenticateUser } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.use(protect);
+// --- All routes require authentication ---
+router.use(authenticateUser);
 
+// GET /api/backtest?page=1 -> fetch past backtests
+router.get("/", getBacktests);
+
+// GET /api/backtest/options -> fetch dropdown options
 router.get("/options", getBacktestOptions);
 
-router.post("/run", runBacktestController);
+// POST /api/backtest -> run a single backtest
+router.post("/", runBacktest);
 
-router.post("/preview", previewStrategyController);
+// POST /api/backtest/batch -> run batch backtests
+router.post("/batch", runBatchBacktests);
 
-router.post("/batch", runBatchBacktestsController);
-
-router.get("/", getUserBacktests);
-
-router.route("/:backtestId")
-  .get(getBacktestById)
-  .delete(deleteBacktest);
+// DELETE /api/backtest/:id -> delete a backtest
+router.delete("/:id", deleteBacktest);
 
 export default router;

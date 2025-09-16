@@ -2,7 +2,7 @@
 import express from 'express';
 // Import the new controller function
 import { getLivePrices, getCandles, getPriceHistory } from '../controllers/dataController.js';
-import { getBacktestOptionsFromPythonService } from '../controllers/backtestController.js';
+import { getBacktestOptions as getBacktestOptionsController } from '../controllers/backtestController.js';
 
 const router = express.Router();
 
@@ -16,6 +16,6 @@ router.get('/candles', getCandles);
 router.get('/history', getPriceHistory);
 
 // NEW ROUTE: Fetch options from your Python service
-router.get('/options', getBacktestOptionsFromPythonService); // Corrected route
+router.get('/options', getBacktestOptionsController); // Corrected route
 
 export default router;

@@ -1,6 +1,6 @@
 import express from 'express';
 import { createStrategy, updateStrategy, getUserStrategies, deleteStrategy } from '../controllers/strategyController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import protect from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 router.use(protect);

@@ -15,7 +15,7 @@ const router = express.Router();
 router.get("/", protect, getUserBacktests);
 router.get("/options", protect, getBacktestOptions);
 router.get("/:backtestId", protect, getBacktestById);
-router.post("/", protect, runBacktestController);
+router.post("/run", protect, runBacktestController);
 router.post("/batch", protect, runBatchBacktestsController);
 router.post("/preview", protect, previewStrategyController);
 router.delete("/:backtestId", protect, deleteBacktest);

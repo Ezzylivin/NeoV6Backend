@@ -41,7 +41,7 @@ const validateDates = (start, end, timeframe) => {
 export const getBacktestOptions = async (req, res) => {
     try {
         const userId = req.user.id;
-        const strategies = await Strategy.find({ userId }).select("name params").lean();
+        const strategies = await Strategy.find({ userId }).select("_id name params").lean();
         const optionsData = await fetchDataOptions();
         return sendResponse(res, {
             symbols: optionsData.symbols || [],

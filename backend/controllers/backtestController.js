@@ -144,3 +144,13 @@ export const deleteBacktest = async (req, res) => {
         return sendResponse(res, {}, "Backtest deleted successfully");
     } catch (err) { sendError(res, err, 'deleteBacktest'); }
 };
+// --- EXPORTS ---
+export {
+  getBacktestOptions,
+  runBacktestController as runBacktest,
+  runBatchBacktestsController as runBatchBacktests,
+  previewStrategyController as previewStrategy,
+  getUserBacktests as getBacktests,
+  getBacktestById,
+  deleteBacktest
+};

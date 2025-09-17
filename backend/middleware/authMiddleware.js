@@ -1,38 +1,40 @@
 // File: backend/middleware/authMiddleware.js
+// UPGRADED: Removed syntax error and renamed function for consistency.
+
 import jwt from "jsonwebtoken";
 import User from "../dbStructure/user.js";
 
-// --- Authentication Middleware ---
-// Verifies JWT token, attaches full user (without password) to req.user
-export const authMiddleware = async (req, res, next) => {
-  let token;
+// Renamed from authMiddleware to 'protect' to match its usage in route files.
+export const protect = async (req, res, next) => {
+    let token;
 
-  try {
-    // Expect Authorization header with Bearer token
-    if (
-      req.headers.authorization &&
-      req.headers.authorization.startsWith("Bearer")
-    ) {
-      token = req.headers.authorization.split(" ")[1];
+    try {
+        // Expect Authorization header with Bearer token
+        if (
+            req.headers.authorization &&
+            req.headers.authorization.startsWith("Bearer")
+        ) {
+            token = req.headers.authorization.split(" ")[1];
 
-      // Decode token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            // Decode token
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      // Fetch user by ID from DB (exclude password field)
-      req.user = await User.findById(decoded.id).select("-password");
+            // Fetch user by ID from DB (exclude password field)
+            req.user = await User.findById(decoded.id).select("-password");
 
-      if (!req.user) {
-        return res.status(404).json({ message: "User not found" });
-      }
+            if (!req.user) {
+                // Use return to stop execution
+                return res.status(401).json({ message: "Not authorized, user not found" });
+            }
 
-      return next();
-    } else {
-      return res.status(401).json({ message: "Not authorized, no token" });
-
-      export default protect;
+            // Proceed to the next middleware/controller
+            next();
+        } else {
+            return res.status(401).json({ message: "Not authorized, no token" });
+            // The erroneous 'export' statement that caused the crash was here. It has been removed.
+        }
+    } catch (err) {
+        console.error("Auth middleware error:", err.message);
+        return res.status(401).json({ message: "Not authorized, token failed" });
     }
-  } catch (err) {
-    console.error("Auth middleware error:", err.message);
-    return res.status(401).json({ message: "Not authorized, token failed" });
-  }
 };

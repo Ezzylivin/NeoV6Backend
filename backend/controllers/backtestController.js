@@ -55,17 +55,18 @@ export const getBacktestOptions = async (req, res) => {
     } catch (err) { sendError(res, err, 'getBacktestOptions'); }
 };
 
-// Run single backtest
-export const runBacktestController = async (req, res) => {
+// Runexport const runBacktestController = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { strategyCode, startDate, endDate, timeframe, takeProfit, stopLoss, ...rest } = req.body;
+        // FIX: Expect 'code' instead of 'strategyCode'
+        const { code, startDate, endDate, timeframe, takeProfit, stopLoss, ...rest } = req.body;
 
-        if (!strategyCode) return res.status(400).json({ success: false, message: "strategyCode required" });
+        // FIX: Change the error message to match the new key
+        if (!code) return res.status(400).json({ success: false, message: "code required" });
         validateDates(startDate, endDate, timeframe);
 
-        // FIX: find by strategyCode, not ObjectId
-        const dbStrategy = await Strategy.findOne({ code: strategyCode, userId }).lean();
+        // FIX: find by code, not strategyCode
+        const dbStrategy = await Strategy.findOne({ code: code, userId }).lean();
         if (!dbStrategy) return res.status(404).json({ success: false, message: "Strategy not found" });
 
         const result = await runBacktest({

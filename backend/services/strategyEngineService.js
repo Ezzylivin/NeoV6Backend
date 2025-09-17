@@ -1,5 +1,5 @@
-// File: backend/services/strategyEngineService.js
 // MERGED: Strategy runner + optional full backtest saving
+// UPDATED: Fully supports strategyCode
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -11,12 +11,12 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     if (!trades || trades.length === 0) return {};
     let equity = 0, equityCurve = [], wins = 0, losses = 0, totalProfit = 0, maxDrawdown = 0, peak = 0;
     trades.forEach(trade => {
-        equity += trade.profit;
+        equity += trade.profit || 0;
         equityCurve.push({ timestamp: trade.timestamp, balance: initialBalance + equity });
         if (equity > peak) peak = equity;
         else { const dd = peak - equity; if (dd > maxDrawdown) maxDrawdown = dd; }
         if (trade.profit > 0) wins++; else losses++;
-        totalProfit += trade.profit;
+        totalProfit += trade.profit || 0;
     });
     const winRate = trades.length ? wins / trades.length : 0;
     return { totalProfit, totalTrades: trades.length, winRate, maxDrawdown, equityCurve, tradeHistory: trades };
@@ -29,13 +29,13 @@ export const saveStrategyService = async (userId, strategyData) => {
 
 // --- Get all strategies for a user ---
 export const getStrategiesService = async (userId) => {
-    return Strategy.find({ userId }).select("_id name params").lean();
+    return Strategy.find({ userId }).select("_id name strategyCode params").lean();
 };
 
 // --- Run a strategy with optional full backtest ---
-export const runStrategyService = async ({ userId, strategyId, pair, timeframe, startDate, endDate, tp, sl, simulateOnly = true }) => {
-    // 1. Get strategy parameters
-    const strategy = await Strategy.findById(strategyId);
+export const runStrategyService = async ({ userId, strategyCode, pair, timeframe, startDate, endDate, tp, sl, simulateOnly = true }) => {
+    // 1. Get strategy parameters using strategyCode
+    const strategy = await Strategy.findOne({ userId, strategyCode });
     if (!strategy) throw new Error("Strategy not found.");
     if (strategy.userId.toString() !== userId) throw new Error("Not authorized.");
 
@@ -69,12 +69,13 @@ export const runStrategyService = async ({ userId, strategyId, pair, timeframe, 
             strategy: {
                 name: strategy.name,
                 type: strategy.params.strategyType,
-                parameters: strategy.params
+                parameters: strategy.params,
+                strategyCode: strategy.strategyCode
             }
         });
         return savedBacktest;
     }
 
     // 7. Return preview result if simulateOnly
-    return { trades, metrics, strategyName: strategy.name, pair, timeframe };
+    return { trades, metrics, strategyName: strategy.name, pair, timeframe, strategyCode: strategy.strategyCode };
 };

@@ -1,9 +1,11 @@
+// File: backend/services/backtestDataService.js
 // Fetch live crypto data from US-regulated exchanges
 
 import ccxt from 'ccxt';
+import axios from 'axios'; // We need axios for the external API call
 
 const US_EXCHANGES = ['coinbase', 'kraken', 'binanceus'];
-const CANDLE_LIMIT = 200;
+const CANDLE_LIMIT = 500;
 
 async function fetchCandles(exchangeId, symbol, timeframe) {
   try {
@@ -16,24 +18,27 @@ async function fetchCandles(exchangeId, symbol, timeframe) {
   }
 }
 
+// UPGRADED: Now returns the top 10 cryptos by market cap
 export async function getBacktestOptionsData() {
-  try {
-    const symbolsSet = new Set();
-    for (const exchangeId of US_EXCHANGES) {
-      const exchange = new ccxt[exchangeId]();
-      await exchange.loadMarkets();
-      Object.values(exchange.markets)
-        .filter(market => market.active && (market.quote === 'USD' || market.quote === 'USDT'))
-        .forEach(market => symbolsSet.add(market.symbol));
-    }
+  const cryptoApiUrl = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1';
 
-    const symbols = Array.from(symbolsSet).sort().slice(0, 100);
+  try {
+    const response = await axios.get(cryptoApiUrl);
+    const top10Cryptos = response.data.map(coin => ({ 
+        id: coin.id,
+        symbol: coin.symbol.toUpperCase() + '/USD' // Format symbol for ccxt
+    }));
+    const symbols = top10Cryptos.map(crypto => crypto.symbol);
     const timeframes = ['1m','5m','15m','30m','1h','4h','1d'];
 
     return { symbols, timeframes };
   } catch (err) {
     console.error("❌ Failed to fetch backtest options:", err);
-    throw new Error("Could not fetch backtest options from exchanges.");
+    // Fallback to a default list if the API call fails
+    return {
+      symbols: ['BTC/USD', 'ETH/USD', 'ADA/USD', 'XRP/USD', 'DOGE/USD'],
+      timeframes: ['1m','5m','15m','30m','1h','4h','1d'],
+    };
   }
 }
 

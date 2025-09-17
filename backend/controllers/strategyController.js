@@ -49,15 +49,14 @@ export const updateStrategy = async (req, res) => {
 
 export const getUserStrategies = async (req, res) => {
     try {
-        // --- THIS IS THE FIX ---
-        // 1. Call the service to get the data.
-        const strategies = await getStrategiesService(req.user.id);
+        const userId = req.user.id;
+        const strategies = await getStrategiesService(userId);
 
-        // 2. Ensure the response is always an array.
-        // (The service already does this, but this is a good safeguard).
-        const strategiesArray = Array.isArray(strategies) ? strategies : [strategies];
-        
-        res.status(200).json(strategiesArray);
+        // FIX: Ensure the response is always a JSON object with a 'strategies' key.
+        // The getStrategiesService function already returns an array, but this adds another layer of certainty.
+        const responseData = { strategies: Array.isArray(strategies) ? strategies : [strategies] };
+
+        res.status(200).json(responseData);
     } catch (err) {
         sendError(res, err);
     }

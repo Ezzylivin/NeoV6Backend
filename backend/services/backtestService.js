@@ -26,9 +26,9 @@ const calculateMetrics = (trades) => {
 };
 
 // --- Run single backtest ---
-export const runBacktest = async ({ userId, strategyCode, symbol, timeframe, startDate, endDate, tp, sl, simulateOnly }) => {
+export const runBacktest = async ({ userId, code, symbol, timeframe, startDate, endDate, tp, sl, simulateOnly }) => {
     // 1. Lookup strategy
-    const strategy = await Strategy.findOne({ userId, strategyCode });
+    const strategy = await Strategy.findOne({ userId, code });
     if (!strategy) throw new Error("Strategy not found.");
 
     // 2. Fetch market data
@@ -59,7 +59,7 @@ export const runBacktest = async ({ userId, strategyCode, symbol, timeframe, sta
             name: strategy.name,
             type: strategy.params.strategyType,
             parameters: strategy.params,
-            strategyCode: strategy.strategyCode
+            code: strategy.code
         },
         tradeBreakdown: trades.map(trade => ({
             entryTime: trade.entryTimestamp || trade.timestamp,

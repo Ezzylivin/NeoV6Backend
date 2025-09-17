@@ -56,3 +56,10 @@ export const getHistoryController = async (req, res) => {
     sendResponse(res, { error: err.message }, err.message, 500);
   }
 };
+// --- EXPORTS ---
+export {
+  startBotController as startBot,
+  stopBotController as stopBot,
+  getBotStatusController as getBotStatus,
+  getHistoryController as getBotHistory
+};

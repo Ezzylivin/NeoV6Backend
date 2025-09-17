@@ -28,6 +28,8 @@ export const authMiddleware = async (req, res, next) => {
       return next();
     } else {
       return res.status(401).json({ message: "Not authorized, no token" });
+
+      export default protect;
     }
   } catch (err) {
     console.error("Auth middleware error:", err.message);

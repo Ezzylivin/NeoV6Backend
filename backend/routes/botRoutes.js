@@ -9,19 +9,9 @@ import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(protect);
-
-// POST /api/bot/start -> start a bot
-router.post("/start", startBotController);
-
-// POST /api/bot/stop -> stop a bot
-router.post("/stop", stopBotController);
-
-// GET /api/bot/status -> bot status
-router.get("/status", getBotStatusController);
-
-// GET /api/bot/history -> bot trade history
-router.get("/history", getHistoryController);
+router.post("/start", protect, startBotController);
+router.post("/stop", protect, stopBotController);
+router.get("/status", protect, getBotStatusController);
+router.get("/history", protect, getHistoryController);
 
 export default router;

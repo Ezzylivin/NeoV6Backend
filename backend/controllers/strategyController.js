@@ -21,14 +21,17 @@ export const createStrategy = async (req, res) => {
         }
 
         // --- Generate unique code for strategy ---
-        const StrategyCode = nanoid(8);
+        // FIX: Use 'code' as the variable name to match the schema.
+        const code = nanoid(8);
 
-        const newStrategy = await Strategy.create({ userId, name, description, params, StrategyCode: 'code' });
+        // FIX: Assign the 'code' variable to the 'code' field.
+        const newStrategy = await Strategy.create({ userId, name, description, params, code });
         res.status(201).json(newStrategy);
     } catch(err) {
         sendError(res, err);
     }
 };
+
 
 export const updateStrategy = async (req, res) => {
     try {

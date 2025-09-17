@@ -1,5 +1,5 @@
 // File: backend/controllers/backtestController.js
-// UPGRADED: Correctly passes parameters to the runBacktest service.
+// UPGRADED: Correctly includes the _id field when fetching strategies.
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -41,7 +41,10 @@ const validateDates = (start, end, timeframe) => {
 export const getBacktestOptions = async (req, res) => {
     try {
         const userId = req.user.id;
+        // --- THIS IS THE FIX ---
+        // We must explicitly include "_id" in the .select() projection.
         const strategies = await Strategy.find({ userId }).select("_id name params").lean();
+        
         const optionsData = await fetchDataOptions();
         return sendResponse(res, {
             symbols: optionsData.symbols || [],
@@ -66,19 +69,16 @@ export const runBacktestController = async (req, res) => {
         if (!dbStrategy) return res.status(404).json({ success: false, message: "Strategy not found" });
         if (dbStrategy.userId.toString() !== userId) return res.status(403).json({ success: false, message: "Unauthorized" });
 
-        // --- THIS IS THE FIX ---
-        // The service expects `tp` and `sl`, not `takeProfit` and `stopLoss`.
-        // We pass them as top-level properties in the argument object.
         const result = await runBacktest({
-            userId,
-            startDate,
-            endDate,
-            timeframe,
-            strategy: dbStrategy, // Pass the whole strategy object
-            tp: takeProfit,       // Correctly map takeProfit to tp
-            sl: stopLoss,         // Correctly map stopLoss to sl
-            ...rest               // Pass along other params like 'symbol'
-        });
+            userId,
+            startDate,
+            endDate,
+            timeframe,
+            strategy: dbStrategy,
+            tp: takeProfit,
+            sl: stopLoss,
+            ...rest
+        });
         return sendResponse(res, result, "Backtest executed successfully");
 
     } catch (err) { sendError(res, err, 'runBacktestController'); }

@@ -1,11 +1,12 @@
 // File: backend/controllers/backtestController.js
-// UPGRADED: Correctly includes the _id field when fetching strategies.
+// UPGRADED: Now correctly uses the getStrategiesService to fetch strategies.
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runBacktest, runBatchBacktests } from "../services/backtestService.js";
 import { logToDb } from "../services/logService.js";
 import { getBacktestOptionsData as fetchDataOptions } from "../services/backtestDataService.js";
+import { getStrategiesService } from "../services/strategyEngineService.js"; // <-- IMPORT THE SERVICE
 
 // --- Helper Functions ---
 const sendResponse = (res, data = {}, message = "Success") => {
@@ -41,9 +42,10 @@ const validateDates = (start, end, timeframe) => {
 export const getBacktestOptions = async (req, res) => {
     try {
         const userId = req.user.id;
+        
         // --- THIS IS THE FIX ---
-        // We must explicitly include "_id" in the .select() projection.
-        const strategies = await Strategy.find({ userId }).select("_id name params").lean();
+        // Call the getStrategiesService instead of using Strategy.find() directly.
+        const strategies = await getStrategiesService(userId);
         
         const optionsData = await fetchDataOptions();
         return sendResponse(res, {

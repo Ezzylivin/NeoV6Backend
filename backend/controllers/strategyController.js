@@ -1,9 +1,11 @@
 // File: backend/controllers/strategyController.js
 // UPGRADED: Uses the strategy service and ensures the API always returns an array.
+// Added unique 'code' field for each strategy to fix backtest lookup.
 
 import Strategy from "../dbStructure/strategy.js";
 import mongoose from 'mongoose';
-import { getStrategiesService } from "../services/strategyEngineService.js"; // <-- IMPORT
+import { getStrategiesService } from "../services/strategyEngineService.js";
+import { nanoid } from "nanoid"; // <-- NEW: For unique strategy codes
 
 const sendError = (res, err, status = 500) => {
     console.error(err);
@@ -17,8 +19,11 @@ export const createStrategy = async (req, res) => {
         if (!name || !params) {
             return res.status(400).json({ message: "Missing required fields" });
         }
-        
-        const newStrategy = await Strategy.create({ userId, name, description, params });
+
+        // --- Generate unique code for strategy ---
+        const code = nanoid(8);
+
+        const newStrategy = await Strategy.create({ userId, name, description, params, code });
         res.status(201).json(newStrategy);
     } catch(err) {
         sendError(res, err);
@@ -52,8 +57,6 @@ export const getUserStrategies = async (req, res) => {
         const userId = req.user.id;
         const strategies = await getStrategiesService(userId);
 
-        // FIX: Ensure the response is always a JSON object with a 'strategies' key.
-        // The getStrategiesService function already returns an array, but this adds another layer of certainty.
         const responseData = { strategies: Array.isArray(strategies) ? strategies : [strategies] };
 
         res.status(200).json(responseData);
@@ -75,7 +78,6 @@ export const getStrategyById = async (req, res) => {
 
         res.status(200).json(strategy);
     } catch (err) {
-        // Handle invalid ObjectId format
         if (err.name === 'CastError') {
             return res.status(400).json({ message: "Invalid strategy ID." });
         }

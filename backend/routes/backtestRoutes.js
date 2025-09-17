@@ -1,23 +1,23 @@
 import express from "express";
 import {
-  getBacktestOptions,
   runBacktestController,
   runBatchBacktestsController,
-  previewStrategyController,
+  getBacktestOptions,
   getUserBacktests,
   getBacktestById,
-  deleteBacktest
+  deleteBacktest,
+  previewStrategyController
 } from "../controllers/backtestController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
+router.get("/", protect, getUserBacktests);
 router.get("/options", protect, getBacktestOptions);
+router.get("/:backtestId", protect, getBacktestById);
 router.post("/", protect, runBacktestController);
 router.post("/batch", protect, runBatchBacktestsController);
 router.post("/preview", protect, previewStrategyController);
-router.get("/", protect, getUserBacktests);
-router.get("/:backtestId", protect, getBacktestById);
 router.delete("/:backtestId", protect, deleteBacktest);
 
 export default router;

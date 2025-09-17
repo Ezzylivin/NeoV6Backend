@@ -62,6 +62,27 @@ export const getUserStrategies = async (req, res) => {
     }
 };
 
+export const getStrategyById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+
+        const strategy = await Strategy.findOne({ _id: id, userId }).lean();
+
+        if (!strategy) {
+            return res.status(404).json({ message: "Strategy not found or unauthorized." });
+        }
+
+        res.status(200).json(strategy);
+    } catch (err) {
+        // Handle invalid ObjectId format
+        if (err.name === 'CastError') {
+            return res.status(400).json({ message: "Invalid strategy ID." });
+        }
+        sendError(res, err);
+    }
+};
+
 export const deleteStrategy = async (req, res) => {
     try {
         const { id } = req.params;

@@ -21,9 +21,9 @@ export const createStrategy = async (req, res) => {
         }
 
         // --- Generate unique code for strategy ---
-        const code = nanoid(8);
+        const StrategyCode = nanoid(8);
 
-        const newStrategy = await Strategy.create({ userId, name, description, params, code });
+        const newStrategy = await Strategy.create({ userId, name, description, params, StrategyCode: 'code' });
         res.status(201).json(newStrategy);
     } catch(err) {
         sendError(res, err);

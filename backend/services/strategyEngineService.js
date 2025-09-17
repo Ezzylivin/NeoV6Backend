@@ -1,5 +1,5 @@
 // MERGED: Strategy runner + optional full backtest saving
-// UPDATED: Fully supports strategyCode
+// UPDATED: Fully supports 'code' for strategy lookup
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -29,13 +29,13 @@ export const saveStrategyService = async (userId, strategyData) => {
 
 // --- Get all strategies for a user ---
 export const getStrategiesService = async (userId) => {
-    return Strategy.find({ userId }).select("_id name strategyCode params").lean();
+    return Strategy.find({ userId }).select("_id name code params").lean(); // FIX: Changed strategyCode to code
 };
 
 // --- Run a strategy with optional full backtest ---
-export const runStrategyService = async ({ userId, strategyCode, pair, timeframe, startDate, endDate, tp, sl, simulateOnly = true }) => {
-    // 1. Get strategy parameters using strategyCode
-    const strategy = await Strategy.findOne({ userId, strategyCode });
+export const runStrategyService = async ({ userId, code, pair, timeframe, startDate, endDate, tp, sl, simulateOnly = true }) => {
+    // 1. Get strategy parameters using code
+    const strategy = await Strategy.findOne({ userId, code }); // FIX: Changed strategyCode to code
     if (!strategy) throw new Error("Strategy not found.");
     if (strategy.userId.toString() !== userId) throw new Error("Not authorized.");
 
@@ -70,12 +70,12 @@ export const runStrategyService = async ({ userId, strategyCode, pair, timeframe
                 name: strategy.name,
                 type: strategy.params.strategyType,
                 parameters: strategy.params,
-                strategyCode: strategy.strategyCode
+                code: strategy.code // FIX: Changed strategyCode to code
             }
         });
         return savedBacktest;
     }
 
     // 7. Return preview result if simulateOnly
-    return { trades, metrics, strategyName: strategy.name, pair, timeframe, strategyCode: strategy.strategyCode };
+    return { trades, metrics, strategyName: strategy.name, pair, timeframe, code: strategy.code }; // FIX: Changed strategyCode to code
 };

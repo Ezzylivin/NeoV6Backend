@@ -29,7 +29,8 @@
     "mongoose": "^7.5.0",
     "ws": "^8.13.0",
     "node-fetch": "^3.3.2",
-    "technicalindicators": "^3.0.0"
+    "technicalindicators": "^3.0.0",
+    "ioredis": "^5.4.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

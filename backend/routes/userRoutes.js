@@ -1,14 +1,20 @@
-import express from 'express';
-import { registerUser, loginUser, getMe, updateApiKeys } from '../controllers/userController.js';
-import protect from '../middleware/authMiddleware.js';
+import express from "express";
+import {
+  registerUser,
+  loginUser,
+  getMe,
+  updateApiKeys
+} from "../controllers/userController.js";
+import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.post('/register', registerUser);
-router.post('/login', loginUser); // <-- This line creates the /login route
+// --- Public routes ---
+router.post("/register", registerUser);
+router.post("/login", loginUser);
 
-router.use(protect); // Protect routes below this line
-router.get('/me', getMe);
-router.post('/keys', updateApiKeys);
+// --- Protected routes ---
+router.get("/me", protect, getMe);
+router.post("/keys", protect, updateApiKeys);
 
 export default router;

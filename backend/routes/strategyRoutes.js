@@ -1,16 +1,17 @@
-import express from 'express';
-import { createStrategy, updateStrategy, getUserStrategies, deleteStrategy } from '../controllers/strategyController.js';
-import protect from '../middleware/authMiddleware.js';
+import express from "express";
+import {
+  createStrategyController,
+  getStrategiesController,
+  updateStrategyController,
+  deleteStrategyController
+} from "../controllers/strategyController.js";
+import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
-router.use(protect);
 
-router.route('/')
-  .post(createStrategy)    // POST /api/strategy
-  .get(getUserStrategies); // GET /api/strategy
-
-router.route('/:id')
-  .put(updateStrategy)     // PUT /api/strategy/:id
-  .delete(deleteStrategy); // DELETE /api/strategy/:id
+router.post("/", protect, createStrategyController);
+router.get("/", protect, getStrategiesController);
+router.put("/:id", protect, updateStrategyController);
+router.delete("/:id", protect, deleteStrategyController);
 
 export default router;

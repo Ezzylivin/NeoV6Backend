@@ -1,62 +1,50 @@
-// File: backend/services/backtestService.js
-// UPGRADED: A real backtesting engine using live data and a strategy manager.
+// REAL BACKTEST ENGINE
+// UPDATED: Supports strategyCode lookup for single & batch backtests
 
 import Backtest from "../dbStructure/backtest.js";
+import Strategy from "../dbStructure/strategy.js";
 import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 import { getStrategy } from "../strategies/strategyManager.js";
 
-// --- Utility for metrics (Unchanged) ---
+// --- Utility for metrics ---
 const calculateMetrics = (trades) => {
     if (!trades || trades.length === 0) return {};
-    let equity = 0,
-        equityCurve = [],
-        wins = 0,
-        losses = 0,
-        totalProfit = 0,
-        maxDrawdown = 0,
-        peak = 0;
+    let equity = 0, equityCurve = [], wins = 0, losses = 0, totalProfit = 0, maxDrawdown = 0, peak = 0;
 
     trades.forEach((trade) => {
         equity += trade.profit || 0;
-        equityCurve.push({ time: trade.timestamp || trade.entryTimestamp, equity });
+        equityCurve.push({ timestamp: trade.timestamp || trade.entryTimestamp, balance: equity });
         if (equity > peak) peak = equity;
-        else {
-            const dd = peak - equity;
-            if (dd > maxDrawdown) maxDrawdown = dd;
-        }
-        if (trade.profit > 0) wins++;
-        else losses++;
+        else { const dd = peak - equity; if (dd > maxDrawdown) maxDrawdown = dd; }
+        if (trade.profit > 0) wins++; else losses++;
         totalProfit += trade.profit || 0;
     });
 
     const winRate = trades.length ? wins / trades.length : 0;
 
-    return {
-        totalProfit,
-        totalTrades: trades.length,
-        winRate,
-        maxDrawdown,
-        equityCurve,
-        tradeHistory: trades
-    };
+    return { totalProfit, totalTrades: trades.length, winRate, maxDrawdown, equityCurve, tradeHistory: trades };
 };
 
 // --- Run single backtest ---
-export const runBacktest = async ({ userId, strategy, symbol, timeframe, startDate, endDate, tp, sl, simulateOnly }) => {
-    // 1. Fetch market data
+export const runBacktest = async ({ userId, strategyCode, symbol, timeframe, startDate, endDate, tp, sl, simulateOnly }) => {
+    // 1. Lookup strategy
+    const strategy = await Strategy.findOne({ userId, strategyCode });
+    if (!strategy) throw new Error("Strategy not found.");
+
+    // 2. Fetch market data
     const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe);
 
-    // 2. Get strategy function
+    // 3. Get strategy function
     const strategyFunction = getStrategy(strategy.params.strategyType);
 
-    // 3. Run strategy to generate trades
+    // 4. Run strategy
     const trades = strategyFunction(candles, strategy.params);
 
-    // 4. Calculate metrics & equity curve
+    // 5. Calculate metrics
     const metrics = calculateMetrics(trades);
     const finalBalance = strategy.params.initialBalance + (metrics.totalProfit || 0);
 
-    // 5. Prepare backtest object for MongoDB
+    // 6. Prepare backtest object
     const backtestData = {
         userId,
         symbol,
@@ -70,7 +58,8 @@ export const runBacktest = async ({ userId, strategy, symbol, timeframe, startDa
         strategy: {
             name: strategy.name,
             type: strategy.params.strategyType,
-            parameters: strategy.params
+            parameters: strategy.params,
+            strategyCode: strategy.strategyCode
         },
         tradeBreakdown: trades.map(trade => ({
             entryTime: trade.entryTimestamp || trade.timestamp,
@@ -85,14 +74,12 @@ export const runBacktest = async ({ userId, strategy, symbol, timeframe, startDa
             duration: trade.duration || null,
             result: trade.result || 'open'
         })),
-        equityCurve: metrics.equityCurve.map(pt => ({ timestamp: pt.time, balance: pt.equity })),
+        equityCurve: metrics.equityCurve.map(pt => ({ timestamp: pt.timestamp, balance: pt.balance })),
         metrics
     };
 
-    // 6. Save to MongoDB or return if simulateOnly
     if (!simulateOnly) {
-        const saved = await Backtest.create(backtestData);
-        return saved;
+        return await Backtest.create(backtestData);
     }
 
     return backtestData;
@@ -101,8 +88,7 @@ export const runBacktest = async ({ userId, strategy, symbol, timeframe, startDa
 // --- Run batch backtests ---
 export const runBatchBacktests = async (userId, configs) => {
     const results = [];
-    // Limit batch to 50 configs to avoid overloading DB or exchange
-    const batchConfigs = configs.slice(0, 50);
+    const batchConfigs = configs.slice(0, 50); // Limit batch size
 
     for (const cfg of batchConfigs) {
         try {

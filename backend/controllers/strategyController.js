@@ -70,7 +70,7 @@ export const getStrategyById = async (req, res) => {
         const { id } = req.params;
         const userId = req.user.id;
 
-        const strategy = await Strategy.findOne({ _id: id, userId }).lean();
+        const strategy = await Strategy.findOne({ code: id, userId }).lean();
 
         if (!strategy) {
             return res.status(404).json({ message: "Strategy not found or unauthorized." });
@@ -79,7 +79,7 @@ export const getStrategyById = async (req, res) => {
         res.status(200).json(strategy);
     } catch (err) {
         if (err.name === 'CastError') {
-            return res.status(400).json({ message: "Invalid strategy ID." });
+            return res.status(400).json({ message: "Invalid strategy code." });
         }
         sendError(res, err);
     }

@@ -9,6 +9,14 @@ const strategySchema = new Schema({
     required: true,
     index: true
   },
+  // FIX: Add the new 'code' field. The controller expects this to exist.
+  code: {
+    type: String,
+    required: true,
+    unique: true, // Prevents duplicate strategy codes
+    trim: true,
+    lowercase: true,
+  },
   name: { type: String, default: "Default Strategy", trim: true, required: true },
   description: { type: String, default: "", trim: true },
   isActive: { type: Boolean, default: false },
@@ -16,7 +24,7 @@ const strategySchema = new Schema({
     symbol: { type: String, default: "BTCUSDT", trim: true, uppercase: true },
     timeframe: { type: String, default: "1h" },
     initialBalance: { type: Number, default: 1000, min: 1 },
-    strategyType: { type: String, default: "SMA" }, // e.g., SMA, EMA, RSI
+    strategyType: { type: String, default: "SMA" },
     risk: { type: String, default: "Medium", enum: ["Low", "Medium", "High"] },
     stopLoss: { type: Number, default: 0.02, min: 0, max: 1 },
     takeProfit: { type: Number, default: 0.05, min: 0, max: 5 },
@@ -34,7 +42,6 @@ const strategySchema = new Schema({
       spreadPct: { type: Number, default: 0.1, min: 0 },
     },
   },
-  // Consolidated metrics from the last backtest for quick reference
   lastBacktestMetrics: {
     netProfit: Number,
     winRate: Number,
@@ -47,5 +54,8 @@ const strategySchema = new Schema({
     runDate: Date,
   },
 }, { timestamps: true });
+
+// Add an index on the new `code` field for faster lookups
+strategySchema.index({ code: 1, userId: 1 }, { unique: true });
 
 export default model("Strategy", strategySchema);

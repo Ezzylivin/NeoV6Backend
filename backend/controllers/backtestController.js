@@ -55,7 +55,8 @@ export const getBacktestOptions = async (req, res) => {
     } catch (err) { sendError(res, err, 'getBacktestOptions'); }
 };
 
-// Runexport const runBacktestController = async (req, res) => {
+// Run single backtest
+export const runBacktestController = async (req, res) => {
     try {
         const userId = req.user.id;
         // FIX: Expect 'code' instead of 'strategyCode'
@@ -84,6 +85,7 @@ export const getBacktestOptions = async (req, res) => {
 
     } catch (err) { sendError(res, err, 'runBacktestController'); }
 };
+
 
 // Run batch backtests
 export const runBatchBacktestsController = async (req, res) => {

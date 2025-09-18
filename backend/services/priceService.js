@@ -2,7 +2,7 @@ import Redis from "ioredis";
 import Price from "../dbStructure/price.js";
 import fetch from "node-fetch";
 
-// Redis client (fallback to memory if Redis fails)
+// --- Redis client (fallback to memory if Redis fails) ---
 let redis;
 try {
   redis = new Redis(process.env.REDIS_URL);
@@ -17,7 +17,7 @@ try {
 
 let prices = {}; // in-memory fallback cache
 
-// --- Example fetch (Coinbase) ---
+// --- Fetch price from Coinbase US ---
 const fetchFromCoinbase = async (symbol) => {
   const url = `https://api.exchange.coinbase.com/products/${symbol}-USD/ticker`;
   const res = await fetch(url);
@@ -31,7 +31,7 @@ export const fetchPrice = async (symbol) => {
   try {
     return await fetchFromCoinbase(symbol);
   } catch (err) {
-    console.warn("[PriceService] Coinbase failed:", err.message);
+    console.warn("[PriceService] Coinbase fetch failed:", err.message);
     throw err;
   }
 };
@@ -49,9 +49,11 @@ export const savePrice = async (symbol, fetchPriceFn = fetchPrice) => {
     timestamp: fetchedData.timestamp,
   };
 
+  // Save to MongoDB
   const price = new Price(priceDataForDB);
   await price.save();
 
+  // Save to Redis or memory
   if (redis) {
     await redis.set(`price:${symbol}`, fetchedData.close);
   } else {
@@ -79,7 +81,7 @@ export const getPrices = async (symbols = ["BTCUSDT"]) => {
 export const startPriceFeed = (
   symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
   intervalMs = 10000,
-  fetchPriceFn = fetchPrice
+  fetchPriceFn = fetchFromCoinbase
 ) => {
   const updateAll = async () => {
     for (const symbol of symbols) {
@@ -94,23 +96,33 @@ export const startPriceFeed = (
   setInterval(updateAll, intervalMs);
 };
 
-// --- NEW: Fetch all live exchange symbols dynamically ---
+// --- Fetch all tradable symbols from US exchanges dynamically ---
 export const fetchAllExchangeSymbols = async () => {
   try {
-    // Example: fetch symbols from Coinbase
     const res = await fetch("https://api.exchange.coinbase.com/products");
     if (!res.ok) throw new Error(`Coinbase symbols HTTP ${res.status}`);
     const data = await res.json();
-
-    // Filter for USDT pairs
-    const symbols = data
+    // Filter for USD or USDT pairs and return symbol format "BTCUSDT"
+    return data
       .filter((p) => p.quote_currency === "USD" || p.quote_currency === "USDT")
       .map((p) => p.base_currency + p.quote_currency);
-
-    return symbols;
   } catch (err) {
-    console.error("[PriceService] Failed to fetch all exchange symbols:", err.message);
-    return []; // fallback empty array
+    console.error("[PriceService] Failed fetching symbols:", err.message);
+    return [];
+  }
+};
+
+// --- Fetch all exchange-supported timeframes, TP, SL ---
+export const fetchAllExchangeParams = async () => {
+  try {
+    // Predefined common options for US exchanges
+    const timeframes = ["1m","5m","15m","30m","1h","4h","1d"];
+    const takeProfits = [0.01,0.02,0.03,0.05,0.1];
+    const stopLosses = [0.01,0.02,0.03,0.05,0.1];
+    return { timeframes, takeProfits, stopLosses };
+  } catch (err) {
+    console.error("[PriceService] Failed fetching params:", err.message);
+    return { timeframes: [], takeProfits: [], stopLosses: [] };
   }
 };
 
@@ -121,4 +133,5 @@ export default {
   getPrices,
   startPriceFeed,
   fetchAllExchangeSymbols,
+  fetchAllExchangeParams,
 };

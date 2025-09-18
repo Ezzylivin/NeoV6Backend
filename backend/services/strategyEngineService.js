@@ -82,7 +82,7 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     }
 
     // 6. Return preview
-    return { trades, metrics, strategyName: dbStrategy.name, pair: symbol, timeframe, code: dbStrategy.code };
+    return { trades, metrics, strategyName: dbStrategy.name, symbol, timeframe, code: dbStrategy.code };
 };
 
 // --- Run batch backtests ---

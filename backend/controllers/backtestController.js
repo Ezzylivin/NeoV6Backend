@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runStrategyService } from "../services/strategyEngineService.js";
+import { fetchAllExchangeSymbols } from "../services/priceService.js"; // new function
 
 // --- Run single backtest ---
 export const runBacktestController = async (req, res) => {
@@ -50,49 +51,42 @@ export const runBatchBacktestsController = async (req, res) => {
   }
 };
 
-// --- Fetch backtest options --- 
+// --- Fetch backtest options ---
 export const fetchBacktestOptionsController = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Fetch user's strategies
+    // 1. Fetch user strategies
     const strategies = await Strategy.find({ userId })
       .select("_id name code params")
       .lean();
 
-    // Initialize sets to collect unique values
+    // 2. Initialize sets for unique dropdown values
     const symbolSet = new Set();
     const timeframeSet = new Set();
     const takeProfitSet = new Set();
     const stopLossSet = new Set();
 
+    // 3. Add symbols from user strategies
     strategies.forEach((s) => {
       const p = s.params || {};
-
-      // Handle both string and array values
-      if (p.symbol) {
-        Array.isArray(p.symbol) ? p.symbol.forEach(sym => symbolSet.add(sym)) : symbolSet.add(p.symbol);
-      }
-
-      if (p.timeframe) {
-        Array.isArray(p.timeframe) ? p.timeframe.forEach(tf => timeframeSet.add(tf)) : timeframeSet.add(p.timeframe);
-      }
-
-      if (p.takeProfit) {
-        Array.isArray(p.takeProfit) ? p.takeProfit.forEach(tp => takeProfitSet.add(tp)) : takeProfitSet.add(p.takeProfit);
-      }
-
-      if (p.stopLoss) {
-        Array.isArray(p.stopLoss) ? p.stopLoss.forEach(sl => stopLossSet.add(sl)) : stopLossSet.add(p.stopLoss);
-      }
+      if (p.symbol) Array.isArray(p.symbol) ? p.symbol.forEach(sym => symbolSet.add(sym)) : symbolSet.add(p.symbol);
+      if (p.timeframe) Array.isArray(p.timeframe) ? p.timeframe.forEach(tf => timeframeSet.add(tf)) : timeframeSet.add(p.timeframe);
+      if (p.takeProfit) Array.isArray(p.takeProfit) ? p.takeProfit.forEach(tp => takeProfitSet.add(tp)) : takeProfitSet.add(p.takeProfit);
+      if (p.stopLoss) Array.isArray(p.stopLoss) ? p.stopLoss.forEach(sl => stopLossSet.add(sl)) : stopLossSet.add(p.stopLoss);
     });
 
-    // Convert sets to arrays for frontend dropdowns
+    // 4. Fetch all live exchange symbols dynamically
+    const exchangeSymbols = await fetchAllExchangeSymbols(); // returns array of strings
+    exchangeSymbols.forEach(sym => symbolSet.add(sym));
+
+    // 5. Convert sets to arrays
     const symbols = Array.from(symbolSet);
     const timeframes = Array.from(timeframeSet);
     const takeProfits = Array.from(takeProfitSet);
     const stopLosses = Array.from(stopLossSet);
 
+    // 6. Return options for frontend
     res.json({ strategies, symbols, timeframes, takeProfits, stopLosses });
   } catch (err) {
     console.error("Error fetching backtest options:", err);

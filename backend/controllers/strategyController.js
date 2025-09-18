@@ -8,7 +8,7 @@ export const createStrategy = async (req, res) => {
     const { name, description, params, code } = req.body;
 
     const strategy = await Strategy.create({
-      userId: new mongoose.Types.ObjectId(req.user._id), // ensure ObjectId
+      userId: new mongoose.Types.ObjectId(req.user.id), // ensure ObjectId
       name,
       description,
       params,
@@ -26,7 +26,7 @@ export const createStrategy = async (req, res) => {
 export const getStrategies = async (req, res) => {
   try {
     const strategies = await Strategy.find({
-      userId: new mongoose.Types.ObjectId(req.user._id),
+      userId: new mongoose.Types.ObjectId(req.user.id),
     }).lean();
 
     res.json(strategies);
@@ -43,7 +43,7 @@ export const getStrategyByCode = async (req, res) => {
 
     const strategy = await Strategy.findOne({
       code,
-      userId: new mongoose.Types.ObjectId(req.user._id),
+      userId: new mongoose.Types.ObjectId(req.user.id),
     }).lean();
 
     if (!strategy) {
@@ -64,7 +64,7 @@ export const deleteStrategy = async (req, res) => {
 
     const deleted = await Strategy.findOneAndDelete({
       code,
-      userId: new mongoose.Types.ObjectId(req.user._id),
+      userId: new mongoose.Types.ObjectId(req.user.id),
     });
 
     if (!deleted) {

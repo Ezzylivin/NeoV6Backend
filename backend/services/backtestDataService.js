@@ -6,7 +6,7 @@ const US_EXCHANGES = ['coinbase', 'kraken', 'binanceus'];
 const CANDLE_LIMIT = 200;
 let cachedOptions = null;
 let cacheTimestamp = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
 
 async function fetchCandles(exchangeId, symbol, timeframe) {
   try {
@@ -15,7 +15,7 @@ async function fetchCandles(exchangeId, symbol, timeframe) {
     const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, CANDLE_LIMIT);
     return candles;
   } catch (err) {
-    return null;
+    return null; // expected if pair not available
   }
 }
 

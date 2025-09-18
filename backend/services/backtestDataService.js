@@ -1,78 +1,93 @@
 // File: backend/services/backtestDataService.js
-import ccxt from 'ccxt';
-import axios from 'axios';
-import Cache from '../dbStructure/cache.js'; 
+import ccxt from "ccxt";
+import axios from "axios";
+import Cache from "../dbStructure/cache.js";
 
-const US_EXCHANGES = ['coinbase', 'kraken', 'gemini'];
+// --- Config ---
+const US_EXCHANGES = ["coinbase", "kraken", "gemini"];
 const CANDLE_LIMIT = 400;
-const CACHE_DURATION = 10 * 60 * 1000; // 10 min
-const CACHE_TTL_MS = 60 * 1000; // in-memory cache TTL
+const CACHE_DURATION = 10 * 60 * 1000; // 10 min persistent cache
+const CACHE_TTL_MS = 60 * 1000; // 1 min in-memory cache for candles
 
+// --- In-memory caches ---
 const cache = new Map();
+let supportedSymbols = null; // will hold all valid pairs from US exchanges
 
-// --- Normalize symbol to US-style (XXX/USD) ---
-function normalizeToUSD(symbol) {
-  if (!symbol) return 'BTC/USD';
-  let upper = symbol.toUpperCase();
+// --- Preload markets at startup ---
+async function preloadMarkets() {
+  supportedSymbols = new Set();
 
-  // Already in XXX/USD
-  if (upper.includes('/USD')) return upper;
+  for (const exchangeId of US_EXCHANGES) {
+    try {
+      const exchange = new ccxt[exchangeId]({ enableRateLimit: true });
+      const markets = await exchange.loadMarkets();
 
-  // Binance style BTCUSDT -> BTC/USD
-  if (upper.endsWith('USDT')) {
-    return upper.replace('USDT', '/USD');
+      Object.keys(markets).forEach((symbol) => {
+        if (symbol.includes("/USD")) {
+          supportedSymbols.add(symbol);
+        }
+      });
+
+      console.log(
+        `[CandleService] Loaded ${Object.keys(markets).length} markets from ${exchangeId}`
+      );
+    } catch (err) {
+      console.error(`[CandleService] Failed to load markets for ${exchangeId}:`, err.message);
+    }
   }
 
-  // Gemini/Coinbase style BTC-USD -> BTC/USD
-  if (upper.includes('-USD')) {
-    return upper.replace('-USD', '/USD');
-  }
-
-  // If just BTC or ETH etc → append /USD
-  if (!upper.includes('/')) {
-    return `${upper}/USD`;
-  }
-
-  return upper;
+  console.log(
+    `[CandleService] Supported USD symbols across US exchanges: ${[...supportedSymbols].join(", ")}`
+  );
 }
 
-// --- Fetch candles safely ---
+// Kick off preload on module import
+preloadMarkets();
+
+// --- Helpers ---
 async function fetchCandlesWithRetry(exchange, symbol, timeframe) {
   console.log(`[CandleService] Attempting to fetch ${symbol} on ${exchange.id}`);
   try {
     const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, CANDLE_LIMIT);
     if (candles && candles.length > 0) {
-      console.log(`[CandleService] ✅ ${exchange.id} returned ${candles.length} candles for ${symbol}`);
+      console.log(`[CandleService] Successfully fetched ${candles.length} candles for ${symbol}`);
       return candles;
     }
-    console.warn(`[CandleService] ⚠️ ${exchange.id} returned empty data for ${symbol}`);
+    console.warn(`[CandleService] Exchange returned empty data for ${symbol}.`);
     return null;
   } catch (e) {
-    console.error(`[CandleService] ❌ Error fetching ${symbol} on ${exchange.id}:`, e.message);
+    console.error(`[CandleService] Error fetching ${symbol} on ${exchange.id}:`, e.message);
     return null;
   }
 }
 
-// --- Backtest Options (symbols & timeframes) ---
+// --- Main: Backtest Options ---
 export async function getBacktestOptionsData() {
-  const cacheKey = 'backtestOptions';
+  const cacheKey = "backtestOptions";
   const cachedEntry = await Cache.findOne({ key: cacheKey });
-  
+
   if (cachedEntry) {
     console.log("Serving backtest options from persistent cache.");
     return cachedEntry.data;
   }
 
-  const cryptoApiUrl = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1';
+  const cryptoApiUrl =
+    "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1";
+
   try {
     const response = await axios.get(cryptoApiUrl);
-    const top10Cryptos = response.data.map(coin => ({ 
-        id: coin.id,
-        symbol: `${coin.symbol.toUpperCase()}/USD`  // force USD pairs
+    const top10Cryptos = response.data.map((coin) => ({
+      id: coin.id,
+      symbol: coin.symbol.toUpperCase() + "/USD",
     }));
-    const symbols = top10Cryptos.map(crypto => crypto.symbol);
-    const timeframes = ['1m','5m','15m','30m','1h','4h','1d'];
-    const newOptions = { symbols, timeframes };
+
+    // Filter only those supported on US exchanges
+    const tradable = top10Cryptos
+      .map((c) => c.symbol)
+      .filter((s) => supportedSymbols && supportedSymbols.has(s));
+
+    const timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"];
+    const newOptions = { symbols: tradable, timeframes };
 
     const expiresAt = new Date(Date.now() + CACHE_DURATION);
     await Cache.create({ key: cacheKey, data: newOptions, expiresAt });
@@ -81,18 +96,15 @@ export async function getBacktestOptionsData() {
   } catch (err) {
     console.error("❌ Failed to fetch backtest options:", err);
     return {
-      symbols: ['BTC/USD', 'ETH/USD', 'ADA/USD', 'XRP/USD', 'DOGE/USD'],
-      timeframes: ['1m','5m','15m','30m','1h','4h','1d'],
+      symbols: ["BTC/USD", "ETH/USD"], // safe fallback
+      timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
     };
   }
 }
 
-// --- Multi-exchange safe fetch ---
+// --- Candle fetch across US exchanges ---
 export async function fetchOHLCVMultiSafe(symbol, timeframe) {
-  const normalized = normalizeToUSD(symbol);
-  const key = `${normalized}::${timeframe}`;
-
-  // in-memory cache
+  const key = `${symbol}::${timeframe}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.value;
@@ -102,10 +114,9 @@ export async function fetchOHLCVMultiSafe(symbol, timeframe) {
     console.log(`[CandleService] Trying US exchange: ${exchangeId}`);
     const exchange = new ccxt[exchangeId]({ enableRateLimit: true, timeout: 30000 });
 
-    // Try both `BTC/USD` and `BTC-USD` just in case
     const symbolFormats = [
-      normalized,
-      normalized.replace('/', '-') // fallback
+      symbol.includes("/") ? symbol : `${symbol.slice(0, -3)}/${symbol.slice(-3)}`,
+      symbol.replace("/", "-"),
     ];
 
     for (const format of symbolFormats) {
@@ -118,5 +129,5 @@ export async function fetchOHLCVMultiSafe(symbol, timeframe) {
     }
   }
 
-  throw new Error(`Failed to fetch candle data for ${normalized} from all available US exchanges.`);
+  throw new Error(`Failed to fetch candle data for ${symbol} from all available US exchanges.`);
 }

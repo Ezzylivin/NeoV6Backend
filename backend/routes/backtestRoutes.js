@@ -2,7 +2,6 @@
 import express from "express";
 import {
   runBacktestController,
-  runBatchBacktestsController,
   fetchBacktestOptionsController,
   fetchPastBacktestsController,
   getBacktestById,

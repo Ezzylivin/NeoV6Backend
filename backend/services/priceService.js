@@ -18,10 +18,11 @@ try {
 let prices = {}; // in-memory fallback cache
 
 // --- Fetch price from Coinbase US ---
+// UPDATED: Now expects a symbol format like "BTC-USD" and uses it directly.
 const fetchFromCoinbase = async (symbol) => {
-  const url = `https://api.exchange.coinbase.com/products/${symbol}-USD/ticker`;
+  const url = `https://api.exchange.coinbase.com/products/${symbol}/ticker`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Coinbase HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Coinbase HTTP ${res.status} for ${symbol}`);
   const data = await res.json();
   return { close: parseFloat(data.price), timestamp: new Date() };
 };
@@ -64,7 +65,8 @@ export const savePrice = async (symbol, fetchPriceFn = fetchPrice) => {
 };
 
 // --- Get live prices ---
-export const getPrices = async (symbols = ["BTCUSDT"]) => {
+// UPDATED: Default symbol is now in the correct "BTC-USD" format.
+export const getPrices = async (symbols = ["BTC-USD"]) => {
   if (!Array.isArray(symbols)) symbols = [symbols];
   const result = {};
   for (const s of symbols) {
@@ -78,8 +80,9 @@ export const getPrices = async (symbols = ["BTCUSDT"]) => {
 };
 
 // --- Start auto price feed ---
+// UPDATED: Default symbols now use the correct "BASE-QUOTE" format.
 export const startPriceFeed = (
-  symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+  symbols = ["BTC-USD", "ETH-USD", "SOL-USD"],
   intervalMs = 10000,
   fetchPriceFn = fetchFromCoinbase
 ) => {
@@ -97,15 +100,16 @@ export const startPriceFeed = (
 };
 
 // --- Fetch all tradable symbols from US exchanges dynamically ---
+// UPDATED: Filters for USD pairs and returns the correct symbol ID (e.g., "BTC-USD").
 export const fetchAllExchangeSymbols = async () => {
   try {
     const res = await fetch("https://api.exchange.coinbase.com/products");
     if (!res.ok) throw new Error(`Coinbase symbols HTTP ${res.status}`);
     const data = await res.json();
-    // Filter for USD or USDT pairs and return symbol format "BTCUSDT"
+    // Filter for pairs quoted in USD (the primary US currency) and map to the product ID.
     return data
-      .filter((p) => p.quote_currency === "USD" || p.quote_currency === "USDT")
-      .map((p) => p.base_currency + p.quote_currency);
+      .filter((p) => p.quote_currency === "USD")
+      .map((p) => p.id);
   } catch (err) {
     console.error("[PriceService] Failed fetching symbols:", err.message);
     return [];
@@ -116,9 +120,9 @@ export const fetchAllExchangeSymbols = async () => {
 export const fetchAllExchangeParams = async () => {
   try {
     // Predefined common options for US exchanges
-    const timeframes = ["1m","5m","15m","30m","1h","4h","1d"];
-    const takeProfits = [0.01,0.02,0.03,0.05,0.1];
-    const stopLosses = [0.01,0.02,0.03,0.05,0.1];
+    const timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"];
+    const takeProfits = [0.01, 0.02, 0.03, 0.05, 0.1];
+    const stopLosses = [0.01, 0.02, 0.03, 0.05, 0.1];
     return { timeframes, takeProfits, stopLosses };
   } catch (err) {
     console.error("[PriceService] Failed fetching params:", err.message);
@@ -126,7 +130,7 @@ export const fetchAllExchangeParams = async () => {
   }
 };
 
-// ✅ Named + default exports
+// --- Exports ---
 export default {
   fetchPrice,
   savePrice,

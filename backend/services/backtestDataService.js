@@ -1,129 +1,90 @@
-// File: backend/services/backtestDataService.js
-import ccxt from "ccxt";
-import axios from "axios";
-import Cache from "../dbStructure/cache.js";
+import ccxt from 'ccxt';
+import axios from 'axios';
+import Cache from '../dbStructure/cache.js';
 
-// --- Config ---
-const US_EXCHANGES = ["coinbase", "kraken", "gemini"];
+const US_EXCHANGES = ['coinbase', 'kraken', 'gemini'];
 const CANDLE_LIMIT = 400;
-const CACHE_DURATION = 10 * 60 * 1000; // 10 min persistent cache
-const CACHE_TTL_MS = 60 * 1000; // 1 min in-memory cache for candles
+const CACHE_DURATION = 10 * 60 * 1000;
 
-// --- In-memory caches ---
-const cache = new Map();
-let supportedSymbols = null; // will hold all valid pairs from US exchanges
-
-// --- Preload markets at startup ---
-async function preloadMarkets() {
-  supportedSymbols = new Set();
-
-  for (const exchangeId of US_EXCHANGES) {
-    try {
-      const exchange = new ccxt[exchangeId]({ enableRateLimit: true });
-      const markets = await exchange.loadMarkets();
-
-      Object.keys(markets).forEach((symbol) => {
-        if (symbol.includes("/USD")) {
-          supportedSymbols.add(symbol);
-        }
-      });
-
-      console.log(
-        `[CandleService] Loaded ${Object.keys(markets).length} markets from ${exchangeId}`
-      );
-    } catch (err) {
-      console.error(`[CandleService] Failed to load markets for ${exchangeId}:`, err.message);
-    }
-  }
-
-  console.log(
-    `[CandleService] Supported USD symbols across US exchanges: ${[...supportedSymbols].join(", ")}`
-  );
-}
-
-// Kick off preload on module import
-preloadMarkets();
-
-// --- Helpers ---
 async function fetchCandlesWithRetry(exchange, symbol, timeframe) {
-  console.log(`[CandleService] Attempting to fetch ${symbol} on ${exchange.id}`);
   try {
     const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, CANDLE_LIMIT);
     if (candles && candles.length > 0) {
-      console.log(`[CandleService] Successfully fetched ${candles.length} candles for ${symbol}`);
       return candles;
     }
-    console.warn(`[CandleService] Exchange returned empty data for ${symbol}.`);
     return null;
   } catch (e) {
-    console.error(`[CandleService] Error fetching ${symbol} on ${exchange.id}:`, e.message);
     return null;
   }
 }
 
-// --- Main: Backtest Options ---
+// UPGRADED: Now with persistent caching and exchange symbol validation
 export async function getBacktestOptionsData() {
-  const cacheKey = "backtestOptions";
+  const cacheKey = 'backtestOptions';
   const cachedEntry = await Cache.findOne({ key: cacheKey });
-
   if (cachedEntry) {
-    console.log("Serving backtest options from persistent cache.");
     return cachedEntry.data;
   }
 
-  const cryptoApiUrl =
-    "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1";
-
+  const cryptoApiUrl = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1';
   try {
     const response = await axios.get(cryptoApiUrl);
-    const top10Cryptos = response.data.map((coin) => ({
-      id: coin.id,
-      symbol: coin.symbol.toUpperCase() + "/USD",
-    }));
+    const topCryptos = response.data.map(coin => coin.symbol.toUpperCase() + '/USD');
+    
+    const validSymbols = new Set();
+    const supportedTimeframes = new Set(['1m', '5m', '15m', '30m', '1h', '4h', '1d']);
+    const tempExchanges = US_EXCHANGES.map(id => new ccxt[id]());
+    
+    // Check if each crypto is supported on at least one US exchange
+    for (const symbol of topCryptos) {
+      for (const exchange of tempExchanges) {
+        if (exchange.markets && exchange.markets[symbol]) {
+          validSymbols.add(symbol);
+          break;
+        }
+      }
+    }
 
-    // Filter only those supported on US exchanges
-    const tradable = top10Cryptos
-      .map((c) => c.symbol)
-      .filter((s) => supportedSymbols && supportedSymbols.has(s));
-
-    const timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"];
-    const newOptions = { symbols: tradable, timeframes };
+    const newOptions = {
+      symbols: Array.from(validSymbols).sort(),
+      timeframes: Array.from(supportedTimeframes),
+    };
 
     const expiresAt = new Date(Date.now() + CACHE_DURATION);
     await Cache.create({ key: cacheKey, data: newOptions, expiresAt });
-
     return newOptions;
   } catch (err) {
     console.error("❌ Failed to fetch backtest options:", err);
     return {
-      symbols: ["BTC/USD", "ETH/USD"], // safe fallback
-      timeframes: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+      symbols: ['BTC/USD', 'ETH/USD', 'ADA/USD'],
+      timeframes: ['1d', '4h', '1h', '15m'],
     };
   }
 }
 
-// --- Candle fetch across US exchanges ---
+// UPGRADED: A single, robust fetch function for OHLCV data
 export async function fetchOHLCVMultiSafe(symbol, timeframe) {
-  const key = `${symbol}::${timeframe}`;
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return cached.value;
+  const cacheKey = `candles::${symbol}::${timeframe}`;
+  const cachedEntry = await Cache.findOne({ key: cacheKey });
+  if (cachedEntry) {
+    return cachedEntry.data;
   }
-
-  for (const exchangeId of US_EXCHANGES) {
-    console.log(`[CandleService] Trying US exchange: ${exchangeId}`);
+  
+  const exchanges = ['coinbase', 'kraken', 'gemini'];
+  
+  for (const exchangeId of exchanges) {
     const exchange = new ccxt[exchangeId]({ enableRateLimit: true, timeout: 30000 });
-
     const symbolFormats = [
-      symbol.includes("/") ? symbol : `${symbol.slice(0, -3)}/${symbol.slice(-3)}`,
-      symbol.replace("/", "-"),
+        symbol,
+        symbol.replace('/', '-')
     ];
 
     for (const format of symbolFormats) {
       const candles = await fetchCandlesWithRetry(exchange, format, timeframe);
       if (candles) {
-        const result = { candles };
-        cache.set(key, { ts: Date.now(), value: result });
+        const result = { candles, exchange: exchangeId };
+        const expiresAt = new Date(Date.now() + CACHE_DURATION);
+        await Cache.create({ key: cacheKey, data: result, expiresAt });
         return result;
       }
     }

@@ -115,3 +115,26 @@ export const previewStrategyController = async (req, res) => {
     res.status(500).json({ error: "Failed to preview strategy" });
   }
 };
+
+// --- Delete a backtest by ID ---
+export const deleteBacktestController = async (req, res) => {
+  try {
+    const { backtestId } = req.params;
+    const userId = req.user._id;
+
+    // Ensure backtest exists and belongs to the user
+    const deleted = await Backtest.findOneAndDelete({
+      _id: new mongoose.Types.ObjectId(backtestId),
+      userId: new mongoose.Types.ObjectId(userId),
+    });
+
+    if (!deleted) {
+      return res.status(404).json({ error: "Backtest not found" });
+    }
+
+    res.json({ success: true, message: "Backtest deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting backtest:", err);
+    res.status(500).json({ error: "Failed to delete backtest" });
+  }
+};

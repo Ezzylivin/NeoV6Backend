@@ -13,7 +13,7 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     let equity = 0, equityCurve = [], wins = 0, losses = 0, totalProfit = 0, maxDrawdown = 0, peak = 0;
     trades.forEach(trade => {
         equity += trade.profit || 0;
-        equityCurve.push({ timestamp: trade.timestamp, balance: initialBalance + equity });
+        equityCurve.push({ timestamp: trade.timestamp || trade.entryTimestamp, balance: initialBalance + equity });
         if (equity > peak) peak = equity;
         else { const dd = peak - equity; if (dd > maxDrawdown) maxDrawdown = dd; }
         if (trade.profit > 0) wins++; else losses++;
@@ -38,10 +38,10 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     if (!dbStrategy) throw new Error("Strategy object is required.");
     if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
 
-    const { pair, timeframe, startDate, endDate, tp, sl } = params;
+    const { symbol, timeframe, startDate, endDate, tp, sl } = params;
 
     // 1. Fetch market data
-    const { candles } = await fetchOHLCVMultiSafe(pair, timeframe);
+    const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe);
     if (!candles) throw new Error("Could not fetch market data.");
 
     // 2. Get strategy logic
@@ -58,7 +58,7 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     if (!simulateOnly) {
         const backtestData = {
             userId,
-            symbol: pair,
+            symbol,
             timeframe,
             initialBalance: dbStrategy.params.initialBalance || 1000,
             finalBalance,
@@ -82,7 +82,7 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     }
 
     // 6. Return preview
-    return { trades, metrics, strategyName: dbStrategy.name, pair, timeframe, code: dbStrategy.code };
+    return { trades, metrics, strategyName: dbStrategy.name, pair: symbol, timeframe, code: dbStrategy.code };
 };
 
 // --- Run batch backtests ---

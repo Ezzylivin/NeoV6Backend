@@ -7,7 +7,7 @@ import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/pri
 
 export const runBacktestController = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const { code, symbol, timeframe, startDate, endDate, tp, sl, params } = req.body;
         
         const dbStrategy = await Strategy.findOne({ code, userId }).lean();

@@ -27,13 +27,13 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
 };
 
 // --- Run single backtest ---
-export const runBacktest = async ({ userId, code, pair, timeframe, startDate, endDate, tp, sl, simulateOnly = true }) => {
+export const runBacktest = async ({ userId, code, symbol, timeframe, startDate, endDate, tp, sl, simulateOnly = true }) => {
     // 1. Lookup strategy
     const strategy = await Strategy.findOne({ userId, code });
     if (!strategy) throw new Error("Strategy not found.");
 
     // 2. Fetch market data
-    const { candles } = await fetchOHLCVMultiSafe(pair, timeframe);
+    const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe);
     if (!candles) throw new Error("Could not fetch market data.");
 
     // 3. Get strategy function
@@ -49,7 +49,7 @@ export const runBacktest = async ({ userId, code, pair, timeframe, startDate, en
     // 6. Prepare backtest object
     const backtestData = {
         userId,
-        symbol: pair, // FIX: Use 'pair' instead of 'symbol' for consistency
+        symbol, // FIX: Use 'symbol' instead of 'pair' for consistency
         timeframe,
         initialBalance: strategy.params.initialBalance || 1000,
         finalBalance,
@@ -57,7 +57,7 @@ export const runBacktest = async ({ userId, code, pair, timeframe, startDate, en
         endDate,
         takeProfit: tp,
         stopLoss: sl,
-        candlesTested: candles.length, // FIX: Added candles tested metric
+        candlesTested: candles.length,
         strategy: {
             name: strategy.name,
             type: strategy.params.strategyType,

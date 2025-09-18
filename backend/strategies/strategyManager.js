@@ -7,7 +7,7 @@ import technicalindicators from 'technicalindicators';
 import { rsiStrategy } from './rsiStrategy.js';
 import { macdStrategy } from './macdStrategy.js';
 import { bollingerBandsStrategy } from './bollingerBandsStrategy.js';
-import { smaCrossoverStrategy } from './smaCrossover.js';
+import { smaCrossoverStrategy } from './smaCrossoverStrategy.js';
 import { stochasticStrategy } from './stochasticStrategy.js';
 import { parabolicSARStrategy } from './parabolicSARStrategy.js';
 import { onBalanceVolumeStrategy } from './onBalanceVolumeStrategy.js';

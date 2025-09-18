@@ -10,7 +10,7 @@ import {
 // Controller to save a new strategy
 export const saveStrategyController = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const strategyData = req.body;
         const newStrategy = await saveStrategyService(userId, strategyData);
         res.status(201).json(newStrategy);
@@ -23,7 +23,7 @@ export const saveStrategyController = async (req, res) => {
 // Controller to get all strategies for a user
 export const getStrategiesController = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const strategies = await getStrategiesService(userId);
         
         // --- THIS IS THE FIX ---
@@ -39,7 +39,7 @@ export const getStrategiesController = async (req, res) => {
 
 export const runStrategyController = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         // FIX: Use 'code' instead of 'strategyId' for consistency
         const { code, symbol, timeframe } = req.body;
 

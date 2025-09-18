@@ -5,27 +5,55 @@ import Cache from '../dbStructure/cache.js';
 
 const US_EXCHANGES = ['coinbase', 'kraken', 'gemini'];
 const CANDLE_LIMIT = 400;
-const CACHE_DURATION = 10 * 60 * 1000;
+const CACHE_DURATION = 10 * 60 * 1000; // 10 min
+const CACHE_TTL_MS = 60 * 1000; // in-memory cache TTL
 
 const cache = new Map();
-const CACHE_TTL_MS = 60 * 1000;
 
+// --- Normalize symbol to US-style (XXX/USD) ---
+function normalizeToUSD(symbol) {
+  if (!symbol) return 'BTC/USD';
+  let upper = symbol.toUpperCase();
+
+  // Already in XXX/USD
+  if (upper.includes('/USD')) return upper;
+
+  // Binance style BTCUSDT -> BTC/USD
+  if (upper.endsWith('USDT')) {
+    return upper.replace('USDT', '/USD');
+  }
+
+  // Gemini/Coinbase style BTC-USD -> BTC/USD
+  if (upper.includes('-USD')) {
+    return upper.replace('-USD', '/USD');
+  }
+
+  // If just BTC or ETH etc → append /USD
+  if (!upper.includes('/')) {
+    return `${upper}/USD`;
+  }
+
+  return upper;
+}
+
+// --- Fetch candles safely ---
 async function fetchCandlesWithRetry(exchange, symbol, timeframe) {
   console.log(`[CandleService] Attempting to fetch ${symbol} on ${exchange.id}`);
   try {
     const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, CANDLE_LIMIT);
     if (candles && candles.length > 0) {
-      console.log(`[CandleService] Successfully fetched ${candles.length} candles for ${symbol}`);
+      console.log(`[CandleService] ✅ ${exchange.id} returned ${candles.length} candles for ${symbol}`);
       return candles;
     }
-    console.warn(`[CandleService] Exchange returned empty data for ${symbol}.`);
+    console.warn(`[CandleService] ⚠️ ${exchange.id} returned empty data for ${symbol}`);
     return null;
   } catch (e) {
-    console.error(`[CandleService] Error fetching ${symbol} on ${exchange.id}:`, e.message);
+    console.error(`[CandleService] ❌ Error fetching ${symbol} on ${exchange.id}:`, e.message);
     return null;
   }
 }
 
+// --- Backtest Options (symbols & timeframes) ---
 export async function getBacktestOptionsData() {
   const cacheKey = 'backtestOptions';
   const cachedEntry = await Cache.findOne({ key: cacheKey });
@@ -40,7 +68,7 @@ export async function getBacktestOptionsData() {
     const response = await axios.get(cryptoApiUrl);
     const top10Cryptos = response.data.map(coin => ({ 
         id: coin.id,
-        symbol: coin.symbol.toUpperCase() + '/USD'
+        symbol: `${coin.symbol.toUpperCase()}/USD`  // force USD pairs
     }));
     const symbols = top10Cryptos.map(crypto => crypto.symbol);
     const timeframes = ['1m','5m','15m','30m','1h','4h','1d'];
@@ -59,33 +87,36 @@ export async function getBacktestOptionsData() {
   }
 }
 
+// --- Multi-exchange safe fetch ---
 export async function fetchOHLCVMultiSafe(symbol, timeframe) {
-  const key = `${symbol}::${timeframe}`;
+  const normalized = normalizeToUSD(symbol);
+  const key = `${normalized}::${timeframe}`;
+
+  // in-memory cache
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.value;
   }
 
-  const exchanges = ['coinbase', 'kraken', 'gemini'];
-  
-  for (const exchangeId of exchanges) {
+  for (const exchangeId of US_EXCHANGES) {
     console.log(`[CandleService] Trying US exchange: ${exchangeId}`);
     const exchange = new ccxt[exchangeId]({ enableRateLimit: true, timeout: 30000 });
 
+    // Try both `BTC/USD` and `BTC-USD` just in case
     const symbolFormats = [
-        symbol.includes('/') ? symbol : `${symbol.slice(0, -3)}/${symbol.slice(-3)}`,
-        symbol.replace('/', '-')
+      normalized,
+      normalized.replace('/', '-') // fallback
     ];
 
     for (const format of symbolFormats) {
-        const candles = await fetchCandlesWithRetry(exchange, format, timeframe);
-        if (candles) {
-            const result = { candles };
-            cache.set(key, { ts: Date.now(), value: result });
-            return result;
-        }
+      const candles = await fetchCandlesWithRetry(exchange, format, timeframe);
+      if (candles) {
+        const result = { candles };
+        cache.set(key, { ts: Date.now(), value: result });
+        return result;
+      }
     }
   }
 
-  throw new Error(`Failed to fetch candle data for ${symbol} from all available US exchanges.`);
+  throw new Error(`Failed to fetch candle data for ${normalized} from all available US exchanges.`);
 }

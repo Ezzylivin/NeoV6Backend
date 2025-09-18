@@ -2,19 +2,31 @@
 import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runStrategyService, runBatchBacktestsService, runBacktestService } from "../services/strategyEngineService.js";
+import { runStrategyService, runBatchBacktestsService } from "../services/strategyEngineService.js";
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 
 // --- Run single backtest ---
 export const runBacktestController = async (req, res) => {
   try {
-    const { code, params } = req.body;
+    const { code, pair, timeframe, startDate, endDate, tp, sl, params } = req.body;
     const userId = req.user._id;
 
     const dbStrategy = await Strategy.findOne({ code, userId }).lean();
     if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
 
-    const result = await runBacktestService(dbStrategy, params, userId, false); // full backtest
+    const result = await runStrategyService({
+      userId,
+      code: dbStrategy.code,
+      pair,
+      timeframe,
+      startDate,
+      endDate,
+      tp,
+      sl,
+      simulateOnly: false,
+      params: { ...dbStrategy.params, ...params },
+    });
+
     res.json(result);
   } catch (err) {
     console.error("Error running backtest:", err);
@@ -102,13 +114,25 @@ export const fetchPastBacktestsController = async (req, res) => {
 // --- Preview strategy ---
 export const previewStrategyController = async (req, res) => {
   try {
-    const { code, params } = req.body;
+    const { code, pair, timeframe, startDate, endDate, tp, sl, params } = req.body;
     const userId = req.user._id;
 
     const dbStrategy = await Strategy.findOne({ code, userId }).lean();
     if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
 
-    const result = await runBacktestService(dbStrategy, params, userId, true); // previewOnly
+    const result = await runStrategyService({
+      userId,
+      code: dbStrategy.code,
+      pair,
+      timeframe,
+      startDate,
+      endDate,
+      tp,
+      sl,
+      simulateOnly: true,
+      params: { ...dbStrategy.params, ...params },
+    });
+
     res.json(result);
   } catch (err) {
     console.error("Error previewing strategy:", err);
@@ -138,14 +162,12 @@ export const getBacktestById = async (req, res) => {
   }
 };
 
-
 // --- Delete a backtest by ID ---
 export const deleteBacktestController = async (req, res) => {
   try {
     const { backtestId } = req.params;
     const userId = req.user._id;
 
-    // Ensure backtest exists and belongs to the user
     const deleted = await Backtest.findOneAndDelete({
       _id: new mongoose.Types.ObjectId(backtestId),
       userId: new mongoose.Types.ObjectId(userId),

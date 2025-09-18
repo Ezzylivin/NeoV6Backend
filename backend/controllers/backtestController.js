@@ -59,11 +59,14 @@ export const getBacktestOptions = async (req, res) => {
 export const runBacktestController = async (req, res) => {
     try {
         const userId = req.user.id;
+        // FIX: Expect 'code' instead of 'strategyCode'
         const { code, startDate, endDate, timeframe, takeProfit, stopLoss, ...rest } = req.body;
 
+        // FIX: Change the error message to match the new key
         if (!code) return res.status(400).json({ success: false, message: "code required" });
         validateDates(startDate, endDate, timeframe);
 
+        // FIX: find by code, not strategyCode
         const dbStrategy = await Strategy.findOne({ code: code, userId }).lean();
         
         // FIX: Handle the case where the strategy is not found
@@ -84,15 +87,10 @@ export const runBacktestController = async (req, res) => {
 
         return sendResponse(res, result, "Backtest executed successfully");
 
-    } catch (err) { 
+    } catch (err) {
         // This catch block will now only handle true internal server errors
-        sendError(res, err, 'runBacktestController'); 
+        sendError(res, err, 'runBacktestController');
     }
-};
-
-        return sendResponse(res, result, "Backtest executed successfully");
-
-    } catch (err) { sendError(res, err, 'runBacktestController'); }
 };
 
 
@@ -108,7 +106,6 @@ export const runBatchBacktestsController = async (req, res) => {
         const limitedConfigs = configs.slice(0, 50);
         limitedConfigs.forEach(cfg => validateDates(cfg.startDate, cfg.endDate, cfg.timeframe));
 
-        // FIX: ensure each config is mapped to strategyCode
         const batchConfigs = [];
         for (const cfg of limitedConfigs) {
             const strategy = await Strategy.findOne({ code: cfg.strategyCode, userId }).lean();

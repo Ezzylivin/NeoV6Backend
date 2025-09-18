@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runStrategyService, runBatchBacktestsService } from "../services/strategyEngineService.js";
+import { runStrategyService } from "../services/strategyEngineService.js";
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 
 export const runBacktestController = async (req, res) => {

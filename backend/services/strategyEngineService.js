@@ -52,46 +52,35 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
 
     // 4. Calculate metrics
     const metrics = calculateMetrics(trades, dbStrategy.params.initialBalance || 1000);
+    const finalBalance = (dbStrategy.params.initialBalance || 1000) + (metrics.totalProfit || 0);
 
     // 5. Save backtest if not simulateOnly
     if (!simulateOnly) {
-        const savedBacktest = await Backtest.create({
+        const backtestData = {
             userId,
-            strategyName: dbStrategy.name,
             symbol: pair,
             timeframe,
+            initialBalance: dbStrategy.params.initialBalance || 1000,
+            finalBalance,
             startDate: startDate || new Date(candles[0][0]),
             endDate: endDate || new Date(candles[candles.length - 1][0]),
-            tp,
-            sl,
-            trades,
-            metrics,
-            initialBalance: dbStrategy.params.initialBalance || 1000,
+            takeProfit: tp,
+            stopLoss: sl,
+            candlesTested: candles.length, // FIX: Added candles tested metric
             strategy: {
                 name: dbStrategy.name,
                 type: dbStrategy.params.strategyType,
                 parameters: dbStrategy.params,
                 code: dbStrategy.code
-            }
-        });
+            },
+            tradeBreakdown: trades,
+            equityCurve: metrics.equityCurve,
+            metrics
+        };
+        const savedBacktest = await Backtest.create(backtestData);
         return savedBacktest;
     }
 
     // 6. Return preview
     return { trades, metrics, strategyName: dbStrategy.name, pair, timeframe, code: dbStrategy.code };
-};
-
-// --- Run batch backtests ---
-export const runBatchBacktestsService = async (dbStrategy, batchParams, userId) => {
-    const results = [];
-    for (const params of batchParams) {
-        const res = await runStrategyService(dbStrategy, params, userId, false);
-        results.push(res);
-    }
-    return results;
-};
-
-// --- Wrapper for preview mode ---
-export const runBacktestService = async (dbStrategy, params, userId, previewOnly = true) => {
-    return runStrategyService(dbStrategy, params, userId, !previewOnly);
 };

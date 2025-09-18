@@ -1,9 +1,8 @@
-// File: backend/controllers/backtestController.js
 import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runStrategyService } from "../services/strategyEngineService.js";
-import { fetchAllExchangeSymbols } from "../services/priceService.js"; // new function
+import { runStrategyService, runBatchBacktestsService, runBacktestService } from "../services/strategyEngineService.js";
+import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 
 // --- Run single backtest ---
 export const runBacktestController = async (req, res) => {
@@ -51,7 +50,7 @@ export const runBatchBacktestsController = async (req, res) => {
   }
 };
 
-// --- Fetch backtest options ---
+// --- Fetch backtest options (upgraded with exchange symbols & params) ---
 export const fetchBacktestOptionsController = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -67,7 +66,7 @@ export const fetchBacktestOptionsController = async (req, res) => {
     const takeProfitSet = new Set();
     const stopLossSet = new Set();
 
-    // 3. Add symbols from user strategies
+    // 3. Add user strategy options
     strategies.forEach((s) => {
       const p = s.params || {};
       if (p.symbol) Array.isArray(p.symbol) ? p.symbol.forEach(sym => symbolSet.add(sym)) : symbolSet.add(p.symbol);
@@ -77,16 +76,22 @@ export const fetchBacktestOptionsController = async (req, res) => {
     });
 
     // 4. Fetch all live exchange symbols dynamically
-    const exchangeSymbols = await fetchAllExchangeSymbols(); // returns array of strings
+    const exchangeSymbols = await fetchAllExchangeSymbols();
     exchangeSymbols.forEach(sym => symbolSet.add(sym));
 
-    // 5. Convert sets to arrays
+    // 5. Fetch exchange-supported params (timeframes, TP, SL)
+    const exchangeParams = await fetchAllExchangeParams();
+    exchangeParams.timeframes.forEach(tf => timeframeSet.add(tf));
+    exchangeParams.takeProfits.forEach(tp => takeProfitSet.add(tp));
+    exchangeParams.stopLosses.forEach(sl => stopLossSet.add(sl));
+
+    // 6. Convert sets to arrays
     const symbols = Array.from(symbolSet);
     const timeframes = Array.from(timeframeSet);
     const takeProfits = Array.from(takeProfitSet);
     const stopLosses = Array.from(stopLossSet);
 
-    // 6. Return options for frontend
+    // 7. Return for frontend
     res.json({ strategies, symbols, timeframes, takeProfits, stopLosses });
   } catch (err) {
     console.error("Error fetching backtest options:", err);

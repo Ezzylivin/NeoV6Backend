@@ -24,8 +24,6 @@ router.get("/:backtestId", protect, getBacktestById);
 // Route for running a single backtest
 router.post("/run", protect, runBacktestController);
 
-// Route for running batch backtests
-router.post("/batch", protect, runBatchBacktestsController);
 
 // Route for previewing a strategy without saving
 router.post("/preview", protect, previewStrategyController);

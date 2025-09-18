@@ -37,17 +37,18 @@ export const getStrategiesController = async (req, res) => {
     }
 };
 
-// Controller to run a strategy
 export const runStrategyController = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { strategyId, pair, timeframe } = req.body;
+        // FIX: Use 'code' instead of 'strategyId' for consistency
+        const { code, symbol, timeframe } = req.body;
 
-        if (!strategyId || !pair || !timeframe) {
-            return res.status(400).json({ message: 'strategyId, pair, and timeframe are required.' });
+        if (!code || !symbol || !timeframe) {
+            return res.status(400).json({ message: 'code, symbol, and timeframe are required.' });
         }
 
-        const result = await runStrategyService(userId, strategyId, pair, timeframe);
+        // FIX: Pass 'code' to the service function
+        const result = await runStrategyService(userId, code, symbol, timeframe);
         res.status(200).json(result);
     } catch (error) {
         console.error('Error running strategy:', error);

@@ -12,23 +12,22 @@ import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Route for fetching past backtests (paginated)
+// --- Fetch paginated past backtests ---
 router.get("/", protect, fetchPastBacktestsController);
 
-// Route for fetching backtest options
+// --- Fetch dropdown options for backtests ---
 router.get("/options", protect, fetchBacktestOptionsController);
 
-// Route for fetching a single backtest by ID
-router.get("/:backtestId", protect, getBacktestById);
-
-// Route for running a single backtest
+// --- Run a single backtest ---
 router.post("/run", protect, runBacktestController);
 
-
-// Route for previewing a strategy without saving
+// --- Preview a strategy without saving ---
 router.post("/preview", protect, previewStrategyController);
 
-// Route for deleting a backtest
+// --- Fetch a single backtest by ID ---
+router.get("/:backtestId", protect, getBacktestById);
+
+// --- Delete a backtest by ID ---
 router.delete("/:backtestId", protect, deleteBacktest);
 
 export default router;

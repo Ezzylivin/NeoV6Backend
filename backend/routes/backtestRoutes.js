@@ -3,8 +3,8 @@ import express from "express";
 import {
   runBacktestController,
   runBatchBacktestsController,
-  getBacktestOptions,
-  getUserBacktests,
+  fetchBacktestOptionsController,
+  fetchPastBacktestsController,
   getBacktestById,
   deleteBacktest,
   previewStrategyController,
@@ -13,17 +13,25 @@ import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Route for fetching past backtests
-router.get("/", protect, getUserBacktests);
+// Route for fetching past backtests (paginated)
+router.get("/", protect, fetchPastBacktestsController);
 
 // Route for fetching backtest options
-router.get("/options", protect, getBacktestOptions);
+router.get("/options", protect, fetchBacktestOptionsController);
 
-// ... other routes
+// Route for fetching a single backtest by ID
 router.get("/:backtestId", protect, getBacktestById);
+
+// Route for running a single backtest
 router.post("/run", protect, runBacktestController);
+
+// Route for running batch backtests
 router.post("/batch", protect, runBatchBacktestsController);
+
+// Route for previewing a strategy without saving
 router.post("/preview", protect, previewStrategyController);
+
+// Route for deleting a backtest
 router.delete("/:backtestId", protect, deleteBacktest);
 
 export default router;

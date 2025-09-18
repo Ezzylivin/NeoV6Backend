@@ -40,6 +40,9 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
 
     const { pair, timeframe, startDate, endDate, tp, sl } = params;
 
+    // 1. Fetch market data
+    const { candles } = await fetchOHLCVMultiSafe(pair, timeframe);
+    if (!candles) throw new Error("Could not fetch market data.");
 
     // 2. Get strategy logic
     const strategyFunction = getStrategy(dbStrategy.params.strategyType);
@@ -63,7 +66,7 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
             endDate: endDate || new Date(candles[candles.length - 1][0]),
             takeProfit: tp,
             stopLoss: sl,
-            candlesTested: candles.length, // FIX: Added candles tested metric
+            candlesTested: candles.length,
             strategy: {
                 name: dbStrategy.name,
                 type: dbStrategy.params.strategyType,
@@ -81,39 +84,6 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     // 6. Return preview
     return { trades, metrics, strategyName: dbStrategy.name, pair, timeframe, code: dbStrategy.code };
 };
-
- // FIX: A single, robust fetch function for OHLCV data
-export async function fetchOHLCVMultiSafe(symbol, timeframe) {
-  const key = `${symbol}::${timeframe}`;
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return cached.value;
-  }
-
-  const exchanges = ['coinbase', 'kraken', 'gemini'];
-
-  for (const exchangeId of exchanges) {
-    console.log(`[CandleService] Trying US exchange: ${exchangeId}`);
-    const exchange = new ccxt[exchangeId]({ enableRateLimit: true, timeout: 30000 });
-
-    // FIX: Correctly handle different US symbol formats
-    const symbolFormats = [
-      symbol.includes('/') ? symbol : `${symbol.slice(0, -3)}/${symbol.slice(-3)}`,
-      symbol.replace('/', '-')
-    ];
-
-    for (const format of symbolFormats) {
-      const candles = await fetchCandlesWithRetry(exchange, format, timeframe);
-      if (candles) {
-        const result = { candles };
-        cache.set(key, { ts: Date.now(), value: result });
-        return result;
-      }
-    }
-  }
-
-  throw new Error(`Failed to fetch candle data for ${symbol} from all available US exchanges.`);
-}
 
 // --- Run batch backtests ---
 export const runBatchBacktestsService = async (dbStrategy, batchParams, userId) => {

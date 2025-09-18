@@ -1,7 +1,7 @@
 // File: backend/controllers/backtestController.js
 import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
-import { runBacktestService, runBatchBacktestsService } from "../services/strategyEngineService.js";
+import { runBacktest, runBatchBacktests } from "../services/strategyEngineService.js";
 
 // --- Run single backtest ---
 export const runBacktestController = async (req, res) => {

@@ -28,18 +28,9 @@ export const saveStrategyService = async (userId, strategyData) => {
     return Strategy.create({ userId, ...strategyData });
 };
 
-export const getStrategies = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const strategies = await getStrategiesService(userId);
-
-        // FIX: Ensure the response is always a JSON object with a 'strategies' key.
-        const responseData = { strategies: Array.isArray(strategies) ? strategies : [strategies] };
-
-        res.status(200).json(responseData);
-    } catch (err) {
-        sendError(res, err);
-    }
+// --- Get all strategies for a user ---
+export const getStrategiesService = async (userId) => {
+    return Strategy.find({ userId }).select("_id name code params").lean();
 };
 
 // --- Run strategy (single) ---
@@ -92,4 +83,19 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
 
     // 6. Return preview
     return { trades, metrics, strategyName: dbStrategy.name, pair, timeframe, code: dbStrategy.code };
+};
+
+// --- Run batch backtests ---
+export const runBatchBacktestsService = async (dbStrategy, batchParams, userId) => {
+    const results = [];
+    for (const params of batchParams) {
+        const res = await runStrategyService(dbStrategy, params, userId, false);
+        results.push(res);
+    }
+    return results;
+};
+
+// --- Wrapper for preview mode ---
+export const runBacktestService = async (dbStrategy, params, userId, previewOnly = true) => {
+    return runStrategyService(dbStrategy, params, userId, !previewOnly);
 };

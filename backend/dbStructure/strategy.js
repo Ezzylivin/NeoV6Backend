@@ -21,7 +21,7 @@ const strategySchema = new Schema({
   description: { type: String, default: "", trim: true },
   isActive: { type: Boolean, default: false },
   params: {
-    symbol: { type: String, default: "BTCUSDT", trim: true, uppercase: true },
+    symbol: { type: String, default: "BTC-USD", trim: true, uppercase: true },
     timeframe: { type: String, default: "1h" },
     initialBalance: { type: Number, default: 1000, min: 1 },
     strategyType: { type: String, default: "SMA" },

@@ -7,11 +7,12 @@ import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/pri
 
 export const runBacktestController = async (req, res) => {
     try {
+        const userId = req.user.id;
         const { code, pair, timeframe, startDate, endDate, tp, sl, params } = req.body;
-        const userId = req.user._id;
-
+        
         const dbStrategy = await Strategy.findOne({ code, userId }).lean();
         
+        // FIX: Check if dbStrategy exists before proceeding
         if (!dbStrategy) {
             return res.status(404).json({ error: "Strategy not found" });
         }
@@ -26,7 +27,6 @@ export const runBacktestController = async (req, res) => {
             params: { ...dbStrategy.params, ...params }
         };
 
-        // FIX: Pass arguments correctly to the service function
         const result = await runStrategyService(dbStrategy, backtestParams, userId, false);
 
         res.json(result);

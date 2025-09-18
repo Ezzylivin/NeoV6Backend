@@ -117,7 +117,7 @@ export const previewStrategyController = async (req, res) => {
 };
 
 // --- Fetch a single backtest by ID ---
-export const getBacktestByIdController = async (req, res) => {
+export const getBacktestById = async (req, res) => {
   try {
     const { backtestId } = req.params;
     const userId = req.user._id;

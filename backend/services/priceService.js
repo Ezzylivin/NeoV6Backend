@@ -94,10 +94,31 @@ export const startPriceFeed = (
   setInterval(updateAll, intervalMs);
 };
 
+// --- NEW: Fetch all live exchange symbols dynamically ---
+export const fetchAllExchangeSymbols = async () => {
+  try {
+    // Example: fetch symbols from Coinbase
+    const res = await fetch("https://api.exchange.coinbase.com/products");
+    if (!res.ok) throw new Error(`Coinbase symbols HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Filter for USDT pairs
+    const symbols = data
+      .filter((p) => p.quote_currency === "USD" || p.quote_currency === "USDT")
+      .map((p) => p.base_currency + p.quote_currency);
+
+    return symbols;
+  } catch (err) {
+    console.error("[PriceService] Failed to fetch all exchange symbols:", err.message);
+    return []; // fallback empty array
+  }
+};
+
 // ✅ Named + default exports
 export default {
   fetchPrice,
   savePrice,
   getPrices,
   startPriceFeed,
+  fetchAllExchangeSymbols,
 };

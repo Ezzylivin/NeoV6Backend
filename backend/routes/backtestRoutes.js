@@ -5,7 +5,7 @@ import {
   fetchBacktestOptionsController,
   fetchPastBacktestsController,
   getBacktestById,
-  deleteBacktest,
+  deleteBacktestController,
   previewStrategyController,
 } from "../controllers/backtestController.js";
 import { protect } from "../middleware/authMiddleware.js";
@@ -28,6 +28,6 @@ router.post("/preview", protect, previewStrategyController);
 router.get("/:backtestId", protect, getBacktestById);
 
 // --- Delete a backtest by ID ---
-router.delete("/:backtestId", protect, deleteBacktest);
+router.delete("/:backtestId", protect, deleteBacktestController);
 
 export default router;

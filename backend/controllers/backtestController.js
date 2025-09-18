@@ -1,3 +1,4 @@
+// File: controllers/backtestController.js
 import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -10,16 +11,10 @@ export const runBacktestController = async (req, res) => {
     const { code, params } = req.body;
     const userId = req.user._id;
 
-    const dbStrategy = await Strategy.findOne({
-      code,
-      userId: new mongoose.Types.ObjectId(userId),
-    }).lean();
+    const dbStrategy = await Strategy.findOne({ code, userId }).lean();
+    if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
 
-    if (!dbStrategy) {
-      return res.status(404).json({ error: "Strategy not found" });
-    }
-
-    const result = await runStrategyService(dbStrategy, params, userId);
+    const result = await runBacktestService(dbStrategy, params, userId, false); // full backtest
     res.json(result);
   } catch (err) {
     console.error("Error running backtest:", err);
@@ -33,14 +28,8 @@ export const runBatchBacktestsController = async (req, res) => {
     const { code, batchParams } = req.body;
     const userId = req.user._id;
 
-    const dbStrategy = await Strategy.findOne({
-      code,
-      userId: new mongoose.Types.ObjectId(userId),
-    }).lean();
-
-    if (!dbStrategy) {
-      return res.status(404).json({ error: "Strategy not found" });
-    }
+    const dbStrategy = await Strategy.findOne({ code, userId }).lean();
+    if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
 
     const results = await runBatchBacktestsService(dbStrategy, batchParams, userId);
     res.json(results);
@@ -50,24 +39,18 @@ export const runBatchBacktestsController = async (req, res) => {
   }
 };
 
-// --- Fetch backtest options (upgraded with exchange symbols & params) ---
+// --- Fetch backtest options ---
 export const fetchBacktestOptionsController = async (req, res) => {
   try {
     const userId = req.user._id;
+    const strategies = await Strategy.find({ userId }).select("_id name code params").lean();
 
-    // 1. Fetch user strategies
-    const strategies = await Strategy.find({ userId })
-      .select("_id name code params")
-      .lean();
-
-    // 2. Initialize sets for unique dropdown values
     const symbolSet = new Set();
     const timeframeSet = new Set();
     const takeProfitSet = new Set();
     const stopLossSet = new Set();
 
-    // 3. Add user strategy options
-    strategies.forEach((s) => {
+    strategies.forEach(s => {
       const p = s.params || {};
       if (p.symbol) Array.isArray(p.symbol) ? p.symbol.forEach(sym => symbolSet.add(sym)) : symbolSet.add(p.symbol);
       if (p.timeframe) Array.isArray(p.timeframe) ? p.timeframe.forEach(tf => timeframeSet.add(tf)) : timeframeSet.add(p.timeframe);
@@ -75,24 +58,21 @@ export const fetchBacktestOptionsController = async (req, res) => {
       if (p.stopLoss) Array.isArray(p.stopLoss) ? p.stopLoss.forEach(sl => stopLossSet.add(sl)) : stopLossSet.add(p.stopLoss);
     });
 
-    // 4. Fetch all live exchange symbols dynamically
     const exchangeSymbols = await fetchAllExchangeSymbols();
     exchangeSymbols.forEach(sym => symbolSet.add(sym));
 
-    // 5. Fetch exchange-supported params (timeframes, TP, SL)
     const exchangeParams = await fetchAllExchangeParams();
     exchangeParams.timeframes.forEach(tf => timeframeSet.add(tf));
     exchangeParams.takeProfits.forEach(tp => takeProfitSet.add(tp));
     exchangeParams.stopLosses.forEach(sl => stopLossSet.add(sl));
 
-    // 6. Convert sets to arrays
-    const symbols = Array.from(symbolSet);
-    const timeframes = Array.from(timeframeSet);
-    const takeProfits = Array.from(takeProfitSet);
-    const stopLosses = Array.from(stopLossSet);
-
-    // 7. Return for frontend
-    res.json({ strategies, symbols, timeframes, takeProfits, stopLosses });
+    res.json({
+      strategies,
+      symbols: Array.from(symbolSet),
+      timeframes: Array.from(timeframeSet),
+      takeProfits: Array.from(takeProfitSet),
+      stopLosses: Array.from(stopLossSet)
+    });
   } catch (err) {
     console.error("Error fetching backtest options:", err);
     res.status(500).json({ error: "Failed to fetch backtest options" });
@@ -119,66 +99,16 @@ export const fetchPastBacktestsController = async (req, res) => {
   }
 };
 
-// --- Fetch a single backtest by ID ---
-export const getBacktestById = async (req, res) => {
-  try {
-    const { backtestId } = req.params;
-    const userId = req.user._id;
-
-    const backtest = await Backtest.findOne({
-      _id: new mongoose.Types.ObjectId(backtestId),
-      userId: new mongoose.Types.ObjectId(userId),
-    }).lean();
-
-    if (!backtest) {
-      return res.status(404).json({ error: "Backtest not found" });
-    }
-
-    res.json(backtest);
-  } catch (err) {
-    console.error("Error fetching backtest by ID:", err);
-    res.status(500).json({ error: "Failed to fetch backtest" });
-  }
-};
-
-// --- Delete a backtest by ID ---
-export const deleteBacktest = async (req, res) => {
-  try {
-    const { backtestId } = req.params;
-    const userId = req.user._id;
-
-    const deleted = await Backtest.findOneAndDelete({
-      _id: new mongoose.Types.ObjectId(backtestId),
-      userId: new mongoose.Types.ObjectId(userId),
-    });
-
-    if (!deleted) {
-      return res.status(404).json({ error: "Backtest not found" });
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Error deleting backtest:", err);
-    res.status(500).json({ error: "Failed to delete backtest" });
-  }
-};
-
-// --- Preview a strategy without saving ---
+// --- Preview strategy ---
 export const previewStrategyController = async (req, res) => {
   try {
     const { code, params } = req.body;
     const userId = req.user._id;
 
-    const dbStrategy = await Strategy.findOne({
-      code,
-      userId: new mongoose.Types.ObjectId(userId),
-    }).lean();
+    const dbStrategy = await Strategy.findOne({ code, userId }).lean();
+    if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
 
-    if (!dbStrategy) {
-      return res.status(404).json({ error: "Strategy not found" });
-    }
-
-    const result = await runBacktestService(dbStrategy, params, userId, true); // true = previewOnly
+    const result = await runBacktestService(dbStrategy, params, userId, true); // previewOnly
     res.json(result);
   } catch (err) {
     console.error("Error previewing strategy:", err);

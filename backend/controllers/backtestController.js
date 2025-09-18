@@ -19,7 +19,7 @@ export const runBacktestController = async (req, res) => {
       return res.status(404).json({ error: "Strategy not found" });
     }
 
-    const result = await runBacktestService(dbStrategy, params, userId);
+    const result = await runStrategyService(dbStrategy, params, userId);
     res.json(result);
   } catch (err) {
     console.error("Error running backtest:", err);

@@ -50,19 +50,48 @@ export const runBatchBacktestsController = async (req, res) => {
   }
 };
 
-// --- Fetch backtest options ---
+// --- Fetch backtest options --- 
 export const fetchBacktestOptionsController = async (req, res) => {
   try {
     const userId = req.user._id;
 
+    // Fetch user's strategies
     const strategies = await Strategy.find({ userId })
-      .select("_id name code params.symbol params.timeframe params.takeProfit params.stopLoss")
+      .select("_id name code params")
       .lean();
 
-    const symbols = [...new Set(strategies.map(s => s.params.symbol))];
-    const timeframes = [...new Set(strategies.map(s => s.params.timeframe))];
-    const takeProfits = [...new Set(strategies.map(s => s.params.takeProfit))];
-    const stopLosses = [...new Set(strategies.map(s => s.params.stopLoss))];
+    // Initialize sets to collect unique values
+    const symbolSet = new Set();
+    const timeframeSet = new Set();
+    const takeProfitSet = new Set();
+    const stopLossSet = new Set();
+
+    strategies.forEach((s) => {
+      const p = s.params || {};
+
+      // Handle both string and array values
+      if (p.symbol) {
+        Array.isArray(p.symbol) ? p.symbol.forEach(sym => symbolSet.add(sym)) : symbolSet.add(p.symbol);
+      }
+
+      if (p.timeframe) {
+        Array.isArray(p.timeframe) ? p.timeframe.forEach(tf => timeframeSet.add(tf)) : timeframeSet.add(p.timeframe);
+      }
+
+      if (p.takeProfit) {
+        Array.isArray(p.takeProfit) ? p.takeProfit.forEach(tp => takeProfitSet.add(tp)) : takeProfitSet.add(p.takeProfit);
+      }
+
+      if (p.stopLoss) {
+        Array.isArray(p.stopLoss) ? p.stopLoss.forEach(sl => stopLossSet.add(sl)) : stopLossSet.add(p.stopLoss);
+      }
+    });
+
+    // Convert sets to arrays for frontend dropdowns
+    const symbols = Array.from(symbolSet);
+    const timeframes = Array.from(timeframeSet);
+    const takeProfits = Array.from(takeProfitSet);
+    const stopLosses = Array.from(stopLossSet);
 
     res.json({ strategies, symbols, timeframes, takeProfits, stopLosses });
   } catch (err) {

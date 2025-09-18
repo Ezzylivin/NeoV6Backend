@@ -5,34 +5,38 @@ import Backtest from "../dbStructure/backtest.js";
 import { runStrategyService, runBatchBacktestsService } from "../services/strategyEngineService.js";
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 
-// --- Run single backtest ---
 export const runBacktestController = async (req, res) => {
-  try {
-    const { code, pair, timeframe, startDate, endDate, tp, sl, params } = req.body;
-    const userId = req.user._id;
+    try {
+        const { code, pair, timeframe, startDate, endDate, tp, sl, params } = req.body;
+        const userId = req.user._id;
 
-    const dbStrategy = await Strategy.findOne({ code, userId }).lean();
-    if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
+        const dbStrategy = await Strategy.findOne({ code, userId }).lean();
+        
+        // FIX: Check if dbStrategy exists before proceeding
+        if (!dbStrategy) {
+            return res.status(404).json({ error: "Strategy not found" });
+        }
 
-    const result = await runStrategyService({
-      userId,
-      code: dbStrategy.code,
-      pair,
-      timeframe,
-      startDate,
-      endDate,
-      tp,
-      sl,
-      simulateOnly: false,
-      params: { ...dbStrategy.params, ...params },
-    });
+        const result = await runStrategyService({
+            userId,
+            code: dbStrategy.code,
+            pair,
+            timeframe,
+            startDate,
+            endDate,
+            tp,
+            sl,
+            simulateOnly: false,
+            params: { ...dbStrategy.params, ...params },
+        });
 
-    res.json(result);
-  } catch (err) {
-    console.error("Error running backtest:", err);
-    res.status(500).json({ error: "Failed to run backtest" });
-  }
+        res.json(result);
+    } catch (err) {
+        console.error("Error running backtest:", err);
+        res.status(500).json({ error: "Failed to run backtest" });
+    }
 };
+
 
 // --- Run batch backtests ---
 export const runBatchBacktestsController = async (req, res) => {

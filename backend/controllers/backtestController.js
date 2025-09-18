@@ -36,6 +36,8 @@ const validateDates = (start, end, timeframe) => {
     }
 };
 
+console.log("runBacktest userId:", req.user.id);
+
 // --- Controller Functions ---
 
 // Fetch backtest options

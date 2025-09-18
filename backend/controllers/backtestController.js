@@ -36,21 +36,7 @@ export const runBacktestController = async (req, res) => {
     }
 };
 
-export const runBatchBacktestsController = async (req, res) => {
-    try {
-        const { code, batchParams } = req.body;
-        const userId = req.user._id;
 
-        const dbStrategy = await Strategy.findOne({ code, userId }).lean();
-        if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
-
-        const results = await runBatchBacktestsService(dbStrategy, batchParams, userId);
-        res.json(results);
-    } catch (err) {
-        console.error("Error running batch backtests:", err);
-        res.status(500).json({ error: "Failed to run batch backtests" });
-    }
-};
 
 export const fetchBacktestOptionsController = async (req, res) => {
     try {

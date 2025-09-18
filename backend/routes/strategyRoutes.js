@@ -1,7 +1,6 @@
 import express from "express";
 import {
   createStrategy,
-  updateStrategy,
   getStrategies,
   getStrategyByCode, // Assuming a new controller for a single strategy
   deleteStrategy
@@ -14,7 +13,6 @@ const router = express.Router();
 router.post("/", protect, createStrategy);         // POST for creating a strategy
 router.get("/", protect, getStrategies);       // GET for retrieving all user's strategies
 router.get("/:id", protect, getStrategyByCode);       // GET for retrieving a single strategy by ID (new)
-router.put("/:id", protect, updateStrategy);       // PUT for updating a strategy by ID
 router.delete("/:id", protect, deleteStrategy);     // DELETE for deleting a strategy by ID
 
 export default router;

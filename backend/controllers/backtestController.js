@@ -116,6 +116,29 @@ export const previewStrategyController = async (req, res) => {
   }
 };
 
+// --- Fetch a single backtest by ID ---
+export const getBacktestByIdController = async (req, res) => {
+  try {
+    const { backtestId } = req.params;
+    const userId = req.user._id;
+
+    const backtest = await Backtest.findOne({
+      _id: new mongoose.Types.ObjectId(backtestId),
+      userId: new mongoose.Types.ObjectId(userId),
+    }).lean();
+
+    if (!backtest) {
+      return res.status(404).json({ error: "Backtest not found" });
+    }
+
+    res.json(backtest);
+  } catch (err) {
+    console.error("Error fetching backtest by ID:", err);
+    res.status(500).json({ error: "Failed to fetch backtest" });
+  }
+};
+
+
 // --- Delete a backtest by ID ---
 export const deleteBacktestController = async (req, res) => {
   try {

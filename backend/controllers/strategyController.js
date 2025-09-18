@@ -1,109 +1,79 @@
 // File: backend/controllers/strategyController.js
-// UPGRADED: Uses the strategy service and ensures the API always returns an array.
-// Added unique 'code' field for each strategy to fix backtest lookup.
-
 import Strategy from "../dbStructure/strategy.js";
-import mongoose from 'mongoose';
-import { getStrategiesService } from "../services/strategyEngineService.js";
-import { nanoid } from "nanoid"; // <-- NEW: For unique strategy codes
+import mongoose from "mongoose";
 
-const sendError = (res, err, status = 500) => {
-    console.error(err);
-    res.status(status).json({ message: err.message || "An unexpected error occurred." });
-};
-
+// --- Create a new strategy ---
 export const createStrategy = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { name, description, params } = req.body;
-        if (!name || !params) {
-            return res.status(400).json({ message: "Missing required fields" });
-        }
+  try {
+    const { name, description, params, code } = req.body;
 
-        // --- Generate unique code for strategy ---
-        // FIX: Use 'code' as the variable name to match the schema.
-        const code = nanoid(8);
+    const strategy = await Strategy.create({
+      userId: new mongoose.Types.ObjectId(req.user.id), // ensure ObjectId
+      name,
+      description,
+      params,
+      code,
+    });
 
-        // FIX: Assign the 'code' variable to the 'code' field.
-        const newStrategy = await Strategy.create({ userId, name, description, params, code });
-        res.status(201).json(newStrategy);
-    } catch(err) {
-        sendError(res, err);
-    }
+    res.json(strategy);
+  } catch (err) {
+    console.error("Error creating strategy:", err);
+    res.status(500).json({ error: "Failed to create strategy" });
+  }
 };
 
+// --- Get all strategies for user ---
+export const getStrategies = async (req, res) => {
+  try {
+    const strategies = await Strategy.find({
+      userId: new mongoose.Types.ObjectId(req.user.id),
+    }).lean();
 
-export const updateStrategy = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { id } = req.params;
-        const { name, description, params } = req.body;
-
-        const updatedStrategy = await Strategy.findOneAndUpdate(
-            { _id: id, userId: userId },
-            { name, description, params },
-            { new: true, runValidators: true }
-        );
-
-        if (!updatedStrategy) {
-            return res.status(404).json({ message: "Strategy not found or you do not have permission to edit it" });
-        }
-        
-        res.status(200).json(updatedStrategy);
-    } catch(err) {
-        sendError(res, err);
-    }
+    res.json(strategies);
+  } catch (err) {
+    console.error("Error fetching strategies:", err);
+    res.status(500).json({ error: "Failed to fetch strategies" });
+  }
 };
 
-export const getUserStrategies = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const strategies = await getStrategiesService(userId);
+// --- Get single strategy by code ---
+export const getStrategyByCode = async (req, res) => {
+  try {
+    const { code } = req.params;
 
-        const responseData = { strategies: Array.isArray(strategies) ? strategies : [strategies] };
+    const strategy = await Strategy.findOne({
+      code,
+      userId: new mongoose.Types.ObjectId(req.user.id),
+    }).lean();
 
-        res.status(200).json(responseData);
-    } catch (err) {
-        sendError(res, err);
+    if (!strategy) {
+      return res.status(404).json({ error: "Strategy not found" });
     }
+
+    res.json(strategy);
+  } catch (err) {
+    console.error("Error fetching strategy:", err);
+    res.status(500).json({ error: "Failed to fetch strategy" });
+  }
 };
 
-export const getStrategyById = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.user.id;
-
-        const strategy = await Strategy.findOne({ code: id, userId }).lean();
-
-        if (!strategy) {
-            return res.status(404).json({ message: "Strategy not found or unauthorized." });
-        }
-
-        res.status(200).json(strategy);
-    } catch (err) {
-        if (err.name === 'CastError') {
-            return res.status(400).json({ message: "Invalid strategy code." });
-        }
-        sendError(res, err);
-    }
-};
-
+// --- Delete strategy ---
 export const deleteStrategy = async (req, res) => {
-    try {
-        const { id } = req.params;
+  try {
+    const { code } = req.params;
 
-        if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({ message: "Invalid strategy ID format." });
-        }
+    const deleted = await Strategy.findOneAndDelete({
+      code,
+      userId: new mongoose.Types.ObjectId(req.user.id),
+    });
 
-        const result = await Strategy.deleteOne({ _id: id, userId: req.user.id });
-
-        if (result.deletedCount === 0) {
-            return res.status(404).json({ message: "Strategy not found or you do not have permission to delete it" });
-        }
-        
-        res.status(200).json({ message: "Strategy deleted successfully" });
-    } catch (err) {
-        sendError(res, err);
+    if (!deleted) {
+      return res.status(404).json({ error: "Strategy not found" });
     }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting strategy:", err);
+    res.status(500).json({ error: "Failed to delete strategy" });
+  }
 };

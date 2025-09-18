@@ -1,14 +1,14 @@
 // File: backend/services/backtestDataService.js
 import ccxt from 'ccxt';
 import axios from 'axios';
-import Cache from '../dbStructure/cache.js'; // Import the new cache model
+import Cache from '../dbStructure/cache.js'; 
 
-const US_EXCHANGES = ['coinbase', 'kraken', 'gemini']; // Using the list from the better implementation
-const CANDLE_LIMIT = 400; // Using the more generous limit
-const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
+const US_EXCHANGES = ['coinbase', 'kraken', 'gemini'];
+const CANDLE_LIMIT = 400;
+const CACHE_DURATION = 10 * 60 * 1000;
 
 const cache = new Map();
-const CACHE_TTL_MS = 60 * 1000; // Cache for 1 minute
+const CACHE_TTL_MS = 60 * 1000;
 
 async function fetchCandlesWithRetry(exchange, symbol, timeframe) {
   console.log(`[CandleService] Attempting to fetch ${symbol} on ${exchange.id}`);
@@ -26,7 +26,6 @@ async function fetchCandlesWithRetry(exchange, symbol, timeframe) {
   }
 }
 
-// UPGRADED: Now with persistent caching for options to prevent rate-limiting issues
 export async function getBacktestOptionsData() {
   const cacheKey = 'backtestOptions';
   const cachedEntry = await Cache.findOne({ key: cacheKey });
@@ -60,7 +59,6 @@ export async function getBacktestOptionsData() {
   }
 }
 
-// UPGRADED: A single, robust fetch function for OHLCV data
 export async function fetchOHLCVMultiSafe(symbol, timeframe) {
   const key = `${symbol}::${timeframe}`;
   const cached = cache.get(key);

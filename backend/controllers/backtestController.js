@@ -7,7 +7,7 @@ import { runBacktestService, runBatchBacktestsService } from "../services/strate
 export const runBacktestController = async (req, res) => {
   try {
     const { code, params } = req.body;
-    const userId = req.user.id;
+    const userId = req.user._id;
 
     const dbStrategy = await Strategy.findOne({
       code,
@@ -31,7 +31,7 @@ export const runBacktestController = async (req, res) => {
 export const runBatchBacktestsController = async (req, res) => {
   try {
     const { code, batchParams } = req.body;
-    const userId = req.user.id;
+    const userId = req.user._id;
 
     const dbStrategy = await Strategy.findOne({
       code,

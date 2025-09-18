@@ -7,7 +7,7 @@ import Log from '../dbStructure/log.js';
  */
 export const getLogs = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
     const limit = parseInt(req.query.limit) || 100;
     
     // CORRECT: Uses the capitalized 'Log' model name
@@ -29,7 +29,7 @@ export const getLogs = async (req, res) => {
  */
 export const createLog = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
     const { message, level } = req.body;
 
     if (!message) {

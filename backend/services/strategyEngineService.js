@@ -28,9 +28,18 @@ export const saveStrategyService = async (userId, strategyData) => {
     return Strategy.create({ userId, ...strategyData });
 };
 
-// --- Get all strategies for a user ---
-export const getStrategiesService = async (userId) => {
-    return Strategy.find({ userId }).select("_id name code params").lean();
+export const getStrategies = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const strategies = await getStrategiesService(userId);
+
+        // FIX: Ensure the response is always a JSON object with a 'strategies' key.
+        const responseData = { strategies: Array.isArray(strategies) ? strategies : [strategies] };
+
+        res.status(200).json(responseData);
+    } catch (err) {
+        sendError(res, err);
+    }
 };
 
 // --- Run strategy (single) ---

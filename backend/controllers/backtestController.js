@@ -8,17 +8,16 @@ import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/pri
 export const runBacktestController = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { code, pair, timeframe, startDate, endDate, tp, sl, params } = req.body;
+        const { code, symbol, timeframe, startDate, endDate, tp, sl, params } = req.body;
         
         const dbStrategy = await Strategy.findOne({ code, userId }).lean();
         
-        // FIX: Check if dbStrategy exists before proceeding
         if (!dbStrategy) {
             return res.status(404).json({ error: "Strategy not found" });
         }
 
         const backtestParams = {
-            pair,
+            symbol,
             timeframe,
             startDate,
             endDate,
@@ -35,8 +34,6 @@ export const runBacktestController = async (req, res) => {
         res.status(500).json({ error: "Failed to run backtest" });
     }
 };
-
-
 
 export const fetchBacktestOptionsController = async (req, res) => {
     try {
@@ -98,14 +95,14 @@ export const fetchPastBacktestsController = async (req, res) => {
 
 export const previewStrategyController = async (req, res) => {
     try {
-        const { code, pair, timeframe, startDate, endDate, tp, sl, params } = req.body;
+        const { code, symbol, timeframe, startDate, endDate, tp, sl, params } = req.body;
         const userId = req.user._id;
 
         const dbStrategy = await Strategy.findOne({ code, userId }).lean();
         if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
 
         const backtestParams = {
-            pair,
+            symbol,
             timeframe,
             startDate,
             endDate,

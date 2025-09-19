@@ -20,7 +20,7 @@
   "dependencies": {
     "nanoid": "^4.0.0",
     "axios": "^1.7.7",
-     "@sentry/react": "^7.112.2",
+    "@sentry/react": "^7.112.2",
     "ccxt": "4.3.38",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -35,7 +35,7 @@
     "ioredis": "^5.4.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
-    "@sentry/vite-plugin": "^2.16.1",
+    "nodemon": "^3.0.1",
+    "@sentry/vite-plugin": "^2.16.1"
   }
 }

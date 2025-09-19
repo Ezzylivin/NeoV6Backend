@@ -61,7 +61,7 @@ export const runBacktest = async ({ userId, code, symbol, timeframe, startDate, 
         strategy: {
             name: strategy.name,
             type: strategy.params.strategyType,
-            parameters: strategy.params,
+            params: strategy.params,
             code: strategy.code
         },
         tradeBreakdown: trades,

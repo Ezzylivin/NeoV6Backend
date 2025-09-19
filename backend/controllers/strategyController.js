@@ -8,13 +8,20 @@ export const createStrategy = async (req, res) => {
   try {
     const { name, description, params } = req.body;
     const userId = req.user._id;
-
     const code = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
 
-    const existingStrategy = await Strategy.findOne({ code, userId });
-    if (existingStrategy) {
+    const strategy = await Strategy.create({ userId, name, description, params, code });
+    res.status(201).json(strategy);
+
+  } catch (err) {
+    // ✅ This block specifically checks for the duplicate key error code (11000).
+    if (err.code === 11000) {
       return res.status(409).json({ message: 'A strategy with this name already exists.' });
     }
+    console.error("Error creating strategy:", err);
+    res.status(500).json({ message: "Failed to create strategy due to a server error" });
+  }
+};
 
     const strategy = await Strategy.create({
       userId,

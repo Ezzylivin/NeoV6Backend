@@ -1,3 +1,4 @@
+//snapshot
 // File: services/strategyEngineService.js
 // MERGED: Strategy runner + optional full backtest saving
 // UPDATED: Fully supports 'code' for strategy lookup

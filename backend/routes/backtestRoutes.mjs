@@ -1,4 +1,3 @@
-// File: backend/routes/backtestRoutes.js
 import express from "express";
 import {
   runBacktestController,
@@ -7,27 +6,21 @@ import {
   getBacktestById,
   deleteBacktestController,
   previewStrategyController,
+  runComboBacktest // ✅ 1. Import the new controller function
 } from "../controllers/backtestController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// --- Fetch paginated past backtests ---
+// --- Existing Routes (no changes) ---
 router.get("/", protect, fetchPastBacktestsController);
-
-// --- Fetch dropdown options for backtests ---
 router.get("/options", protect, fetchBacktestOptionsController);
-
-// --- Run a single backtest ---
 router.post("/run", protect, runBacktestController);
-
-// --- Preview a strategy without saving ---
 router.post("/preview", protect, previewStrategyController);
-
-// --- Fetch a single backtest by ID ---
 router.get("/:backtestId", protect, getBacktestById);
-
-// --- Delete a backtest by ID ---
 router.delete("/:backtestId", protect, deleteBacktestController);
+
+// ✅ 2. Add the new route for combined backtests
+router.post("/combo", protect, runComboBacktest);
 
 export default router;

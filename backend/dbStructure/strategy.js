@@ -1,4 +1,5 @@
 // File: backend/dbStructure/strategy.js
+
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
 
@@ -9,39 +10,24 @@ const strategySchema = new Schema({
     required: true,
     index: true
   },
-  // FIX: Add the new 'code' field. The controller expects this to exist.
   code: {
     type: String,
     required: true,
-    unique: true, // Prevents duplicate strategy codes
     trim: true,
     lowercase: true,
   },
-  name: { type: String, default: "Default Strategy", trim: true, required: true },
+  name: { type: String, trim: true, required: true },
   description: { type: String, default: "", trim: true },
   isActive: { type: Boolean, default: false },
+  
+  // ✅ FIXED: Changed to a flexible 'Mixed' type.
+  // This allows any parameter combination to be saved, which is essential
+  // for supporting different types of trading strategies.
   params: {
-    symbol: { type: String, default: "BTC-USD", trim: true, uppercase: true },
-    timeframe: { type: String, default: "1h" },
-    initialBalance: { type: Number, default: 1000, min: 1 },
-    strategyType: { type: String, default: "SMA" },
-    risk: { type: String, default: "Medium", enum: ["Low", "Medium", "High"] },
-    stopLoss: { type: Number, default: 0.02, min: 0, max: 1 },
-    takeProfit: { type: Number, default: 0.05, min: 0, max: 5 },
-    batchParams: {
-      stopLossOptions: [Number],
-      takeProfitOptions: [Number],
-      intervalOptions: [String],
-    },
-    realism: {
-      useNews: { type: Boolean, default: false },
-      useSlippage: { type: Boolean, default: true },
-      useSpread: { type: Boolean, default: true },
-      useRandomEvents: { type: Boolean, default: false },
-      slippageBps: { type: Number, default: 5, min: 0 },
-      spreadPct: { type: Number, default: 0.1, min: 0 },
-    },
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   },
+
   lastBacktestMetrics: {
     netProfit: Number,
     winRate: Number,
@@ -55,7 +41,7 @@ const strategySchema = new Schema({
   },
 }, { timestamps: true });
 
-// Add an index on the new `code` field for faster lookups
+// Ensures no two strategies from the same user can have the same code.
 strategySchema.index({ code: 1, userId: 1 }, { unique: true });
 
 export default model("Strategy", strategySchema);

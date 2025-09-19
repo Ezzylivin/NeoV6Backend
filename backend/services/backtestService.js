@@ -78,21 +78,3 @@ export const runBacktest = async ({ userId, code, symbol, timeframe, startDate, 
     // 8. Return preview data
     return backtestData;
 };
-
-// --- Run batch backtests ---
-export const runBatchBacktests = async (userId, configs) => {
-    const results = [];
-    const batchConfigs = configs.slice(0, 50); // Limit batch size
-
-    for (const cfg of batchConfigs) {
-        try {
-            const res = await runBacktest({ userId, ...cfg });
-            results.push({ success: true, result: res });
-        } catch (error) {
-            console.error("[Batch Backtest Error]", error.message);
-            results.push({ success: false, error: error.message, config: cfg });
-        }
-    }
-
-    return results;
-};

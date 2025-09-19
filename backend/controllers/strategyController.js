@@ -1,5 +1,5 @@
 // File: backend/controllers/strategyController.js
-// UPGRADED: Standardized to use _id, improved error handling, and added an update function.
+// MODIFIED: Removed the updateStrategy function.
 
 import Strategy from "../dbStructure/strategy.js";
 
@@ -9,10 +9,8 @@ export const createStrategy = async (req, res) => {
     const { name, description, params } = req.body;
     const userId = req.user._id;
 
-    // Generate a unique 'code' from the strategy name for user-friendly URLs/keys
     const code = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
 
-    // Check for duplicates before attempting to save
     const existingStrategy = await Strategy.findOne({ code, userId });
     if (existingStrategy) {
       return res.status(409).json({ message: 'A strategy with this name already exists.' });
@@ -29,7 +27,6 @@ export const createStrategy = async (req, res) => {
     res.status(201).json(strategy);
   } catch (err) {
     console.error("Error creating strategy:", err);
-    // Provide more context for validation errors if they occur
     if (err.name === 'ValidationError') {
       return res.status(400).json({ message: "Validation Error", details: err.message });
     }
@@ -40,7 +37,6 @@ export const createStrategy = async (req, res) => {
 // --- Get all strategies for a user ---
 export const getStrategies = async (req, res) => {
   try {
-    // Mongoose handles ObjectId casting, so 'new mongoose.Types.ObjectId' is not needed here
     const strategies = await Strategy.find({ userId: req.user._id }).lean();
     res.json(strategies);
   } catch (err) {
@@ -50,7 +46,7 @@ export const getStrategies = async (req, res) => {
 };
 
 // --- Get a single strategy by its ID ---
-export const getStrategyByCode = async (req, res) => {
+export const getStrategyById = async (req, res) => {
   try {
     const strategy = await Strategy.findOne({
       _id: req.params.id,
@@ -67,24 +63,11 @@ export const getStrategyByCode = async (req, res) => {
   }
 };
 
-    
-    // Find the strategy by its ID and the user who owns it
-    const strategy = await Strategy.findOne({
-      _id: req.params.id,
-      userId: req.user._id,
-    });
-
-    if (!strategy) {
-      return res.status(404).json({ message: "Strategy not found" });
-    }
-
-
-
 // --- Delete a strategy by its ID ---
 export const deleteStrategy = async (req, res) => {
   try {
     const deleted = await Strategy.findOneAndDelete({
-      _id: req.params.id, // Switched from 'code' to the unique '_id'
+      _id: req.params.id,
       userId: req.user._id,
     });
 

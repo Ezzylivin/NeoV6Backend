@@ -1,6 +1,3 @@
-// File: backend/controllers/strategyController.js
-// MODIFIED: Removed the updateStrategy function.
-
 import Strategy from "../dbStructure/strategy.js";
 
 // --- Create a new strategy ---
@@ -14,29 +11,14 @@ export const createStrategy = async (req, res) => {
     res.status(201).json(strategy);
 
   } catch (err) {
-    // ✅ This block specifically checks for the duplicate key error code (11000).
+    // This now correctly handles both duplicate key errors and validation errors
     if (err.code === 11000) {
       return res.status(409).json({ message: 'A strategy with this name already exists.' });
     }
-    console.error("Error creating strategy:", err);
-    res.status(500).json({ message: "Failed to create strategy due to a server error" });
-  }
-};
-
-    const strategy = await Strategy.create({
-      userId,
-      name,
-      description,
-      params,
-      code,
-    });
-
-    res.status(201).json(strategy);
-  } catch (err) {
-    console.error("Error creating strategy:", err);
     if (err.name === 'ValidationError') {
       return res.status(400).json({ message: "Validation Error", details: err.message });
     }
+    console.error("Error creating strategy:", err);
     res.status(500).json({ message: "Failed to create strategy due to a server error" });
   }
 };
@@ -53,7 +35,8 @@ export const getStrategies = async (req, res) => {
 };
 
 // --- Get a single strategy by its ID ---
-export const getStrategyByCode = async (req, res) => {
+// Renamed for clarity from getStrategyByCode
+export const getStrategyById = async (req, res) => {
   try {
     const strategy = await Strategy.findOne({
       _id: req.params.id,
@@ -64,7 +47,8 @@ export const getStrategyByCode = async (req, res) => {
       return res.status(404).json({ message: "Strategy not found" });
     }
     res.json(strategy);
-  } catch (err) {
+  } catch (err)
+ {
     console.error("Error fetching strategy:", err);
     res.status(500).json({ message: "Failed to fetch strategy" });
   }

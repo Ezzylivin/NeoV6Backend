@@ -70,7 +70,7 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
             strategy: {
                 name: dbStrategy.name,
                 type: dbStrategy.params.strategyType,
-                parameters: dbStrategy.params,
+                params: dbStrategy.params,
                 code: dbStrategy.code
             },
             tradeBreakdown: trades,

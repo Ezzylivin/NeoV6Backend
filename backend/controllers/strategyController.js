@@ -46,7 +46,7 @@ export const getStrategies = async (req, res) => {
 };
 
 // --- Get a single strategy by its ID ---
-export const getStrategyById = async (req, res) => {
+export const getStrategyByCode = async (req, res) => {
   try {
     const strategy = await Strategy.findOne({
       _id: req.params.id,

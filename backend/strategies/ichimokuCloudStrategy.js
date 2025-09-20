@@ -3,7 +3,7 @@
 
 import { IchimokuCloud } from 'technicalindicators';
 
-export function ichimokuStrategy(candles, params) {
+export function ichimokuCloudStrategy(candles, params) {
     // Default parameters for the Ichimoku Cloud strategy
     const { conversionPeriod = 9, basePeriod = 26, spanPeriod = 52, displacement = 26, tradeSize = 1 } = params;
     const trades = [];

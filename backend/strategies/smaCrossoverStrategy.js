@@ -3,7 +3,7 @@
 
 import { SMA } from 'technicalindicators';
 
-export function smaStrategyCrossover(candles, params) {
+export function smaCrossoverStrategy(candles, params) {
     const { shortPeriod = 10, longPeriod = 50 } = params;
     const trades = [];
     let position = null; // Tracks the current position: 'long', 'short', or null

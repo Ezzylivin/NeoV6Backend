@@ -1,12 +1,12 @@
 // File: services/strategyEngineService.js
-// UPGRADED: This service is now fully compliant with the detailed backtest database schema and includes all necessary functions.
+// UPGRADED: The combo backtest service now calculates individual results and returns data in the structure expected by the frontend.
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { getStrategy } from "../strategies/strategyManager.js";
 import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 
-// --- ✅ UPGRADED: Full-featured metrics calculation utility ---
+// --- Metrics calculation utility (no changes) ---
 const calculateMetrics = (trades, initialBalance = 1000) => {
     if (!trades || trades.length === 0) {
         return { 
@@ -80,7 +80,7 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     return { metrics, equityCurve, tradeHistory: trades };
 };
 
-// --- Run strategy (single) ---
+// --- Run strategy (single) (no changes) ---
 export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
     if (!dbStrategy) throw new Error("Strategy object is required.");
     if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
@@ -118,7 +118,6 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
         return await Backtest.create(backtestData);
     }
 
-    // Return a simplified preview
     return { 
       trades: tradeHistory, 
       metrics, 
@@ -129,9 +128,9 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     };
 };
 
-// --- ✅ ADDED: Run a combined strategy backtest ---
+// --- ✅ UPGRADED: Run a combined strategy backtest ---
 export const runCombinedStrategyService = async (userId, comboPayload) => {
-  const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
+  const { strategyCodes, combinationRule, symbol, timeframe, initialBalance = 1000 } = comboPayload;
 
   const dbStrategies = await Strategy.find({ userId, code: { $in: strategyCodes } }).lean();
   if (dbStrategies.length !== strategyCodes.length) throw new Error("One or more strategies not found.");
@@ -139,11 +138,27 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
   const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe);
   if (!candles || candles.length < 1) throw new Error(`Could not fetch market data for ${symbol}.`);
 
-  const strategySignals = dbStrategies.map(dbStrategy => {
-    const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-    return strategyFunction(candles, dbStrategy.params).map(trade => ({ timestamp: trade.entryTime.getTime(), signal: trade.signal }));
-  });
+  // --- 1. Run each strategy individually to get individual results ---
+  const individualResults = [];
+  const strategySignals = [];
 
+  for (const dbStrategy of dbStrategies) {
+    const strategyFunction = getStrategy(dbStrategy.params.strategyType);
+    const individualTrades = strategyFunction(candles, dbStrategy.params);
+    const { metrics, equityCurve } = calculateMetrics(individualTrades, initialBalance);
+    
+    individualResults.push({
+      strategyName: dbStrategy.name,
+      metrics,
+      equityCurve
+    });
+
+    strategySignals.push(
+      individualTrades.map(trade => ({ timestamp: trade.entryTime.getTime(), signal: trade.signal }))
+    );
+  }
+
+  // --- 2. Run the combined logic ---
   const combinedTrades = [];
   let position = null;
 
@@ -168,17 +183,19 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
     }
   }
 
-  const { metrics, equityCurve } = calculateMetrics(combinedTrades, initialBalance);
-  return {
-    metrics,
-    equityCurve,
+  // --- 3. Calculate combined metrics and package the final response ---
+  const { metrics: combinedMetrics, equityCurve: combinedEquityCurve } = calculateMetrics(combinedTrades, initialBalance);
+  
+  const combinedResult = {
+    metrics: combinedMetrics,
+    equityCurve: combinedEquityCurve,
     info: { combinationRule, strategies: dbStrategies.map(s => s.name) },
-    symbol,
-    timeframe,
   };
+
+  return { combinedResult, individualResults };
 };
 
-// --- ✅ ADDED: Helper to apply the combination logic ---
+// --- Helper to apply combination logic (no changes) ---
 function applyCombinationRule(signals, rule) {
   if (rule === 'AND') {
     if (signals.length > 0 && signals.every(s => s === 'buy')) return 'buy';
@@ -190,7 +207,7 @@ function applyCombinationRule(signals, rule) {
   return 'hold';
 }
 
-// --- Other service functions ---
+// --- Other service functions (no changes) ---
 export const getStrategiesService = async (userId) => {
   return Strategy.find({ userId }).select("_id name code params").lean();
 };

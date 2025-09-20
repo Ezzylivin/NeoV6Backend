@@ -1,70 +1,82 @@
-// File: strategies/onbalancevolume.js
-import { OBV, SMA } from "technicalindicators";
+// File: backend/strategies/obvStrategy.js
+// UPGRADED: Full implementation of the On-Balance Volume (OBV) strategy.
 
-/**
- * OBV Strategy with Long and Short
- * - Long entry: OBV line crosses above its moving average
- * - Long exit: OBV line crosses below its moving average
- * - Short entry: OBV line crosses below its moving average
- * - Short exit: OBV line crosses above its moving average
- */
-export const onBalanceVolumeStrategy = (candles, params = {}) => {
-  const { obvPeriod = 20 } = params;
+import { OBV, SMA } from 'technicalindicators';
 
-  const trades = [];
-  const closes = candles.map(c => c[4]);
-  const volumes = candles.map(c => c[5]);
+export function onBalanceVolumeStrategy(candles, params) {
+    // Default parameters for the OBV strategy
+    const { obvPeriod = 20, tradeSize = 1 } = params;
+    const trades = [];
+    let position = null; // Can be 'long', 'short', or null
 
-  const obvValues = OBV.calculate({ values: closes, volume: volumes });
-  const obvMA = SMA.calculate({ values: obvValues, period: obvPeriod });
-
-  let position = null;
-  const startIndex = obvPeriod;
-
-  for (let i = startIndex; i < obvValues.length; i++) {
-    const prevObv = obvValues[i - 1];
-    const currentObv = obvValues[i];
-    const prevObvMA = obvMA[i - startIndex];
-    const currentObvMA = obvMA[i - startIndex + 1] || prevObvMA;
-    const currentPrice = closes[i];
-    const currentTimestamp = new Date(candles[i][0]);
-
-    // --- LONG ENTRY ---
-    if (!position && prevObv <= prevObvMA && currentObv > currentObvMA) {
-      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "long" };
-    }
-    // --- LONG EXIT ---
-    else if (position && position.type === "long" && prevObv >= prevObvMA && currentObv < currentObvMA) {
-      const profit = currentPrice - position.entryPrice;
-      trades.push({
-        entryPrice: position.entryPrice,
-        entryTimestamp: position.entryTimestamp,
-        exitPrice: currentPrice,
-        exitTimestamp: currentTimestamp,
-        profit,
-        positionType: "long",
-      });
-      position = null;
+    // 1. Prepare the candle data for the indicator
+    const closes = candles.map(c => c[4]);
+    const volumes = candles.map(c => c[5]);
+    if (candles.length < obvPeriod) {
+        console.log("Not enough candle data for OBV calculation.");
+        return [];
     }
 
-    // --- SHORT ENTRY ---
-    else if (!position && prevObv >= prevObvMA && currentObv < currentObvMA) {
-      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "short" };
-    }
-    // --- SHORT EXIT ---
-    else if (position && position.type === "short" && prevObv <= prevObvMA && currentObv > currentObvMA) {
-      const profit = position.entryPrice - currentPrice;
-      trades.push({
-        entryPrice: position.entryPrice,
-        entryTimestamp: position.entryTimestamp,
-        exitPrice: currentPrice,
-        exitTimestamp: currentTimestamp,
-        profit,
-        positionType: "short",
-      });
-      position = null;
-    }
-  }
+    // 2. Calculate the OBV and its moving average
+    const obvValues = OBV.calculate({ close: closes, volume: volumes });
+    const obvSma = SMA.calculate({ values: obvValues, period: obvPeriod });
+    const obvOffset = obvValues.length - obvSma.length; // Account for initial candles
 
-  return trades;
-};
+    // 3. Loop through the values to find trade signals
+    for (let i = 1; i < obvSma.length; i++) {
+        const candleIndex = i + obvOffset;
+        const prevObv = obvValues[candleIndex - 1];
+        const currentObv = obvValues[candleIndex];
+        const prevSma = obvSma[i - 1];
+        const currentSma = obvSma[i];
+        const currentPrice = closes[candleIndex];
+        const currentTime = new Date(candles[candleIndex][0]);
+
+        // --- LONG TRADE LOGIC ---
+        // Enter a long position if OBV crosses above its moving average
+        if (prevObv <= prevSma && currentObv > currentSma) {
+            if (position === 'short') { // Exit short
+                const entryTrade = trades[trades.length - 1];
+                entryTrade.exitTime = currentTime;
+                entryTrade.exitPrice = currentPrice;
+                entryTrade.profit = (entryTrade.entryPrice - entryTrade.exitPrice) * entryTrade.size;
+                position = null;
+            }
+            if (!position) { // Enter long
+                position = 'long';
+                trades.push({
+                    entryTime: currentTime,
+                    entryPrice: currentPrice,
+                    signal: 'buy',
+                    position: 'long',
+                    size: tradeSize,
+                });
+            }
+        }
+
+        // --- SHORT TRADE LOGIC ---
+        // Enter a short position if OBV crosses below its moving average
+        else if (prevObv >= prevSma && currentObv < currentSma) {
+            if (position === 'long') { // Exit long
+                const entryTrade = trades[trades.length - 1];
+                entryTrade.exitTime = currentTime;
+                entryTrade.exitPrice = currentPrice;
+                entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
+                position = null;
+            }
+            if (!position) { // Enter short
+                position = 'short';
+                trades.push({
+                    entryTime: currentTime,
+                    entryPrice: currentPrice,
+                    signal: 'sell',
+                    position: 'short',
+                    size: tradeSize,
+                });
+            }
+        }
+    }
+
+    return trades;
+}
+

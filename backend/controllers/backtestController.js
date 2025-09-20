@@ -4,7 +4,7 @@
 import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import { getStrategiesService, runCombinedStrategyService } from "../services/strategyEngineService.js";
+import { runStrategyService, runCombinedStrategyService } from "../services/strategyEngineService.js";
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 
 export const runBacktestController = async (req, res) => {
@@ -23,7 +23,7 @@ export const runBacktestController = async (req, res) => {
             params: { ...dbStrategy.params, ...params }
         };
 
-        const result = await getStrategiesService(dbStrategy, backtestParams, userId, false);
+        const result = await runStrategyService(dbStrategy, backtestParams, userId, false);
 
         res.json(result);
     } catch (err) {
@@ -100,7 +100,7 @@ export const previewStrategyController = async (req, res) => {
         const dbStrategy = await Strategy.findOne({ code, userId }).lean();
         if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
         const backtestParams = { symbol, timeframe, params: { ...dbStrategy.params, ...params } };
-        const result = await getStrategiesService(dbStrategy, backtestParams, userId, true);
+        const result = await runStrategyService(dbStrategy, backtestParams, userId, true);
         res.json(result);
     } catch (err) {
         if (err.message && err.message.includes('Failed to fetch')) {

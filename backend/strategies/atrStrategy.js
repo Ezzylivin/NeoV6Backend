@@ -1,40 +1,67 @@
-import { ATR } from 'technicalindicators';
+// File: strategies/atr.js
+import { ATR } from "technicalindicators";
 
-export const atrStrategy = (candles, params) => {
-    // Note: ATR is primarily a risk management tool, not a direct signal generator.
-    // This strategy is a simple example for demonstration purposes.
-    const trades = [];
-    const high = candles.map(c => c[2]);
-    const low = candles.map(c => c[3]);
-    const close = candles.map(c => c[4]);
-    const { atrPeriod, atrMultiplier = 2 } = params;
+/**
+ * ATR Strategy with Long and Short
+ * - Uses Average True Range to detect volatility breakouts
+ * - Dynamic parameters: atrPeriod, atrMultiplier
+ * - Supports long and short trades with stop loss
+ */
+export const atrStrategy = (candles, params = {}) => {
+  const { atrPeriod = 14, atrMultiplier = 2 } = params;
 
-    const atr = ATR.calculate({ high, low, close, period: atrPeriod });
-    const atrStartIndex = atrPeriod - 1;
+  const trades = [];
+  const highs = candles.map(c => c[2]);
+  const lows = candles.map(c => c[3]);
+  const closes = candles.map(c => c[4]);
 
-    let position = null;
+  const atr = ATR.calculate({ high: highs, low: lows, close: closes, period: atrPeriod });
+  const atrStartIndex = atrPeriod - 1;
 
-    for (let i = atrStartIndex + 1; i < closes.length; i++) {
-        const currentAtr = atr[i - atrStartIndex - 1];
-        const currentPrice = closes[i];
-        const currentTimestamp = new Date(candles[i][0]);
+  let position = null;
 
-        if (!position && currentPrice > closes[i-1] + currentAtr * atrMultiplier) {
-            // Example buy signal: price moves up significantly (e.g., a volatility breakout)
-            position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp };
-        } else if (position && currentPrice < position.entryPrice - currentAtr * atrMultiplier) {
-            // Example sell signal (stop loss based on ATR)
-            const profit = currentPrice - position.entryPrice;
-            trades.push({
-                entryPrice: position.entryPrice,
-                entryTimestamp: position.entryTimestamp,
-                exitPrice: currentPrice,
-                exitTimestamp: currentTimestamp,
-                profit: profit,
-                positionType: 'long',
-            });
-            position = null;
-        }
+  for (let i = atrStartIndex + 1; i < closes.length; i++) {
+    const currentAtr = atr[i - atrStartIndex - 1];
+    const currentPrice = closes[i];
+    const prevPrice = closes[i - 1];
+    const currentTimestamp = new Date(candles[i][0]);
+
+    // --- LONG ENTRY ---
+    if (!position && currentPrice > prevPrice + currentAtr * atrMultiplier) {
+      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "long" };
     }
-    return trades;
+    // --- LONG EXIT ---
+    else if (position && position.type === "long" && currentPrice < position.entryPrice - currentAtr * atrMultiplier) {
+      const profit = currentPrice - position.entryPrice;
+      trades.push({
+        entryPrice: position.entryPrice,
+        entryTimestamp: position.entryTimestamp,
+        exitPrice: currentPrice,
+        exitTimestamp: currentTimestamp,
+        profit,
+        positionType: "long",
+      });
+      position = null;
+    }
+
+    // --- SHORT ENTRY ---
+    else if (!position && currentPrice < prevPrice - currentAtr * atrMultiplier) {
+      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "short" };
+    }
+    // --- SHORT EXIT ---
+    else if (position && position.type === "short" && currentPrice > position.entryPrice + currentAtr * atrMultiplier) {
+      const profit = position.entryPrice - currentPrice; // profit for short trade
+      trades.push({
+        entryPrice: position.entryPrice,
+        entryTimestamp: position.entryTimestamp,
+        exitPrice: currentPrice,
+        exitTimestamp: currentTimestamp,
+        profit,
+        positionType: "short",
+      });
+      position = null;
+    }
+  }
+
+  return trades;
 };

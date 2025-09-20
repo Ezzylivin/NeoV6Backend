@@ -1,68 +1,81 @@
-// File: strategies/parabolicSAR.js
-import { PSAR } from "technicalindicators";
+// File: backend/strategies/parabolicSarStrategy.js
+// UPGRADED: Full implementation of the Parabolic SAR (Stop and Reverse) strategy.
 
-/**
- * Parabolic SAR Strategy with Long and Short
- * - Long entry: Price crosses above SAR
- * - Long exit: Price crosses below SAR
- * - Short entry: Price crosses below SAR
- * - Short exit: Price crosses above SAR
- */
-export const parabolicSARStrategy = (candles, params = {}) => {
-  const { step = 0.02, max = 0.2 } = params;
+import { PSAR } from 'technicalindicators';
 
-  const trades = [];
-  const highs = candles.map(c => c[2]);
-  const lows = candles.map(c => c[3]);
-  const closes = candles.map(c => c[4]);
+export function parabolicSarStrategy(candles, params) {
+    // Default parameters for the Parabolic SAR strategy
+    // step is the acceleration factor, max is the maximum acceleration
+    const { step = 0.02, max = 0.2, tradeSize = 1 } = params;
+    const trades = [];
+    let position = null; // Can be 'long', 'short', or null
 
-  const psarValues = PSAR.calculate({ high: highs, low: lows, step, max });
-
-  let position = null;
-  const startIndex = 0;
-
-  for (let i = startIndex; i < psarValues.length; i++) {
-    const psar = psarValues[i];
-    const prevPrice = closes[i - 1] || closes[i];
-    const currentPrice = closes[i];
-    const currentTimestamp = new Date(candles[i][0]);
-
-    // --- LONG ENTRY ---
-    if (!position && prevPrice <= psar && currentPrice > psar) {
-      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "long" };
-    }
-    // --- LONG EXIT ---
-    else if (position && position.type === "long" && prevPrice >= psar && currentPrice < psar) {
-      const profit = currentPrice - position.entryPrice;
-      trades.push({
-        entryPrice: position.entryPrice,
-        entryTimestamp: position.entryTimestamp,
-        exitPrice: currentPrice,
-        exitTimestamp: currentTimestamp,
-        profit,
-        positionType: "long",
-      });
-      position = null;
+    // 1. Prepare the candle data for the indicator
+    const highs = candles.map(c => c[2]);
+    const lows = candles.map(c => c[3]);
+    if (candles.length < 2) { // PSAR needs at least 2 points to start
+        console.log("Not enough candle data for Parabolic SAR calculation.");
+        return [];
     }
 
-    // --- SHORT ENTRY ---
-    else if (!position && prevPrice >= psar && currentPrice < psar) {
-      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "short" };
-    }
-    // --- SHORT EXIT ---
-    else if (position && position.type === "short" && prevPrice <= psar && currentPrice > psar) {
-      const profit = position.entryPrice - currentPrice;
-      trades.push({
-        entryPrice: position.entryPrice,
-        entryTimestamp: position.entryTimestamp,
-        exitPrice: currentPrice,
-        exitTimestamp: currentTimestamp,
-        profit,
-        positionType: "short",
-      });
-      position = null;
-    }
-  }
+    // 2. Calculate the PSAR values once for efficiency
+    const psarValues = PSAR.calculate({ high: highs, low: lows, step, max });
+    const psarOffset = candles.length - psarValues.length; // Account for initial candles
 
-  return trades;
-};
+    // 3. Loop through the values to find trade signals
+    for (let i = 1; i < psarValues.length; i++) {
+        const candleIndex = i + psarOffset;
+        const prevPsar = psarValues[i - 1];
+        const currentPsar = psarValues[i];
+        const prevClose = candles[candleIndex - 1][4];
+        const currentClose = candles[candleIndex][4];
+        const currentTime = new Date(candles[candleIndex][0]);
+
+        // --- LONG TRADE LOGIC ---
+        // Enter a long position if the SAR dot flips from above to below the price
+        if (prevPsar > prevClose && currentPsar <= currentClose && !position) {
+            position = 'long';
+            trades.push({
+                entryTime: currentTime,
+                entryPrice: currentClose,
+                signal: 'buy',
+                position: 'long',
+                size: tradeSize,
+            });
+        }
+
+        // --- SHORT TRADE LOGIC ---
+        // Enter a short position if the SAR dot flips from below to above the price
+        else if (prevPsar < prevClose && currentPsar >= currentClose && !position) {
+            position = 'short';
+            trades.push({
+                entryTime: currentTime,
+                entryPrice: currentClose,
+                signal: 'sell',
+                position: 'short',
+                size: tradeSize,
+            });
+        }
+
+        // --- EXIT LOGIC ---
+        // Exit any position when the SAR flips in the opposite direction
+        else if (position && (
+            (position === 'long' && prevPsar < prevClose && currentPsar >= currentClose) ||
+            (position === 'short' && prevPsar > prevClose && currentPsar <= currentClose)
+        )) {
+            const entryTrade = trades[trades.length - 1];
+            entryTrade.exitTime = currentTime;
+            entryTrade.exitPrice = currentClose;
+
+            if (position === 'long') {
+                entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
+            } else { // 'short'
+                entryTrade.profit = (entryTrade.entryPrice - entryTrade.exitPrice) * entryTrade.size;
+            }
+            position = null; // Mark the position as closed
+        }
+    }
+
+    return trades;
+}
+

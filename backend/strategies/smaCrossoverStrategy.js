@@ -1,64 +1,91 @@
 // File: backend/strategies/smaStrategy.js
-// UPGRADED: Added detailed logging to debug trade signal generation.
+// UPGRADED: Now powered by the 'technicalindicators' library for professional-grade performance and accuracy.
 
-// --- Helper function to calculate a Simple Moving Average (SMA) ---
-const calculateSMA = (candles, period) => {
-    // Ensure we have enough data to calculate the SMA
-    if (candles.length < period) {
-        return null; // Not enough data
-    }
-    // Get the most recent candles for the calculation
-    const recentCandles = candles.slice(-period);
-    // Sum the closing prices
-    const sum = recentCandles.reduce((acc, candle) => acc + candle[4], 0); // candle[4] is the closing price
-    return sum / period;
-};
+import { SMA } from 'technicalindicators';
 
-// --- Main SMA Crossover Strategy Logic ---
 export function smaStrategy(candles, params) {
     const { shortPeriod = 10, longPeriod = 50 } = params;
     const trades = [];
-    let position = null; // Tracks if we are currently in a 'long' or 'short' position
+    let position = null; // Tracks the current position: 'long', 'short', or null
+
+    // 1. Prepare the closing prices for the indicator
+    const closes = candles.map(c => c[4]);
+    if (closes.length < longPeriod) {
+        console.log("Not enough candle data to run the SMA strategy.");
+        return [];
+    }
+
+    // 2. Calculate the SMAs once, efficiently
+    const shortMA = SMA.calculate({ values: closes, period: shortPeriod });
+    const longMA = SMA.calculate({ values: closes, period: longPeriod });
+    
+    // The longMA will have fewer initial values, so we use its length as the offset
+    const longMAOffset = closes.length - longMA.length;
 
     console.log(`--- Starting SMA Crossover Backtest ---`);
     console.log(`Parameters: Short Period=${shortPeriod}, Long Period=${longPeriod}`);
 
-    // Loop through each candle to generate signals
-    for (let i = longPeriod; i < candles.length; i++) {
-        const currentCandles = candles.slice(0, i + 1);
-        const fastMA = calculateSMA(currentCandles, shortPeriod);
-        const slowMA = calculateSMA(currentCandles, longPeriod);
+    // 3. Loop through the candles to find trade signals
+    for (let i = 1; i < longMA.length; i++) {
+        const candleIndex = i + longMAOffset;
         
-        // Log the indicator values for every 10th candle to avoid spamming the console
+        // Align the shortMA with the longMA
+        const shortMAIndex = candleIndex - shortPeriod + 1;
+
+        const prevShortMA = shortMA[shortMAIndex - 1];
+        const currentShortMA = shortMA[shortMAIndex];
+        const prevLongMA = longMA[i - 1];
+        const currentLongMA = longMA[i];
+
+        if (!currentShortMA || !currentLongMA) continue;
+
+        // Log the indicator values periodically
         if (i % 10 === 0) {
-            console.log(`Candle #${i}: Fast MA = ${fastMA?.toFixed(2)}, Slow MA = ${slowMA?.toFixed(2)}`);
+            console.log(`Candle #${candleIndex}: Fast MA = ${currentShortMA.toFixed(2)}, Slow MA = ${currentLongMA.toFixed(2)}`);
         }
 
-        if (fastMA === null || slowMA === null) {
-            continue; // Skip if we don't have enough data yet
+        // --- LONG TRADE LOGIC ---
+        // Golden Cross: Fast MA crosses above Slow MA
+        if (prevShortMA <= prevLongMA && currentShortMA > currentLongMA) {
+            if (position === 'short') {
+                // Exit short position
+                console.log(`↪️ EXIT SHORT @ Candle #${candleIndex}`);
+                const entryTrade = trades[trades.length - 1];
+                entryTrade.exitTimestamp = candles[candleIndex][0];
+                entryTrade.exitPrice = candles[candleIndex][4];
+                entryTrade.profit = entryTrade.entryPrice - entryTrade.exitPrice;
+                position = null;
+            }
+            if (!position) {
+                // Enter long position
+                console.log(`✅ ENTER LONG @ Candle #${candleIndex}`);
+                position = 'long';
+                trades.push({ entryTimestamp: candles[candleIndex][0], entryPrice: candles[candleIndex][4], signal: 'buy' });
+            }
         }
 
-        // --- Trade Signal Logic ---
-        if (fastMA > slowMA && position !== 'long') {
-            // "Golden Cross": Fast MA crosses above Slow MA -> Buy signal
-            console.log(`✅ BUY SIGNAL @ Candle #${i}: Fast MA (${fastMA.toFixed(2)}) crossed above Slow MA (${slowMA.toFixed(2)})`);
-            position = 'long';
-            trades.push({
-                entryTimestamp: candles[i][0],
-                entryPrice: candles[i][4],
-                signal: 'buy',
-            });
-        } else if (fastMA < slowMA && position === 'long') {
-            // "Death Cross": Fast MA crosses below Slow MA -> Sell signal
-            console.log(`❌ SELL SIGNAL @ Candle #${i}: Fast MA (${fastMA.toFixed(2)}) crossed below Slow MA (${slowMA.toFixed(2)})`);
-            position = null; // Close the position
-            const entryTrade = trades[trades.length - 1];
-            entryTrade.exitTimestamp = candles[i][0];
-            entryTrade.exitPrice = candles[i][4];
-            entryTrade.profit = entryTrade.exitPrice - entryTrade.entryPrice;
+        // --- SHORT TRADE LOGIC ---
+        // Death Cross: Fast MA crosses below Slow MA
+        else if (prevShortMA >= prevLongMA && currentShortMA < currentLongMA) {
+            if (position === 'long') {
+                // Exit long position
+                console.log(`❌ EXIT LONG @ Candle #${candleIndex}`);
+                const entryTrade = trades[trades.length - 1];
+                entryTrade.exitTimestamp = candles[candleIndex][0];
+                entryTrade.exitPrice = candles[candleIndex][4];
+                entryTrade.profit = entryTrade.exitPrice - entryTrade.entryPrice;
+                position = null;
+            }
+            if (!position) {
+                // Enter short position
+                console.log(`🔻 ENTER SHORT @ Candle #${candleIndex}`);
+                position = 'short';
+                trades.push({ entryTimestamp: candles[candleIndex][0], entryPrice: candles[candleIndex][4], signal: 'sell' });
+            }
         }
     }
 
     console.log(`--- Backtest Finished: Total trades generated = ${trades.length} ---`);
     return trades;
 }
+

@@ -9,7 +9,7 @@ const calculateSMA = (candles, period) => {
 };
 
 // --- Main SMA Crossover Strategy Logic ---
-export function smaStrategy(candles, params) {
+export function getStrategy(candles, params) {
     const { shortPeriod = 10, longPeriod = 50 } = params;
     const trades = [];
     let position = null;

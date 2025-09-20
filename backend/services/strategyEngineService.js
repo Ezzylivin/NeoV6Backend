@@ -137,7 +137,11 @@ function applyCombinationRule(signals, rule) {
   return 'hold';
 }
 
-export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
-    // ... (existing code, no changes needed)
+// --- Other service functions (no changes) ---
+export const getStrategiesService = async (userId) => {
+  return Strategy.find({ userId }).select("_id name code params").lean();
 };
 
+export const saveStrategyService = async (userId, strategyData) => {
+    return Strategy.create({ userId, ...strategyData });
+};

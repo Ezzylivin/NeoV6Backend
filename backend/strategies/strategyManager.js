@@ -1,38 +1,39 @@
 // File: backend/strategies/strategyManager.js
-// UPGRADED: Now correctly imports and maps all strategy functions.
+// NEW: Defines and manages all available trading strategies.
 
-import { smaCrossoverStrategy } from './smaCrossoverStrategy.js';
+import technicalindicators from 'technicalindicators';
+
+// --- Import all strategy files ---
 import { rsiStrategy } from './rsiStrategy.js';
 import { macdStrategy } from './macdStrategy.js';
 import { bollingerBandsStrategy } from './bollingerBandsStrategy.js';
+import { smaCrossoverStrategy } from './smaCrossoverStrategy.js';
 import { stochasticStrategy } from './stochasticStrategy.js';
-import { parabolicSarStrategy } from './parabolicSarStrategy.js';
-import { obvStrategy } from './obvStrategy.js';
+import { parabolicSARStrategy } from './parabolicSARStrategy.js';
+import { onBalanceVolumeStrategy } from './onBalanceVolumeStrategy.js';
 import { cciStrategy } from './cciStrategy.js';
 import { atrStrategy } from './atrStrategy.js';
-import { ichimokuStrategy } from './ichimokuStrategy.js';
+import { ichimokuCloudStrategy } from './ichimokuCloudStrategy.js';
 
-// This 'strategies' object maps the human-readable strategy name
-// to the actual JavaScript function that contains the trading logic.
+// --- Strategy Map ---
 const strategies = {
-  'Moving Average Crossover': smaCrossoverStrategy,
-  'RSI': rsiStrategy,
-  'MACD': macdStrategy,
-  'Bollinger Bands': bollingerBandsStrategy,
-  'Stochastic Oscillator': stochasticStrategy,
-  'Parabolic SAR': parabolicSarStrategy,
-  'On-Balance Volume': obvStrategy,
-  'CCI': cciStrategy,
-  'ATR': atrStrategy,
-  'Ichimoku Cloud': ichimokuStrategy,
+    'Moving Average Crossover': smaCrossoverStrategy,
+    'RSI': rsiStrategy,
+    'MACD': macdStrategy,
+    'Bollinger Bands': bollingerBandsStrategy,
+    'Stochastic Oscillator': stochasticStrategy,
+    'Parabolic SAR': parabolicSARStrategy,
+    'On-Balance Volume': onBalanceVolumeStrategy,
+    'CCI': cciStrategy,
+    'ATR': atrStrategy,
+    'Ichimoku Cloud': ichimokuCloudStrategy,
 };
 
-export function getStrategy(strategyType) {
-  const strategyFunction = strategies[strategyType];
-  
-  if (!strategyFunction) {
-    throw new Error(`Strategy type "${strategyType}" is not supported or has not been implemented.`);
-  }
-  
-  return strategyFunction;
-}
+// Export a function to get the correct strategy logic
+export const getStrategy = (strategyType) => {
+    const strategy = strategies[strategyType];
+    if (!strategy) {
+        throw new Error(`Strategy type '${strategyType}' is not supported.`);
+    }
+    return strategy;
+};

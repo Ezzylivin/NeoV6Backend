@@ -1,43 +1,70 @@
-import { OBV, SMA } from 'technicalindicators';
+// File: strategies/onbalancevolume.js
+import { OBV, SMA } from "technicalindicators";
 
-export const onBalanceVolumeStrategy = (candles, params) => {
-    const trades = [];
-    const closes = candles.map(c => c[4]);
-    const volumes = candles.map(c => c[5]);
-    const { obvPeriod } = params;
+/**
+ * OBV Strategy with Long and Short
+ * - Long entry: OBV line crosses above its moving average
+ * - Long exit: OBV line crosses below its moving average
+ * - Short entry: OBV line crosses below its moving average
+ * - Short exit: OBV line crosses above its moving average
+ */
+export const onBalanceVolumeStrategy = (candles, params = {}) => {
+  const { obvPeriod = 20 } = params;
 
-    const obvValues = OBV.calculate({ values: closes, volume: volumes });
-    const obvMA = SMA.calculate({ values: obvValues, period: obvPeriod });
+  const trades = [];
+  const closes = candles.map(c => c[4]);
+  const volumes = candles.map(c => c[5]);
 
-    let position = null;
-    const startIndex = obvPeriod - 1;
+  const obvValues = OBV.calculate({ values: closes, volume: volumes });
+  const obvMA = SMA.calculate({ values: obvValues, period: obvPeriod });
 
-    for (let i = startIndex; i < obvMA.length; i++) {
-        const currentObv = obvValues[i];
-        const prevObv = obvValues[i - 1];
-        const currentObvMA = obvMA[i - startIndex];
-        const prevObvMA = obvMA[i - startIndex - 1];
-        const currentPrice = closes[i];
-        const currentTimestamp = new Date(candles[i][0]);
+  let position = null;
+  const startIndex = obvPeriod;
 
-        if (prevObvMA && currentObvMA) {
-            if (!position && prevObv > prevObvMA && currentObv <= currentObvMA) {
-                // Buy signal: OBV line crosses below its moving average (divergence)
-                position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp };
-            } else if (position && prevObv < prevObvMA && currentObv >= currentObvMA) {
-                // Sell signal: OBV line crosses above its moving average (divergence)
-                const profit = currentPrice - position.entryPrice;
-                trades.push({
-                    entryPrice: position.entryPrice,
-                    entryTimestamp: position.entryTimestamp,
-                    exitPrice: currentPrice,
-                    exitTimestamp: currentTimestamp,
-                    profit: profit,
-                    positionType: 'long',
-                });
-                position = null;
-            }
-        }
+  for (let i = startIndex; i < obvValues.length; i++) {
+    const prevObv = obvValues[i - 1];
+    const currentObv = obvValues[i];
+    const prevObvMA = obvMA[i - startIndex];
+    const currentObvMA = obvMA[i - startIndex + 1] || prevObvMA;
+    const currentPrice = closes[i];
+    const currentTimestamp = new Date(candles[i][0]);
+
+    // --- LONG ENTRY ---
+    if (!position && prevObv <= prevObvMA && currentObv > currentObvMA) {
+      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "long" };
     }
-    return trades;
+    // --- LONG EXIT ---
+    else if (position && position.type === "long" && prevObv >= prevObvMA && currentObv < currentObvMA) {
+      const profit = currentPrice - position.entryPrice;
+      trades.push({
+        entryPrice: position.entryPrice,
+        entryTimestamp: position.entryTimestamp,
+        exitPrice: currentPrice,
+        exitTimestamp: currentTimestamp,
+        profit,
+        positionType: "long",
+      });
+      position = null;
+    }
+
+    // --- SHORT ENTRY ---
+    else if (!position && prevObv >= prevObvMA && currentObv < currentObvMA) {
+      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "short" };
+    }
+    // --- SHORT EXIT ---
+    else if (position && position.type === "short" && prevObv <= prevObvMA && currentObv > currentObvMA) {
+      const profit = position.entryPrice - currentPrice;
+      trades.push({
+        entryPrice: position.entryPrice,
+        entryTimestamp: position.entryTimestamp,
+        exitPrice: currentPrice,
+        exitTimestamp: currentTimestamp,
+        profit,
+        positionType: "short",
+      });
+      position = null;
+    }
+  }
+
+  return trades;
 };

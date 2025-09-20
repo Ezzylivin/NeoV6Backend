@@ -1,12 +1,12 @@
 // File: services/strategyEngineService.js
-// UPGRADED: The response for combo backtests is now more robust and consistent.
+// UPGRADED: This service is now fully compliant with the detailed backtest database schema and includes all necessary functions.
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { getStrategy } from "../strategies/strategyManager.js";
 import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 
-// --- Metrics Calculation Utility (no changes) ---
+// --- Metrics Calculation Utility ---
 const calculateMetrics = (trades, initialBalance = 1000) => {
     if (!trades || trades.length === 0) {
         return { 
@@ -61,7 +61,56 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     return { metrics, equityCurve, tradeHistory: trades };
 };
 
-// --- Run Combined Strategy Service (UPGRADED) ---
+// --- ✅ ADDED: Run strategy (single) ---
+export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
+    if (!dbStrategy) throw new Error("Strategy object is required.");
+    if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
+
+    const { symbol, timeframe, startDate, endDate, initialBalance = 1000 } = params;
+    const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe);
+    if (!candles || candles.length < 1) throw new Error(`Could not fetch market data for ${symbol}.`);
+
+    const strategyFunction = getStrategy(dbStrategy.params.strategyType);
+    const trades = strategyFunction(candles, dbStrategy.params);
+    
+    const { metrics, equityCurve, tradeHistory } = calculateMetrics(trades, initialBalance);
+
+    if (!simulateOnly) {
+        const backtestData = {
+            userId,
+            symbol,
+            timeframe,
+            initialBalance,
+            finalBalance: metrics.finalBalance,
+            profit: metrics.totalProfit,
+            totalTrades: metrics.totalTrades,
+            candlesTested: candles.length,
+            strategy: {
+                name: dbStrategy.name,
+                type: dbStrategy.params.strategyType,
+                parameters: dbStrategy.params,
+            },
+            tradeBreakdown: tradeHistory,
+            equityCurve: equityCurve,
+            metrics: metrics,
+            startDate: startDate || new Date(candles[0][0]),
+            endDate: endDate || new Date(candles[candles.length - 1][0]),
+        };
+        return await Backtest.create(backtestData);
+    }
+
+    // Return a simplified preview
+    return { 
+      trades: tradeHistory, 
+      metrics, 
+      equityCurve,
+      strategyName: dbStrategy.name, 
+      symbol, 
+      timeframe 
+    };
+};
+
+// --- Run Combined Strategy Service ---
 export const runCombinedStrategyService = async (userId, comboPayload) => {
   const { strategyCodes, combinationRule, symbol, timeframe, initialBalance = 1000 } = comboPayload;
 
@@ -71,7 +120,7 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
   const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe);
   if (!candles || candles.length < 1) throw new Error(`Could not fetch market data for ${symbol}.`);
 
-  // ✅ UPGRADED: Calculate individual results first
+  // Calculate individual results first
   const individualResults = dbStrategies.map(dbStrategy => {
       const strategyFunction = getStrategy(dbStrategy.params.strategyType);
       const trades = strategyFunction(candles, dbStrategy.params);
@@ -79,7 +128,7 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
       return {
           strategyName: dbStrategy.name,
           metrics,
-          equityCurve // Keep equityCurve at the top level for consistency
+          equityCurve
       };
   });
 
@@ -115,17 +164,16 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
 
   const { metrics: combinedMetrics, equityCurve: combinedEquityCurve } = calculateMetrics(combinedTrades, initialBalance);
   
-  // ✅ UPGRADED: Return a structured and consistent response object
   return {
     combinedResult: {
         metrics: combinedMetrics,
         equityCurve: combinedEquityCurve
     },
-    individualResults // These already have the correct structure
+    individualResults
   };
 };
 
-// --- Other functions (no changes) ---
+// --- Helper to apply the combination logic ---
 function applyCombinationRule(signals, rule) {
   if (rule === 'AND') {
     if (signals.length > 0 && signals.every(s => s === 'buy')) return 'buy';
@@ -137,7 +185,7 @@ function applyCombinationRule(signals, rule) {
   return 'hold';
 }
 
-// --- Other service functions (no changes) ---
+// --- ✅ ADDED: Other required service functions ---
 export const getStrategiesService = async (userId) => {
   return Strategy.find({ userId }).select("_id name code params").lean();
 };
@@ -145,3 +193,4 @@ export const getStrategiesService = async (userId) => {
 export const saveStrategyService = async (userId, strategyData) => {
     return Strategy.create({ userId, ...strategyData });
 };
+

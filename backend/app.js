@@ -6,18 +6,24 @@ import apiRoutes from './routes/apiRoutes.js';
 
 const app = express();
 
-// --- FLEXIBLE CORS SETUP ---
+// --- FIXED FLEXIBLE CORS SETUP ---
 const corsOptions = {
-    origin: function (origin, callback) {
-        const vercelRegex = /\.vercel\.app$/;
-        const netlifyRegex = /\.netlify\.app$/;
-        if (!origin || origin.startsWith("http://localhost") || vercelRegex.test(origin) || netlifyRegex.test(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error("Request from this origin is not allowed by CORS"));
-        }
-    },
-    credentials: true,
+  origin: function (origin, callback) {
+    const vercelRegex = /\.vercel\.app$/;
+    const netlifyRegex = /\.netlify\.app$/;
+
+    if (
+      !origin || // allow tools like Postman
+      origin.startsWith("http://localhost") ||
+      vercelRegex.test(origin) ||
+      netlifyRegex.test(origin)
+    ) {
+      callback(null, origin); // ✅ echo back the origin instead of "true"
+    } else {
+      callback(new Error("❌ Request from this origin is not allowed by CORS"));
+    }
+  },
+  credentials: true,
 };
 
 app.use(cors(corsOptions));
@@ -26,7 +32,7 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// --- MOUNT ALL API ROUTES ---
+// --- Routes ---
 app.use("/api", apiRoutes);
 
-export default app; // Export the app instance
+export default app;

@@ -77,7 +77,7 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
 };
 
 // --- Other functions (no changes) ---
-export const runBatchBacktestsService = async (dbStrategy, batchParams, userId) => {
+export const runCombinedStrategyService = async (dbStrategy, batchParams, userId) => {
     const results = [];
     for (const params of batchParams) {
         const res = await runStrategyService(dbStrategy, params, userId, false);

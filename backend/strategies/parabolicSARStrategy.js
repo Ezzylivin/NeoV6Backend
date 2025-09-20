@@ -3,7 +3,7 @@
 
 import { PSAR } from 'technicalindicators';
 
-export function parabolicSarStrategy(candles, params) {
+export function parabolicSARStrategy(candles, params) {
     // Default parameters for the Parabolic SAR strategy
     // step is the acceleration factor, max is the maximum acceleration
     const { step = 0.02, max = 0.2, tradeSize = 1 } = params;

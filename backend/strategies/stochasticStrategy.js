@@ -1,76 +1,87 @@
-// File: strategies/stochastic.js
-import { Stochastic } from "technicalindicators";
+// File: backend/strategies/stochasticStrategy.js
+// UPGRADED: Full implementation of the Stochastic Oscillator strategy.
 
-/**
- * Stochastic Strategy with Long and Short
- * - Long entry: %K crosses above %D (oversold)
- * - Long exit: %K crosses below %D (overbought)
- * - Short entry: %K crosses below %D (overbought)
- * - Short exit: %K crosses above %D (oversold)
- */
-export const stochasticStrategy = (candles, params = {}) => {
-  const { kPeriod = 14, dPeriod = 3, overbought = 80, oversold = 20 } = params;
+import { Stochastic } from 'technicalindicators';
 
-  const trades = [];
-  const high = candles.map(c => c[2]);
-  const low = candles.map(c => c[3]);
-  const close = candles.map(c => c[4]);
+export function stochasticStrategy(candles, params) {
+    // Default parameters for the Stochastic Oscillator strategy
+    const { period = 14, signalPeriod = 3, overbought = 80, oversold = 20, tradeSize = 1 } = params;
+    const trades = [];
+    let position = null; // Can be 'long', 'short', or null
 
-  const stochValues = Stochastic.calculate({
-    high,
-    low,
-    close,
-    period: kPeriod,
-    signalPeriod: dPeriod,
-  });
-
-  let position = null;
-  const startIndex = kPeriod + dPeriod - 2;
-
-  for (let i = startIndex; i < close.length; i++) {
-    const currentStoch = stochValues[i - startIndex];
-    const prevStoch = stochValues[i - startIndex - 1];
-    const currentPrice = close[i];
-    const currentTimestamp = new Date(candles[i][0]);
-
-    if (!prevStoch || !currentStoch) continue;
-
-    // --- LONG ENTRY (oversold cross) ---
-    if (!position && prevStoch.k < prevStoch.d && currentStoch.k >= currentStoch.d && currentStoch.k < oversold) {
-      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "long" };
-    }
-    // --- LONG EXIT ---
-    else if (position && position.type === "long" && prevStoch.k > prevStoch.d && currentStoch.k <= currentStoch.d && currentStoch.k > overbought) {
-      const profit = currentPrice - position.entryPrice;
-      trades.push({
-        entryPrice: position.entryPrice,
-        entryTimestamp: position.entryTimestamp,
-        exitPrice: currentPrice,
-        exitTimestamp: currentTimestamp,
-        profit,
-        positionType: "long",
-      });
-      position = null;
+    // 1. Prepare the candle data for the indicator
+    const highs = candles.map(c => c[2]);
+    const lows = candles.map(c => c[3]);
+    const closes = candles.map(c => c[4]);
+    if (candles.length < period) {
+        console.log("Not enough candle data for Stochastic Oscillator calculation.");
+        return [];
     }
 
-    // --- SHORT ENTRY (overbought cross) ---
-    else if (!position && prevStoch.k > prevStoch.d && currentStoch.k <= currentStoch.d && currentStoch.k > overbought) {
-      position = { entryPrice: currentPrice, entryTimestamp: currentTimestamp, type: "short" };
-    }
-    // --- SHORT EXIT ---
-    else if (position && position.type === "short" && prevStoch.k < prevStoch.d && currentStoch.k >= currentStoch.d && currentStoch.k < oversold) {
-      const profit = position.entryPrice - currentPrice;
-      trades.push({
-        entryPrice: position.entryPrice,
-        entryTimestamp: position.entryTimestamp,
-        exitPrice: currentPrice,
-        exitTimestamp: currentTimestamp,
-        profit,
-        positionType: "short",
-      });
-      position = null;
-    }
-  }
+    // 2. Calculate the Stochastic values once for efficiency
+    const stochValues = Stochastic.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period,
+        signalPeriod
+    });
+    const stochOffset = candles.length - stochValues.length; // Account for initial candles
 
-  return trades;
-};
+    // 3. Loop through the values to find trade signals
+    for (let i = 1; i < stochValues.length; i++) {
+        const candleIndex = i + stochOffset;
+        const prev = stochValues[i - 1];
+        const current = stochValues[i];
+        const currentPrice = closes[candleIndex];
+        const currentTime = new Date(candles[candleIndex][0]);
+
+        // --- LONG TRADE LOGIC ---
+        // Enter a long position if %K crosses above %D in the oversold zone
+        if (prev.k < prev.d && current.k >= current.d && current.k < oversold && !position) {
+            position = 'long';
+            trades.push({
+                entryTime: currentTime,
+                entryPrice: currentPrice,
+                signal: 'buy',
+                position: 'long',
+                size: tradeSize,
+            });
+        }
+
+        // --- SHORT TRADE LOGIC ---
+        // Enter a short position if %K crosses below %D in the overbought zone
+        else if (prev.k > prev.d && current.k <= current.d && current.k > overbought && !position) {
+            position = 'short';
+            trades.push({
+                entryTime: currentTime,
+                entryPrice: currentPrice,
+                signal: 'sell',
+                position: 'short',
+                size: tradeSize,
+            });
+        }
+
+        // --- EXIT LOGIC ---
+        // Exit a long position if a bearish cross occurs in the overbought zone
+        // Exit a short position if a bullish cross occurs in the oversold zone
+        else if (position && (
+            (position === 'long' && prev.k > prev.d && current.k <= current.d && current.k > overbought) ||
+            (position === 'short' && prev.k < prev.d && current.k >= current.d && current.k < oversold)
+        )) {
+            const entryTrade = trades[trades.length - 1];
+            entryTrade.exitTime = currentTime;
+            entryTrade.exitPrice = currentPrice;
+
+            if (position === 'long') {
+                entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
+            } else { // 'short'
+                entryTrade.profit = (entryTrade.entryPrice - entryTrade.exitPrice) * entryTrade.size;
+            }
+            position = null; // Mark the position as closed
+        }
+    }
+
+    return trades;
+}
+

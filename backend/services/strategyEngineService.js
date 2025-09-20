@@ -138,7 +138,7 @@ function applyCombinationRule(signals, rule) {
 }
 
 // --- Other service functions (no changes) ---
-export const runStrategiesService = async (userId) => {
+export const getStrategiesService = async (userId) => {
   return Strategy.find({ userId }).select("_id name code params").lean();
 };
 

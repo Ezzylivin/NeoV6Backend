@@ -1,12 +1,12 @@
 // File: services/strategyEngineService.js
-// UPGRADED: This service is now fully compliant with the detailed backtest database schema and includes all necessary functions.
+// FINAL VERSION: This file is now complete and includes all necessary functions and logic.
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { getStrategy } from "../strategies/strategyManager.js";
 import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 
-// --- Metrics Calculation Utility ---
+// --- Full-featured metrics calculation with risk management ---
 const calculateMetrics = (trades, initialBalance = 1000) => {
     if (!trades || trades.length === 0) {
         return { 
@@ -15,6 +15,7 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
             tradeHistory: [] 
         };
     }
+
     let balance = initialBalance;
     const equityCurve = [{ timestamp: trades[0].entryTime || new Date(), balance: initialBalance }];
     let peakBalance = initialBalance;
@@ -24,10 +25,18 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     let largestWin = 0, largestLoss = 0;
     const closedTrades = [];
 
-    trades.forEach(trade => {
+    for (const trade of trades) {
         if (trade.exitTime && trade.exitPrice) {
             trade.duration = trade.exitTime.getTime() - trade.entryTime.getTime();
             balance += trade.profit;
+
+            if (balance <= 0) {
+                balance = 0;
+                equityCurve.push({ timestamp: trade.exitTime, balance });
+                closedTrades.push(trade);
+                break; 
+            }
+            
             if (trade.profit > 0) {
                 trade.result = 'win'; winningTrades++; totalWinAmount += trade.profit;
                 if (trade.profit > largestWin) largestWin = trade.profit;
@@ -35,16 +44,19 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
                 trade.result = 'loss'; losingTrades++; totalLossAmount += Math.abs(trade.profit);
                 if (trade.profit < largestLoss) largestLoss = trade.profit;
             }
+            
             equityCurve.push({ timestamp: trade.exitTime, balance });
+            
             if (balance > peakBalance) peakBalance = balance;
             const drawdown = ((peakBalance - balance) / peakBalance) * 100;
             if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+            
             totalProfit += trade.profit;
             closedTrades.push(trade);
         } else {
             trade.result = 'open';
         }
-    });
+    }
 
     const totalClosedTrades = closedTrades.length;
     const winRate = totalClosedTrades > 0 ? (winningTrades / totalClosedTrades) * 100 : 0;
@@ -61,7 +73,7 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     return { metrics, equityCurve, tradeHistory: trades };
 };
 
-// --- ✅ ADDED: Run strategy (single) ---
+// --- Run a single strategy backtest ---
 export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
     if (!dbStrategy) throw new Error("Strategy object is required.");
     if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
@@ -77,10 +89,7 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
 
     if (!simulateOnly) {
         const backtestData = {
-            userId,
-            symbol,
-            timeframe,
-            initialBalance,
+            userId, symbol, timeframe, initialBalance,
             finalBalance: metrics.finalBalance,
             profit: metrics.totalProfit,
             totalTrades: metrics.totalTrades,
@@ -99,18 +108,13 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
         return await Backtest.create(backtestData);
     }
 
-    // Return a simplified preview
     return { 
-      trades: tradeHistory, 
-      metrics, 
-      equityCurve,
-      strategyName: dbStrategy.name, 
-      symbol, 
-      timeframe 
+      trades: tradeHistory, metrics, equityCurve,
+      strategyName: dbStrategy.name, symbol, timeframe 
     };
 };
 
-// --- Run Combined Strategy Service ---
+// --- Run a combined strategy backtest ---
 export const runCombinedStrategyService = async (userId, comboPayload) => {
   const { strategyCodes, combinationRule, symbol, timeframe, initialBalance = 1000 } = comboPayload;
 
@@ -120,7 +124,6 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
   const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe);
   if (!candles || candles.length < 1) throw new Error(`Could not fetch market data for ${symbol}.`);
 
-  // Calculate individual results first
   const individualResults = dbStrategies.map(dbStrategy => {
       const strategyFunction = getStrategy(dbStrategy.params.strategyType);
       const trades = strategyFunction(candles, dbStrategy.params);
@@ -132,7 +135,6 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
       };
   });
 
-  // Now, calculate the combined result
   const strategySignals = dbStrategies.map(dbStrategy => {
     const strategyFunction = getStrategy(dbStrategy.params.strategyType);
     return strategyFunction(candles, dbStrategy.params).map(trade => ({ timestamp: trade.entryTime.getTime(), signal: trade.signal }));
@@ -185,7 +187,7 @@ function applyCombinationRule(signals, rule) {
   return 'hold';
 }
 
-// --- ✅ ADDED: Other required service functions ---
+// --- Other required service functions ---
 export const getStrategiesService = async (userId) => {
   return Strategy.find({ userId }).select("_id name code params").lean();
 };

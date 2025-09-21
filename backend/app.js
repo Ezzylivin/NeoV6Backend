@@ -7,7 +7,7 @@ import cors from "cors";
 // ✅ 1. Import all the modular route files with consistent .js extensions
 import userRoutes from './routes/userRoutes.js';
 import strategyRoutes from './routes/strategyRoutes.js';
-import backtestRoutes from './routes/backtestRoutes.js'; // FIXED: Changed .mjs to .js
+import backtestRoutes from './routes/backtestRoutes.mjs'; // FIXED: Changed .mjs to .js
 import backtestSetupRoutes from './routes/backtestSetupRoutes.js';
 import botRoutes from './routes/botRoutes.js';
 

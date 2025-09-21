@@ -1,5 +1,5 @@
 // File: backend/controllers/botController.js
-// UPGRADED: This controller is now fully synchronized with the upgraded botService and schema.
+// UPGRADED: The startBotController is now "bilingual" and can launch both single and combo strategies.
 
 import * as botService from "../services/botService.js";
 
@@ -8,18 +8,42 @@ const sendResponse = (res, data, status = 200) => {
     res.status(status).json(data);
 };
 
-// --- Start the trading bot ---
+// --- ✅ UPGRADED: Start the trading bot (handles both single and combo) ---
 export const startBotController = async (req, res) => {
   try {
-    const userId = req.user._id; // Get user ID from the 'protect' middleware
-    const { strategyId, symbol, timeframe, capitalAllocation } = req.body;
+    const userId = req.user._id;
+    const { strategyId, symbol, timeframe, capitalAllocation, comboConfig } = req.body;
     
-    // Validate that all required fields are present
-    if (!strategyId || !symbol || !timeframe || !capitalAllocation) {
-      return sendResponse(res, { message: "Missing required fields: strategyId, symbol, timeframe, capitalAllocation" }, 400);
+    let config;
+
+    // Determine if this is a combo backtest or a single one
+    if (comboConfig && comboConfig.strategyCodes && comboConfig.strategyCodes.length > 0) {
+        // --- This is a COMBO strategy bot ---
+        if (!symbol || !timeframe || !capitalAllocation || !comboConfig.combinationRule) {
+            return sendResponse(res, { message: "Missing required fields for combo bot." }, 400);
+        }
+        config = {
+            isCombo: true,
+            comboConfig,
+            symbol,
+            timeframe,
+            capitalAllocation,
+        };
+    } else {
+        // --- This is a SINGLE strategy bot ---
+        if (!strategyId || !symbol || !timeframe || !capitalAllocation) {
+            return sendResponse(res, { message: "Missing required fields for single bot." }, 400);
+        }
+        config = {
+            isCombo: false,
+            strategyId,
+            symbol,
+            timeframe,
+            capitalAllocation,
+        };
     }
 
-    const bot = await botService.startTradingBot(userId, { strategyId, symbol, timeframe, capitalAllocation });
+    const bot = await botService.startTradingBot(userId, config);
     sendResponse(res, bot);
   } catch (err) {
     console.error("[Start Bot Error]", err);
@@ -27,7 +51,7 @@ export const startBotController = async (req, res) => {
   }
 };
 
-// --- Stop the trading bot ---
+// --- Stop the trading bot (no changes) ---
 export const stopBotController = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -39,7 +63,7 @@ export const stopBotController = async (req, res) => {
   }
 };
 
-// --- Get the bot's current status ---
+// --- Get the bot's current status (no changes) ---
 export const getBotStatusController = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -51,11 +75,11 @@ export const getBotStatusController = async (req, res) => {
   }
 };
 
-// --- Get the bot's activity logs ---
+// --- Get the bot's activity logs (no changes) ---
 export const getBotLogsController = async (req, res) => {
   try {
     const userId = req.user._id;
-    const limit = parseInt(req.query.limit) || 100; // Allow client to specify log limit
+    const limit = parseInt(req.query.limit) || 100;
     const logs = await botService.getBotLogs(userId, limit);
     sendResponse(res, logs);
   } catch (err) {
@@ -63,3 +87,4 @@ export const getBotLogsController = async (req, res) => {
     sendResponse(res, { message: err.message || "Failed to get bot logs." }, 500);
   }
 };
+

@@ -1,6 +1,7 @@
 // File: backend/services/backtestDataService.js
 // UPGRADED: Full date ranges, pagination, dedupe, caching, arbitrary timeframe resampling,
-// dynamic supported timeframes, gap filling, adaptive timeframe, parallel fetch, and retry strategy.
+// dynamic supported timeframes, gap filling, adaptive timeframe, parallel fetch, retry strategy,
+// and strict post-filtering by start/end dates.
 
 import ccxt from 'ccxt';
 import axios from 'axios';
@@ -87,7 +88,9 @@ export async function getBacktestOptionsData() {
     if (cachedEntry) return cachedEntry.data;
 
     try {
-        const response = await axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1');
+        const response = await axios.get(
+            'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1'
+        );
         const topCryptos = response.data.map(coin => coin.symbol.toUpperCase() + '/USD');
 
         const validSymbols = new Set();
@@ -143,12 +146,12 @@ const fillCandleGaps = (candles, timeframeMinutes) => {
 
 // --- Fetch OHLCV with full date range, parallel exchanges, adaptive timeframe, gap filling ---
 export async function fetchOHLCVMultiSafe(symbol, targetTimeframe, startDate, endDate) {
-    const cacheKey = `candles::${symbol}::${targetTimeframe}::${startDate||'all'}::${endDate||'now'}`;
-    const cachedEntry = await Cache.findOne({ key: cacheKey });
-    if (cachedEntry) return cachedEntry.data;
-
     const startTs = startDate ? new Date(startDate).getTime() : undefined;
     const endTs = endDate ? new Date(endDate).getTime() : Date.now();
+
+    const cacheKey = `candles::${symbol}::${targetTimeframe}::${startTs||'all'}::${endTs||'now'}`;
+    const cachedEntry = await Cache.findOne({ key: cacheKey });
+    if (cachedEntry) return cachedEntry.data;
 
     // Parallel fetch from exchanges
     const fetchPromises = US_EXCHANGES.map(async id => {
@@ -157,6 +160,8 @@ export async function fetchOHLCVMultiSafe(symbol, targetTimeframe, startDate, en
         let since = startTs;
 
         while (true) {
+            if (since && since > endTs) break;
+
             const batch = await fetchCandlesWithRetry(exchange, symbol, '1m', since);
             if (!batch || batch.length === 0) break;
 
@@ -178,6 +183,9 @@ export async function fetchOHLCVMultiSafe(symbol, targetTimeframe, startDate, en
 
     // Deduplicate & sort
     allCandles = Array.from(new Map(allCandles.map(c => [c[0], c])).values()).sort((a,b) => a[0]-b[0]);
+
+    // ✅ Strict clip to [startTs, endTs]
+    allCandles = allCandles.filter(c => (!startTs || c[0] >= startTs) && c[0] <= endTs);
 
     // Fill gaps
     allCandles = fillCandleGaps(allCandles, 1); // smallest timeframe = 1m

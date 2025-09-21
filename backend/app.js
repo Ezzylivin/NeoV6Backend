@@ -42,7 +42,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use('/api/users', userRoutes);
 app.use('/api/strategy', strategyRoutes);
 app.use('/api/backtest', backtestRoutes); 
-app.use('/api/backtest-setups', backtestSetupRoutes); // FIXED: Changed to use a hyphen
+app.use('/api/backtestSetups', backtestSetupRoutes); // FIXED: Changed to use a hyphen
 app.use('/api/bot', botRoutes);
 
 export default app;

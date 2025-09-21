@@ -7,7 +7,7 @@ import cors from "cors";
 // ✅ 1. Import all the modular route files
 import userRoutes from './routes/userRoutes.js';
 import strategyRoutes from './routes/strategyRoutes.js';
-import backtestRoutes from './routes/backtestRoutes.js';
+import backtestRoutes from './routes/backtestRoutes.mjs';
 import backtestSetupRoutes from './routes/backtestSetupRoutes.js';
 import botRoutes from './routes/botRoutes.js';
 

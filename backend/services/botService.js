@@ -1,170 +1,169 @@
-// File: src/backend/services/botService.js
-// Unified trading bot service — starts/stops in-memory loops per user, uses runBacktest
-// to compute simulated trades when requested, and also supports light live-simulation loop.
+// File: backend/services/botService.js
+// UPGRADED: This service now provides a complete, stateful, in-memory trading bot engine
+// that is fully synchronized with the new bot schema.
 
 import Bot from "../dbStructure/bot.js";
-import TradingBotHistory from "../dbStructure/tradingBotHistory.js";
-import Price from "../dbStructure/price.js";
-import { runBacktest } from "./backtestService.js"; // fixed import
-import { logToDb } from "./logService.js";
+import Strategy from "../dbStructure/strategy.js";
+import { getStrategy } from "../strategies/strategyManager.js";
+import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 
-// in-memory store of intervals keyed by userId
+// In-memory store for active bot intervals, keyed by bot ID
 const activeBots = new Map();
 
 /**
- * lightweight helper to sample latest prices (used for quick simulated actions)
+ * The core logic loop for a single trading bot.
+ * This function runs on a set interval for each active bot.
  */
-async function getRecentCandles(symbol, limit = 200) {
-  const rows = await Price.find({ symbol }).sort({ timestamp: -1 }).limit(limit).lean();
-  return rows.reverse().map(r => ({
-    time: new Date(r.timestamp),
-    open: Number(r.open ?? r.price ?? r.close ?? 0),
-    high: Number(r.high ?? r.price ?? r.close ?? 0),
-    low: Number(r.low ?? r.price ?? r.close ?? 0),
-    close: Number(r.close ?? r.price ?? 0),
-    volume: Number(r.volume ?? 0)
-  }));
-}
+async function botIteration(botId) {
+  const bot = await Bot.findById(botId);
 
-/**
- * Single iteration of bot: run small backtest window and persist a snapshot to TradingBotHistory.
- * This allows the bot to "act" using the same strategies as the heavier backtests.
- */
-async function botIteration(userId) {
-  const bot = await Bot.findOne({ userId });
-  if (!bot || !bot.isRunning) return;
+  // Stop if the bot has been disabled or deleted
+  if (!bot || bot.status !== 'running') {
+    stopTradingBot(bot.userId); // Ensure the interval is cleared
+    return;
+  }
 
   try {
-    // quick-run a short backtest window to determine current metrics
-    const result = await runBacktest({
-      userId,
-      symbol: bot.symbol,
-      timeframe: bot.timeframes?.[0] || "1h",
-      initialBalance: bot.balance ?? bot.initialBalance ?? 1000,
-      strategy: bot.strategy || { name: "SMA", parameters: {} },
-      risk: bot.risk || "Medium",
-      limit: 500,
-    });
+    // 1. Fetch the strategy details
+    const strategy = await Strategy.findById(bot.strategyId).lean();
+    if (!strategy) throw new Error(`Strategy with ID ${bot.strategyId} not found.`);
 
-    const metrics = result.metrics ?? { finalBalance: bot.balance, netProfit: 0 };
+    // 2. Fetch the latest market data
+    // We fetch enough candles for the strategy's indicators to calculate correctly.
+    const { candles } = await fetchOHLCVMultiSafe(bot.symbol, bot.timeframe);
+    if (!candles || candles.length === 0) {
+        console.warn(`[Bot Iteration] No market data for ${bot.symbol}`);
+        return;
+    }
 
-    // append a snapshot to history
-    const snapshot = await TradingBotHistory.create({
-      userId,
-      symbol: bot.symbol,
-      balance: metrics.finalBalance,
-      profit: metrics.netProfit,
-      strategy: bot.strategy,
-      risk: bot.risk,
-      timestamp: new Date()
-    });
+    // 3. Get the strategy logic function
+    const strategyFunction = getStrategy(strategy.params.strategyType);
 
-    // update active bot balance
-    bot.balance = metrics.finalBalance;
+    // 4. Run the strategy to get the latest signals
+    const trades = strategyFunction(candles, strategy.params);
+    const lastSignal = trades.length > 0 ? trades[trades.length - 1].signal : null;
+    const currentPrice = candles[candles.length - 1][4]; // Get the latest close price
+
+    // 5. Manage the bot's position based on the signal
+    if (lastSignal === 'buy' && !bot.currentPosition) {
+        // --- ENTER LONG POSITION ---
+        const positionSize = bot.currentBalance / currentPrice; // Example: use full balance
+        bot.currentPosition = {
+            entryPrice: currentPrice,
+            size: positionSize,
+            side: 'long',
+            entryTime: new Date(),
+        };
+        bot.addLog('buy', `Entering long position for ${positionSize.toFixed(4)} ${bot.symbol} at $${currentPrice}.`);
+    } else if (lastSignal === 'sell' && bot.currentPosition?.side === 'long') {
+        // --- EXIT LONG POSITION ---
+        const entry = bot.currentPosition;
+        const profit = (currentPrice - entry.entryPrice) * entry.size;
+        
+        bot.currentBalance += profit;
+        bot.performanceMetrics.totalProfit += profit;
+        bot.performanceMetrics.totalTrades += 1;
+        
+        // Update win rate
+        const wins = trade.profit > 0 ? 1 : 0;
+        const total = bot.performanceMetrics.totalTrades;
+        bot.performanceMetrics.winRate = (( (bot.performanceMetrics.winRate / 100 * (total - 1)) + wins) / total) * 100;
+        
+        bot.addLog('sell', `Exiting long position. Profit: $${profit.toFixed(2)}`);
+        bot.currentPosition = null; // Clear the position
+    }
+
     await bot.save();
 
-    await logToDb(userId, `[Bot Iteration] ${bot.symbol} | Bal: ${metrics.finalBalance} | P/L: ${metrics.netProfit}`);
-    return snapshot;
   } catch (err) {
-    console.error(`[Bot Iteration Error][${userId}]`, err);
-    await logToDb(userId, `[Bot Error] ${err.message}`);
+    console.error(`[Bot Iteration Error][${bot.userId}]`, err);
+    bot.status = 'error';
+    bot.addLog('error', `An error occurred: ${err.message}`);
+    await bot.save();
+    stopTradingBot(bot.userId); // Stop the bot on critical error
   }
 }
 
 /**
- * Start trading bot for userId
- * config: { symbol, timeframes (array/string), initialBalance, strategy (string or {name,parameters}), risk }
+ * Creates and starts a trading bot for a user.
  */
 export async function startTradingBot(userId, config = {}) {
   if (!userId) throw new Error("Missing userId");
-  const { symbol, timeframes = ["1h"], initialBalance = 1000, strategy = { name: "SMA", parameters: {} }, risk = "Medium" } = config;
+  const { strategyId, symbol, timeframe, capitalAllocation } = config;
 
+  // Stop any existing bot for this user
+  if (activeBots.has(userId.toString())) {
+    await stopTradingBot(userId);
+  }
+
+  // Find or create the bot configuration
   let bot = await Bot.findOne({ userId });
   if (!bot) {
-    bot = await Bot.create({
-      userId,
-      symbol,
-      timeframes,
-      initialBalance,
-      balance: initialBalance,
-      strategy,
-      risk,
-      isRunning: true,
-      startedAt: new Date()
-    });
-  } else {
-    bot.symbol = symbol;
-    bot.timeframes = Array.isArray(timeframes) ? timeframes : [timeframes];
-    bot.initialBalance = initialBalance;
-    bot.balance = initialBalance;
-    bot.strategy = strategy;
-    bot.risk = risk;
-    bot.isRunning = true;
-    bot.startedAt = new Date();
-    await bot.save();
+    bot = new Bot({ userId });
   }
 
-  // create history entry
-  await TradingBotHistory.create({
-    userId,
-    symbol,
-    balance: bot.balance,
-    profit: 0,
-    strategy,
-    risk,
-    timestamp: new Date()
-  });
+  bot.strategyId = strategyId;
+  bot.symbol = symbol;
+  bot.timeframe = timeframe;
+  bot.capitalAllocation = capitalAllocation;
+  bot.currentBalance = capitalAllocation; // Reset balance on start
+  bot.performanceMetrics = { totalProfit: 0, totalTrades: 0, winRate: 0 };
+  bot.currentPosition = null;
+  bot.logs = [];
+  bot.status = 'running';
+  bot.startedAt = new Date();
+  bot.stoppedAt = null;
+  
+  bot.addLog('status', `Bot started with ${symbol} on ${timeframe} timeframe.`);
+  await bot.save();
 
-  // start interval if not running
-  if (!activeBots.has(userId)) {
-    const interval = setInterval(() => {
-      // fire and forget
-      botIteration(userId).catch(e => console.error("[botIteration err]", e));
-    }, 10 * 1000); // run every 10s (tune as desired)
-    activeBots.set(userId, interval);
-  }
+  // Start the trading loop
+  const interval = setInterval(() => {
+    botIteration(bot._id).catch(e => console.error("[Bot Iteration Unhandled]", e));
+  }, 60 * 1000); // Run every 60 seconds (adjust as needed)
 
-  await logToDb(userId, `[Bot Started] ${symbol} strategy=${strategy?.name || strategy} risk=${risk}`);
+  activeBots.set(userId.toString(), interval);
+
   return bot;
 }
 
 /**
- * Stop trading bot
+ * Stops a trading bot for a user.
  */
 export async function stopTradingBot(userId) {
   const bot = await Bot.findOne({ userId });
   if (bot) {
-    bot.isRunning = false;
+    bot.status = 'stopped';
+    bot.stoppedAt = new Date();
+    bot.addLog('status', 'Bot stopped.');
     await bot.save();
   }
-  if (activeBots.has(userId)) {
-    clearInterval(activeBots.get(userId));
-    activeBots.delete(userId);
+
+  const userIdStr = userId.toString();
+  if (activeBots.has(userIdStr)) {
+    clearInterval(activeBots.get(userIdStr));
+    activeBots.delete(userIdStr);
   }
-  await logToDb(userId, `[Bot Stopped]`);
+  
   return bot;
 }
 
 /**
- * Get bot status
+ * Gets the current status and essential details of a user's bot.
  */
 export async function getBotStatus(userId) {
-  const bot = await Bot.findOne({ userId });
-  if (!bot) return { isRunning: false };
-  return {
-    isRunning: bot.isRunning,
-    symbol: bot.symbol,
-    timeframes: bot.timeframes,
-    balance: bot.balance,
-    strategy: bot.strategy,
-    risk: bot.risk,
-    startedAt: bot.startedAt
-  };
+  const bot = await Bot.findOne({ userId }).lean();
+  if (!bot) {
+      // Return a default "not configured" state
+      return { status: 'stopped', isConfigured: false };
+  }
+  return { ...bot, isConfigured: true };
 }
 
 /**
- * Get trading history snapshots
+ * Gets the most recent log entries for a user's bot.
  */
-export async function getBotHistory(userId, limit = 1000) {
-  return TradingBotHistory.find({ userId }).sort({ timestamp: 1 }).limit(limit);
+export async function getBotLogs(userId, limit = 50) {
+    const bot = await Bot.findOne({ userId }, { logs: { $slice: limit } }).lean();
+    return bot ? bot.logs : [];
 }

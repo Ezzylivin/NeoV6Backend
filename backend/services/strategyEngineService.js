@@ -1,3 +1,4 @@
+//snapshot
 // File: services/strategyEngineService.js
 // FINAL VERSION: Now includes exact no-trade reasons per strategy
 

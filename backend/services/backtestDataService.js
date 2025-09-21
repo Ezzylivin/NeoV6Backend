@@ -1,5 +1,6 @@
 // File: backend/services/backtestDataService.js
-// UPGRADED: Full date ranges, dynamic timeframe selection, pagination, dedupe, caching, arbitrary resampling.
+// UPGRADED: Full date ranges, pagination, dedupe, caching, arbitrary timeframe resampling,
+// dynamic supported timeframes, gap filling, adaptive timeframe, parallel fetch, and retry strategy.
 
 import ccxt from 'ccxt';
 import axios from 'axios';
@@ -8,20 +9,14 @@ import Cache from '../dbStructure/cache.js';
 const US_EXCHANGES = ['coinbase', 'kraken', 'gemini'];
 const CANDLE_LIMIT = 1000;
 const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 1500;
 
 // --- Helper: convert timeframe string to minutes ---
 const timeframeToMinutes = {
-    '1m': 1,
-    '5m': 5,
-    '15m': 15,
-    '30m': 30,
-    '1h': 60,
-    '2h': 120,
-    '4h': 240,
-    '6h': 360,
-    '12h': 720,
-    '1d': 1440,
-    '1w': 10080,
+    '1m': 1, '5m': 5, '15m': 15, '30m': 30,
+    '1h': 60, '2h': 120, '4h': 240, '6h': 360,
+    '12h': 720, '1d': 1440, '1w': 10080,
 };
 
 // --- Helper: resample candle data (arbitrary timeframes) ---
@@ -29,11 +24,10 @@ const resampleCandles = (candles, sourceTimeframe, targetTimeframe) => {
     if (!candles || candles.length === 0) return [];
     const sourceMinutes = timeframeToMinutes[sourceTimeframe];
     const targetMinutes = timeframeToMinutes[targetTimeframe];
-
     if (!sourceMinutes || !targetMinutes) throw new Error('Invalid timeframe provided');
 
     if (sourceMinutes >= targetMinutes) {
-        // Downsample
+        // Downsample: aggregate smaller candles into bigger timeframe
         const factor = targetMinutes / sourceMinutes;
         const resampled = [];
         let bucket = [];
@@ -41,30 +35,27 @@ const resampleCandles = (candles, sourceTimeframe, targetTimeframe) => {
             bucket.push(candle);
             if (bucket.length === factor) {
                 resampled.push([
-                    bucket[0][0],                     // open time
-                    bucket[0][1],                     // open
-                    Math.max(...bucket.map(c => c[2])), // high
-                    Math.min(...bucket.map(c => c[3])), // low
-                    bucket[bucket.length - 1][4],     // close
-                    bucket.reduce((sum, c) => sum + c[5], 0) // volume
+                    bucket[0][0],
+                    bucket[0][1],
+                    Math.max(...bucket.map(c => c[2])),
+                    Math.min(...bucket.map(c => c[3])),
+                    bucket[bucket.length - 1][4],
+                    bucket.reduce((sum, c) => sum + c[5], 0)
                 ]);
                 bucket = [];
             }
         }
         return resampled;
     } else {
-        // Upsample
+        // Upsample: repeat values for smaller timeframe
         const factor = sourceMinutes / targetMinutes;
         const upsampled = [];
         for (const candle of candles) {
             for (let i = 0; i < factor; i++) {
                 upsampled.push([
-                    candle[0] + i * targetMinutes * 60 * 1000, // timestamp
-                    candle[1],
-                    candle[2],
-                    candle[3],
-                    candle[4],
-                    candle[5] / factor // distribute volume evenly
+                    candle[0] + i * targetMinutes * 60 * 1000,
+                    candle[1], candle[2], candle[3], candle[4],
+                    candle[5] / factor
                 ]);
             }
         }
@@ -72,39 +63,31 @@ const resampleCandles = (candles, sourceTimeframe, targetTimeframe) => {
     }
 };
 
-// --- Helper: fetch candles with retry ---
+// --- Helper: delay ---
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// --- Helper: fetch candles with retry & rate-limit ---
 async function fetchCandlesWithRetry(exchange, symbol, timeframe, since) {
-    try {
-        const candles = await exchange.fetchOHLCV(symbol, timeframe, since, CANDLE_LIMIT);
-        return candles && candles.length > 0 ? candles : null;
-    } catch (e) {
-        console.warn(`⚠️ Fetch failed for ${symbol} on ${exchange.id}: ${e.message}`);
-        return null;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+            const candles = await exchange.fetchOHLCV(symbol, timeframe, since, CANDLE_LIMIT);
+            return candles && candles.length > 0 ? candles : null;
+        } catch (e) {
+            console.warn(`⚠️ Attempt ${attempt+1} failed for ${symbol} on ${exchange.id}: ${e.message}`);
+            await sleep(RETRY_DELAY_MS * (attempt + 1));
+        }
     }
+    return null;
 }
 
-// --- Helper: pick smallest timeframe covering the requested date range ---
-function getSmallestSupportedTimeframe(exchange, symbol, startDate, endDate) {
-    const timeframes = Object.keys(exchange.timeframes || {});
-    if (!timeframes.length) return '1h'; // fallback
-    const sorted = timeframes
-        .map(tf => ({ tf, minutes: timeframeToMinutes[tf] || Infinity }))
-        .sort((a, b) => a.minutes - b.minutes);
-
-    // Pick the smallest timeframe with enough historical data (rough estimate)
-    // For simplicity, return the absolute smallest available
-    return sorted[0].tf;
-}
-
-// --- Get Backtest Options (dynamic) ---
+// --- Get Backtest Options (dynamic timeframes) ---
 export async function getBacktestOptionsData() {
     const cacheKey = 'backtestOptions';
     const cachedEntry = await Cache.findOne({ key: cacheKey });
     if (cachedEntry) return cachedEntry.data;
 
-    const cryptoApiUrl = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1';
     try {
-        const response = await axios.get(cryptoApiUrl);
+        const response = await axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1');
         const topCryptos = response.data.map(coin => coin.symbol.toUpperCase() + '/USD');
 
         const validSymbols = new Set();
@@ -115,9 +98,7 @@ export async function getBacktestOptionsData() {
             for (const exchange of tempExchanges) {
                 if (exchange.markets && exchange.markets[symbol]) {
                     validSymbols.add(symbol);
-                    if (exchange.timeframes) {
-                        Object.keys(exchange.timeframes).forEach(tf => supportedTimeframesSet.add(tf));
-                    }
+                    if (exchange.timeframes) Object.keys(exchange.timeframes).forEach(tf => supportedTimeframesSet.add(tf));
                     break;
                 }
             }
@@ -125,11 +106,7 @@ export async function getBacktestOptionsData() {
 
         const newOptions = {
             symbols: Array.from(validSymbols).sort(),
-            timeframes: Array.from(supportedTimeframesSet).sort((a,b) => {
-                const aMin = timeframeToMinutes[a] || 0;
-                const bMin = timeframeToMinutes[b] || 0;
-                return aMin - bMin;
-            }),
+            timeframes: Array.from(supportedTimeframesSet).sort((a,b) => (timeframeToMinutes[a]||0) - (timeframeToMinutes[b]||0))
         };
 
         await Cache.findOneAndUpdate(
@@ -141,63 +118,76 @@ export async function getBacktestOptionsData() {
         return newOptions;
     } catch (err) {
         console.error("❌ Failed to fetch backtest options:", err);
-        return { symbols: ['BTC/USD', 'ETH/USD'], timeframes: ['1m','5m','15m','1h','4h','1d'] };
+        return { symbols: ['BTC/USD','ETH/USD'], timeframes: ['1m','5m','15m','1h','4h','1d'] };
     }
 }
 
-// --- Fetch OHLCV with full date range, dynamic timeframe selection ---
+// --- Fill gaps between candles with synthetic flat candles ---
+const fillCandleGaps = (candles, timeframeMinutes) => {
+    if (!candles || candles.length === 0) return [];
+    const filled = [candles[0]];
+    const interval = timeframeMinutes * 60 * 1000;
+
+    for (let i = 1; i < candles.length; i++) {
+        let prev = filled[filled.length - 1];
+        let current = candles[i];
+        let ts = prev[0] + interval;
+        while (ts < current[0]) {
+            filled.push([ts, prev[4], prev[4], prev[4], prev[4], 0]); // flat candle
+            ts += interval;
+        }
+        filled.push(current);
+    }
+    return filled;
+};
+
+// --- Fetch OHLCV with full date range, parallel exchanges, adaptive timeframe, gap filling ---
 export async function fetchOHLCVMultiSafe(symbol, targetTimeframe, startDate, endDate) {
-    const cacheKey = `candles::${symbol}::${targetTimeframe}::${startDate || 'all'}::${endDate || 'now'}`;
+    const cacheKey = `candles::${symbol}::${targetTimeframe}::${startDate||'all'}::${endDate||'now'}`;
     const cachedEntry = await Cache.findOne({ key: cacheKey });
     if (cachedEntry) return cachedEntry.data;
 
-    const exchanges = US_EXCHANGES.map(id => new ccxt[id]({ enableRateLimit: true, timeout: 30000 }));
-    let allCandles = [];
     const startTs = startDate ? new Date(startDate).getTime() : undefined;
     const endTs = endDate ? new Date(endDate).getTime() : Date.now();
 
-    for (const exchange of exchanges) {
-        try {
-            const smallestTimeframe = getSmallestSupportedTimeframe(exchange, symbol, startDate, endDate);
-            let since = startTs;
+    // Parallel fetch from exchanges
+    const fetchPromises = US_EXCHANGES.map(async id => {
+        const exchange = new ccxt[id]({ enableRateLimit:true, timeout:30000 });
+        let allCandles = [];
+        let since = startTs;
 
-            while (true) {
-                const batch = await fetchCandlesWithRetry(exchange, symbol, smallestTimeframe, since);
-                if (!batch || batch.length === 0) break;
+        while (true) {
+            const batch = await fetchCandlesWithRetry(exchange, symbol, '1m', since);
+            if (!batch || batch.length === 0) break;
 
-                const filtered = batch.filter(c => (!startTs || c[0] >= startTs) && c[0] <= endTs);
-                allCandles = allCandles.concat(filtered);
+            const filtered = batch.filter(c => (!startTs || c[0] >= startTs) && c[0] <= endTs);
+            allCandles = allCandles.concat(filtered);
 
-                const lastTs = batch[batch.length - 1][0];
-                if (lastTs >= endTs) break;
-
-                since = lastTs + 1; // move forward
-            }
-
-            if (allCandles.length > 0) break;
-        } catch (e) {
-            console.warn(`⚠️ Exchange ${exchange.id} failed for ${symbol}: ${e.message}`);
+            const lastTs = batch[batch.length-1][0];
+            if (lastTs >= endTs) break;
+            since = lastTs + 1;
         }
-    }
 
-    if (allCandles.length === 0) {
-        throw new Error(`Failed to fetch OHLCV data for ${symbol}.`);
-    }
+        return allCandles;
+    });
+
+    const results = await Promise.all(fetchPromises);
+    let allCandles = results.reduce((acc, arr) => acc.concat(arr), []);
+
+    if (allCandles.length === 0) throw new Error(`Failed to fetch OHLCV data for ${symbol}.`);
 
     // Deduplicate & sort
-    allCandles = Array.from(new Map(allCandles.map(c => [c[0], c])).values()).sort((a, b) => a[0] - b[0]);
+    allCandles = Array.from(new Map(allCandles.map(c => [c[0], c])).values()).sort((a,b) => a[0]-b[0]);
 
-    // Resample to requested timeframe only if needed
-    const smallestTimeframe = '1m'; // fallback for resample
-    const resampledCandles = resampleCandles(allCandles, smallestTimeframe, targetTimeframe);
+    // Fill gaps
+    allCandles = fillCandleGaps(allCandles, 1); // smallest timeframe = 1m
+
+    // Resample to requested timeframe
+    const resampledCandles = resampleCandles(allCandles, '1m', targetTimeframe);
 
     const result = { candles: resampledCandles, exchange: 'multi' };
     const expiresAt = new Date(Date.now() + CACHE_DURATION);
-    await Cache.findOneAndUpdate(
-        { key: cacheKey },
-        { data: result, expiresAt },
-        { upsert: true, new: true }
-    );
+    await Cache.findOneAndUpdate({ key: cacheKey }, { data: result, expiresAt }, { upsert:true, new:true });
 
     return result;
 }

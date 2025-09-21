@@ -1,6 +1,4 @@
 // File: backend/services/backtestDataService.js
-// UPGRADED: The data fetching service now returns the name of the exchange it successfully connected to.
-
 import ccxt from 'ccxt';
 import axios from 'axios';
 import Cache from '../dbStructure/cache.js';
@@ -9,72 +7,104 @@ const US_EXCHANGES = ['coinbase', 'kraken', 'gemini'];
 const CANDLE_LIMIT = 1000;
 const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
 
-// --- Helper function to resample candle data (no changes) ---
+// --- ✅ Re-added helper: Normalize trading pair symbol ---
+export function normalizeSymbol(symbol) {
+  // Convert to standard CCXT format (e.g., BTCUSDT → BTC/USDT)
+  if (symbol.includes('/')) return symbol;
+  if (symbol.includes('-')) return symbol.replace('-', '/');
+  if (symbol.endsWith('USDT')) return symbol.replace('USDT', '/USDT');
+  if (symbol.endsWith('USD')) return symbol.replace('USD', '/USD');
+  return symbol; // fallback
+}
+
+// --- Helper: Resample candles ---
 const resampleCandles = (candles, targetTimeframe) => {
-    if (!candles || candles.length === 0) return [];
-    const timeframeToHours = { '1h': 1, '4h': 4, '1d': 24 };
-    const baseHours = 1;
-    const targetHours = timeframeToHours[targetTimeframe];
-    if (!targetHours || targetHours === baseHours) return candles;
+  if (!candles || candles.length === 0) return [];
+  const timeframeToHours = { '1h': 1, '4h': 4, '1d': 24 };
+  const baseHours = 1;
+  const targetHours = timeframeToHours[targetTimeframe];
+  if (!targetHours || targetHours === baseHours) return candles;
 
-    const resampled = [];
-    let bucket = [];
-    const candlesPerBucket = targetHours / baseHours;
+  const resampled = [];
+  let bucket = [];
+  const candlesPerBucket = targetHours / baseHours;
 
-    for (const candle of candles) {
-        bucket.push(candle);
-        if (bucket.length === candlesPerBucket) {
-            const newCandle = [
-                bucket[0][0], bucket[0][1],
-                Math.max(...bucket.map(c => c[2])),
-                Math.min(...bucket.map(c => c[3])),
-                bucket[bucket.length - 1][4],
-                bucket.reduce((sum, c) => sum + c[5], 0)
-            ];
-            resampled.push(newCandle);
-            bucket = [];
-        }
+  for (const candle of candles) {
+    bucket.push(candle);
+    if (bucket.length === candlesPerBucket) {
+      const newCandle = [
+        bucket[0][0], // open time
+        bucket[0][1], // open
+        Math.max(...bucket.map(c => c[2])), // high
+        Math.min(...bucket.map(c => c[3])), // low
+        bucket[bucket.length - 1][4], // close
+        bucket.reduce((sum, c) => sum + c[5], 0) // volume
+      ];
+      resampled.push(newCandle);
+      bucket = [];
     }
-    return resampled;
+  }
+  return resampled;
 };
 
-// --- Other helper functions (no changes) ---
+// --- Helper: Fetch candles with retry ---
 async function fetchCandlesWithRetry(exchange, symbol, timeframe) {
   try {
     const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, CANDLE_LIMIT);
     return (candles && candles.length > 0) ? candles : null;
-  } catch (e) { return null; }
+  } catch (e) {
+    return null;
+  }
 }
 
+// --- Backtest options data ---
 export async function getBacktestOptionsData() {
-  // ... (existing code, no changes needed)
+  // Define available options for the frontend
+  return {
+    symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT", "XRP/USDT"],
+    timeframes: ["1h", "4h", "1d"],
+    strategies: [
+      "ATR",
+      "BollingerBands",
+      "CCI",
+      "IchimokuCloud",
+      "MACD",
+      "OnBalanceVolume",
+      "ParabolicSAR",
+      "RSI",
+      "SMACrossover"
+    ],
+    takeProfits: [0.5, 1, 2, 3, 5],
+    stopLosses: [0.5, 1, 2, 3, 5],
+  };
 }
 
-
-// --- ✅ UPGRADED: Main data fetching function ---
+// --- Main: Multi-exchange OHLCV fetch ---
 export async function fetchOHLCVMultiSafe(symbol, timeframe) {
   const cacheKey = `candles::${symbol}::${timeframe}`;
   const cachedEntry = await Cache.findOne({ key: cacheKey });
   if (cachedEntry) {
-    return cachedEntry.data; // This will now include the exchange name
+    return cachedEntry.data;
   }
-  
+
   const baseTimeframe = '1h';
   let rawCandles;
-  let successfulExchange = null; // Variable to store the name of the successful exchange
+  let successfulExchange = null;
+
+  const normalizedSymbol = normalizeSymbol(symbol);
 
   for (const exchangeId of US_EXCHANGES) {
-      const exchange = new ccxt[exchangeId]({ enableRateLimit: true });
-      const symbolFormats = [symbol, symbol.replace('/', '-')];
-      for (const format of symbolFormats) {
-          const fetchedCandles = await fetchCandlesWithRetry(exchange, format, baseTimeframe);
-          if (fetchedCandles) {
-              rawCandles = fetchedCandles;
-              successfulExchange = exchangeId; // ✅ Store the name of the exchange
-              break; 
-          }
+    const exchange = new ccxt[exchangeId]({ enableRateLimit: true });
+    const symbolFormats = [normalizedSymbol, normalizedSymbol.replace('/', '-')];
+    for (const format of symbolFormats) {
+      const fetchedCandles = await fetchCandlesWithRetry(exchange, format, baseTimeframe);
+      if (fetchedCandles) {
+        rawCandles = fetchedCandles;
+        successfulExchange = exchangeId;
+        break;
       }
-      if (rawCandles) break;
+    }
+    if (rawCandles) break;
   }
 
   if (!rawCandles || rawCandles.length === 0) {
@@ -82,16 +112,14 @@ export async function fetchOHLCVMultiSafe(symbol, timeframe) {
   }
 
   const resampled = resampleCandles(rawCandles, timeframe);
-  
-  // ✅ Include the exchange name in the final result and the cache
+
   const finalResult = { candles: resampled, exchange: successfulExchange };
-  
+
   await Cache.findOneAndUpdate(
-      { key: cacheKey },
-      { data: finalResult, expiresAt: new Date(Date.now() + CACHE_DURATION) },
-      { upsert: true, new: true }
+    { key: cacheKey },
+    { data: finalResult, expiresAt: new Date(Date.now() + CACHE_DURATION) },
+    { upsert: true, new: true }
   );
 
   return finalResult;
 }
-

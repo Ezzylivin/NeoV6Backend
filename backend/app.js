@@ -42,7 +42,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use('/api/users', userRoutes);
 app.use('/api/strategy', strategyRoutes); // FIXED: Was '/api/strategies'
 app.use('/api/backtest', backtestRoutes); // FIXED: Was '/api/backtests'
-app.use('/api/backtest-setups', backtestSetupRoutes);
+app.use('/api/backtestSetups', backtestSetupRoutes);
 app.use('/api/bot', botRoutes);
 
 export default app;

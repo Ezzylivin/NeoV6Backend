@@ -7,9 +7,10 @@ import cors from "cors";
 // ✅ 1. Import all the modular route files
 import userRoutes from './routes/userRoutes.js';
 import strategyRoutes from './routes/strategyRoutes.js';
-import backtestRoutes from './routes/backtestRoutes.js';
+import backtestRoutes from './routes/backtestRoutes.mjs';
 import backtestSetupRoutes from './routes/backtestSetupRoutes.js';
 import botRoutes from './routes/botRoutes.js';
+
 
 
 const app = express();
@@ -44,5 +45,6 @@ app.use('/api/strategies', strategyRoutes);
 app.use('/api/backtests', backtestRoutes);
 app.use('/api/backtest-setups', backtestSetupRoutes);
 app.use('/api/bot', botRoutes);
+
 
 export default app;

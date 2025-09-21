@@ -1,5 +1,5 @@
 // File: services/strategyEngineService.js
-// FINAL VERSION: This file is now complete and includes all necessary functions and logic.
+// FINAL VERSION: Now includes exact no-trade reasons per strategy
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -73,27 +73,33 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     return { metrics, equityCurve, tradeHistory: trades };
 };
 
-// --- Run a single strategy backtest ---
+// --- Run a single strategy backtest with no-trade reason ---
 export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
     if (!dbStrategy) throw new Error("Strategy object is required.");
     if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
 
     const { symbol, timeframe, startDate, endDate, initialBalance = 1000 } = params;
-    const { candles: allCandles } = await fetchOHLCVMultiSafe(symbol, timeframe);
+    const { candles: allCandles, message: noTradeMessage } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
 
     const candles = allCandles.filter(c => {
         const timestamp = new Date(c[0]);
         return timestamp >= new Date(startDate) && timestamp <= new Date(endDate);
     });
 
+    let trades = [];
+    let strategyNoTradeReason = null;
+
     if (!candles || candles.length < 1) {
         console.warn(`No market data found for ${symbol} in the selected date range.`);
-        const { metrics, equityCurve, tradeHistory } = calculateMetrics([], initialBalance);
-        return { trades: tradeHistory, metrics, equityCurve, strategy: { name: dbStrategy.name } };
-    }
+        strategyNoTradeReason = noTradeMessage;
+    } else {
+        const strategyFunction = getStrategy(dbStrategy.params.strategyType);
+        trades = strategyFunction(candles, dbStrategy.params);
 
-    const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-    const trades = strategyFunction(candles, dbStrategy.params);
+        if (!trades || trades.length === 0) {
+            strategyNoTradeReason = `Strategy conditions were never met: ${dbStrategy.params.strategyType}`;
+        }
+    }
 
     const { metrics, equityCurve, tradeHistory } = calculateMetrics(trades, initialBalance);
 
@@ -105,96 +111,97 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
             strategy: { name: dbStrategy.name, type: dbStrategy.params.strategyType, parameters: dbStrategy.params },
             tradeBreakdown: tradeHistory, equityCurve, metrics,
             startDate, endDate,
+            noTradeReason: strategyNoTradeReason
         };
         return await Backtest.create(backtestData);
     }
-    return { trades: tradeHistory, metrics, equityCurve, strategyName: dbStrategy.name, symbol, timeframe };
+
+    return { trades: tradeHistory, metrics, equityCurve, strategyName: dbStrategy.name, symbol, timeframe, noTradeReason: strategyNoTradeReason };
 };
 
 // --- Run a combined strategy backtest ---
 export const runCombinedStrategyService = async (userId, comboPayload) => {
-  const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
+    const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
 
-  const dbStrategies = await Strategy.find({ userId, code: { $in: strategyCodes } }).lean();
-  if (dbStrategies.length !== strategyCodes.length) throw new Error("One or more strategies not found.");
+    const dbStrategies = await Strategy.find({ userId, code: { $in: strategyCodes } }).lean();
+    if (dbStrategies.length !== strategyCodes.length) throw new Error("One or more strategies not found.");
 
-  const { candles: allCandles } = await fetchOHLCVMultiSafe(symbol, timeframe);
+    const { candles: allCandles, message: noTradeMessage } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
 
-  const candles = allCandles.filter(c => {
-      const timestamp = new Date(c[0]);
-      return timestamp >= new Date(startDate) && timestamp <= new Date(endDate);
-  });
-
-  if (!candles || candles.length < 1) {
-      console.warn(`No market data found for ${symbol} in the selected date range for combo test.`);
-      const { metrics, equityCurve } = calculateMetrics([], initialBalance);
-      return {
-          combinedResult: { metrics, equityCurve },
-          individualResults: dbStrategies.map(dbStrategy => ({
-              strategyName: dbStrategy.name,
-              metrics,
-              equityCurve,
-          }))
-      };
-  }
-
-  const individualResults = dbStrategies.map(dbStrategy => {
-      const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-      const trades = strategyFunction(candles, dbStrategy.params);
-      const { metrics, equityCurve } = calculateMetrics(trades, initialBalance);
-      return { strategyName: dbStrategy.name, metrics, equityCurve };
-  });
-
-  const strategySignals = dbStrategies.map(dbStrategy => {
-    const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-    return strategyFunction(candles, dbStrategy.params).map(trade => ({ timestamp: trade.entryTime.getTime(), signal: trade.signal }));
-  });
-
-  const combinedTrades = [];
-  let position = null;
-  for (let i = 0; i < candles.length; i++) {
-    const timestamp = candles[i][0];
-    const currentSignals = strategySignals.map(signals => {
-      const foundSignal = signals.find(s => s.timestamp === timestamp);
-      return foundSignal ? foundSignal.signal : 'hold';
+    const candles = allCandles.filter(c => {
+        const timestamp = new Date(c[0]);
+        return timestamp >= new Date(startDate) && timestamp <= new Date(endDate);
     });
-    const finalSignal = applyCombinationRule(currentSignals, combinationRule);
-    if (finalSignal === 'buy' && !position) {
-      position = 'long';
-      combinedTrades.push({ entryTime: new Date(timestamp), entryPrice: candles[i][4], signal: 'buy', position: 'long', size: 1 });
-    } else if (finalSignal === 'sell' && position === 'long') {
-      const entryTrade = combinedTrades[combinedTrades.length - 1];
-      entryTrade.exitTime = new Date(timestamp);
-      entryTrade.exitPrice = candles[i][4];
-      entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
-      position = null;
+
+    const individualResults = dbStrategies.map(dbStrategy => {
+        let trades = [];
+        let strategyNoTradeReason = null;
+
+        if (!candles || candles.length < 1) {
+            strategyNoTradeReason = noTradeMessage;
+        } else {
+            const strategyFunction = getStrategy(dbStrategy.params.strategyType);
+            trades = strategyFunction(candles, dbStrategy.params);
+
+            if (!trades || trades.length === 0) {
+                strategyNoTradeReason = `Strategy conditions never triggered: ${dbStrategy.params.strategyType}`;
+            }
+        }
+
+        const { metrics, equityCurve } = calculateMetrics(trades, initialBalance);
+        return { strategyName: dbStrategy.name, metrics, equityCurve, noTradeReason: strategyNoTradeReason };
+    });
+
+    const strategySignals = dbStrategies.map(dbStrategy => {
+        const strategyFunction = getStrategy(dbStrategy.params.strategyType);
+        return strategyFunction(candles, dbStrategy.params).map(trade => ({ timestamp: trade.entryTime.getTime(), signal: trade.signal }));
+    });
+
+    const combinedTrades = [];
+    let position = null;
+    for (let i = 0; i < candles.length; i++) {
+        const timestamp = candles[i][0];
+        const currentSignals = strategySignals.map(signals => {
+            const foundSignal = signals.find(s => s.timestamp === timestamp);
+            return foundSignal ? foundSignal.signal : 'hold';
+        });
+        const finalSignal = applyCombinationRule(currentSignals, combinationRule);
+        if (finalSignal === 'buy' && !position) {
+            position = 'long';
+            combinedTrades.push({ entryTime: new Date(timestamp), entryPrice: candles[i][4], signal: 'buy', position: 'long', size: 1 });
+        } else if (finalSignal === 'sell' && position === 'long') {
+            const entryTrade = combinedTrades[combinedTrades.length - 1];
+            entryTrade.exitTime = new Date(timestamp);
+            entryTrade.exitPrice = candles[i][4];
+            entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
+            position = null;
+        }
     }
-  }
-  const { metrics: combinedMetrics, equityCurve: combinedEquityCurve } = calculateMetrics(combinedTrades, initialBalance);
-  return {
-    combinedResult: { metrics: combinedMetrics, equityCurve: combinedEquityCurve },
-    individualResults
-  };
+
+    const { metrics: combinedMetrics, equityCurve: combinedEquityCurve } = calculateMetrics(combinedTrades, initialBalance);
+    return {
+        combinedResult: { metrics: combinedMetrics, equityCurve: combinedEquityCurve },
+        individualResults
+    };
 };
 
 // --- Helper to apply the combination logic ---
 function applyCombinationRule(signals, rule) {
-  if (rule === 'AND') {
-    if (signals.length > 0 && signals.every(s => s === 'buy')) return 'buy';
-    if (signals.length > 0 && signals.every(s => s === 'sell')) return 'sell';
-  } else if (rule === 'OR') {
-    if (signals.some(s => s === 'buy')) return 'buy';
-    if (signals.some(s => s === 'sell')) return 'sell';
-  }
-  return 'hold';
+    if (rule === 'AND') {
+        if (signals.length > 0 && signals.every(s => s === 'buy')) return 'buy';
+        if (signals.length > 0 && signals.every(s => s === 'sell')) return 'sell';
+    } else if (rule === 'OR') {
+        if (signals.some(s => s === 'buy')) return 'buy';
+        if (signals.some(s => s === 'sell')) return 'sell';
+    }
+    return 'hold';
 }
 
 // --- Other required service functions ---
 export const getStrategiesService = async (userId) => {
-  return Strategy.find({ userId }).select("_id name code params").lean();
+    return Strategy.find({ userId }).select("_id name code params").lean();
 };
 
 export const saveStrategyService = async (userId, strategyData) => {
     return Strategy.create({ userId, ...strategyData });
 };
-

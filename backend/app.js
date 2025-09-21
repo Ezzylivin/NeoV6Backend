@@ -1,5 +1,5 @@
 // File: backend/app.js
-// UPGRADED: This file now uses a clean, modular routing system.
+// UPGRADED: Corrected the base paths for the routes to be singular, matching the rest of the application.
 
 import express from "express";
 import cors from "cors";
@@ -7,10 +7,9 @@ import cors from "cors";
 // ✅ 1. Import all the modular route files
 import userRoutes from './routes/userRoutes.js';
 import strategyRoutes from './routes/strategyRoutes.js';
-import backtestRoutes from './routes/backtestRoutes.mjs';
+import backtestRoutes from './routes/backtestRoutes.js';
 import backtestSetupRoutes from './routes/backtestSetupRoutes.js';
 import botRoutes from './routes/botRoutes.js';
-
 
 
 const app = express();
@@ -39,12 +38,12 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // --- ✅ 2. Upgraded Modular API Routes ---
-// This is now the central "switchboard" for your API.
+// The base paths are now singular to match the frontend API calls.
 app.use('/api/users', userRoutes);
-app.use('/api/strategies', strategyRoutes);
-app.use('/api/backtests', backtestRoutes);
+app.use('/api/strategy', strategyRoutes); // FIXED: Was '/api/strategies'
+app.use('/api/backtest', backtestRoutes); // FIXED: Was '/api/backtests'
 app.use('/api/backtest-setups', backtestSetupRoutes);
 app.use('/api/bot', botRoutes);
 
-
 export default app;
+

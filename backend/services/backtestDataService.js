@@ -1,7 +1,7 @@
 // File: backend/services/backtestDataService.js
 // UPGRADED: Full date ranges, pagination, dedupe, caching, arbitrary timeframe resampling,
 // dynamic supported timeframes, gap filling, adaptive timeframe, parallel fetch, retry strategy,
-// and strict post-filtering by start/end dates.
+// strict post-filtering by start/end dates, and symbol normalization per exchange.
 
 import ccxt from 'ccxt';
 import axios from 'axios';
@@ -19,6 +19,27 @@ const timeframeToMinutes = {
     '1h': 60, '2h': 120, '4h': 240, '6h': 360,
     '12h': 720, '1d': 1440, '1w': 10080,
 };
+
+// --- Symbol Normalization ---
+function normalizeSymbol(exchangeId, symbol) {
+    // standardize input like BTC-USD -> BTC/USD
+    const base = symbol.replace('-', '/').toUpperCase();
+
+    // Special cases
+    if (exchangeId === 'kraken') {
+        if (base === 'BTC/USD') return 'XBT/USD'; // Kraken uses XBT
+        if (base === 'ETH/USD') return 'ETH/USD';
+    }
+    if (exchangeId === 'gemini') {
+        // Gemini supports BTC/USD, ETH/USD, etc.
+        return base;
+    }
+    if (exchangeId === 'coinbase') {
+        return base; // Coinbase Pro (Coinbase Exchange) uses BTC/USD
+    }
+
+    return base;
+}
 
 // --- Helper: resample candle data (arbitrary timeframes) ---
 const resampleCandles = (candles, sourceTimeframe, targetTimeframe) => {
@@ -69,12 +90,13 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- Helper: fetch candles with retry & rate-limit ---
 async function fetchCandlesWithRetry(exchange, symbol, timeframe, since) {
+    const normSymbol = normalizeSymbol(exchange.id, symbol);
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
-            const candles = await exchange.fetchOHLCV(symbol, timeframe, since, CANDLE_LIMIT);
+            const candles = await exchange.fetchOHLCV(normSymbol, timeframe, since, CANDLE_LIMIT);
             return candles && candles.length > 0 ? candles : null;
         } catch (e) {
-            console.warn(`⚠️ Attempt ${attempt+1} failed for ${symbol} on ${exchange.id}: ${e.message}`);
+            console.warn(`⚠️ Attempt ${attempt+1} failed for ${normSymbol} on ${exchange.id}: ${e.message}`);
             await sleep(RETRY_DELAY_MS * (attempt + 1));
         }
     }
@@ -99,9 +121,13 @@ export async function getBacktestOptionsData() {
 
         for (const symbol of topCryptos) {
             for (const exchange of tempExchanges) {
-                if (exchange.markets && exchange.markets[symbol]) {
+                const normSymbol = normalizeSymbol(exchange.id, symbol);
+                await exchange.loadMarkets();
+                if (exchange.markets && exchange.markets[normSymbol]) {
                     validSymbols.add(symbol);
-                    if (exchange.timeframes) Object.keys(exchange.timeframes).forEach(tf => supportedTimeframesSet.add(tf));
+                    if (exchange.timeframes) {
+                        Object.keys(exchange.timeframes).forEach(tf => supportedTimeframesSet.add(tf));
+                    }
                     break;
                 }
             }
@@ -156,6 +182,7 @@ export async function fetchOHLCVMultiSafe(symbol, targetTimeframe, startDate, en
     // Parallel fetch from exchanges
     const fetchPromises = US_EXCHANGES.map(async id => {
         const exchange = new ccxt[id]({ enableRateLimit:true, timeout:30000 });
+        await exchange.loadMarkets();
         let allCandles = [];
         let since = startTs;
 

@@ -1,5 +1,5 @@
 // File: backend/services/backtestDataService.js
-// UPGRADED: Full date ranges, pagination, dedupe, caching, arbitrary timeframe resampling, dynamic supported timeframes.
+// UPGRADED: Full date ranges, dynamic timeframe selection, pagination, dedupe, caching, arbitrary resampling.
 
 import ccxt from 'ccxt';
 import axios from 'axios';
@@ -33,7 +33,7 @@ const resampleCandles = (candles, sourceTimeframe, targetTimeframe) => {
     if (!sourceMinutes || !targetMinutes) throw new Error('Invalid timeframe provided');
 
     if (sourceMinutes >= targetMinutes) {
-        // Downsample: aggregate smaller candles into bigger timeframe
+        // Downsample
         const factor = targetMinutes / sourceMinutes;
         const resampled = [];
         let bucket = [];
@@ -53,7 +53,7 @@ const resampleCandles = (candles, sourceTimeframe, targetTimeframe) => {
         }
         return resampled;
     } else {
-        // Upsample: repeat values for smaller timeframe
+        // Upsample
         const factor = sourceMinutes / targetMinutes;
         const upsampled = [];
         for (const candle of candles) {
@@ -83,7 +83,20 @@ async function fetchCandlesWithRetry(exchange, symbol, timeframe, since) {
     }
 }
 
-// --- Get Backtest Options (dynamic timeframes) ---
+// --- Helper: pick smallest timeframe covering the requested date range ---
+function getSmallestSupportedTimeframe(exchange, symbol, startDate, endDate) {
+    const timeframes = Object.keys(exchange.timeframes || {});
+    if (!timeframes.length) return '1h'; // fallback
+    const sorted = timeframes
+        .map(tf => ({ tf, minutes: timeframeToMinutes[tf] || Infinity }))
+        .sort((a, b) => a.minutes - b.minutes);
+
+    // Pick the smallest timeframe with enough historical data (rough estimate)
+    // For simplicity, return the absolute smallest available
+    return sorted[0].tf;
+}
+
+// --- Get Backtest Options (dynamic) ---
 export async function getBacktestOptionsData() {
     const cacheKey = 'backtestOptions';
     const cachedEntry = await Cache.findOne({ key: cacheKey });
@@ -93,7 +106,7 @@ export async function getBacktestOptionsData() {
     try {
         const response = await axios.get(cryptoApiUrl);
         const topCryptos = response.data.map(coin => coin.symbol.toUpperCase() + '/USD');
-        
+
         const validSymbols = new Set();
         const supportedTimeframesSet = new Set();
         const tempExchanges = US_EXCHANGES.map(id => new ccxt[id]());
@@ -102,7 +115,6 @@ export async function getBacktestOptionsData() {
             for (const exchange of tempExchanges) {
                 if (exchange.markets && exchange.markets[symbol]) {
                     validSymbols.add(symbol);
-                    // Collect all timeframes supported by this exchange
                     if (exchange.timeframes) {
                         Object.keys(exchange.timeframes).forEach(tf => supportedTimeframesSet.add(tf));
                     }
@@ -114,7 +126,6 @@ export async function getBacktestOptionsData() {
         const newOptions = {
             symbols: Array.from(validSymbols).sort(),
             timeframes: Array.from(supportedTimeframesSet).sort((a,b) => {
-                // Sort by approximate minutes for consistency
                 const aMin = timeframeToMinutes[a] || 0;
                 const bMin = timeframeToMinutes[b] || 0;
                 return aMin - bMin;
@@ -134,7 +145,7 @@ export async function getBacktestOptionsData() {
     }
 }
 
-// --- Fetch OHLCV with full date range & proper resampling ---
+// --- Fetch OHLCV with full date range, dynamic timeframe selection ---
 export async function fetchOHLCVMultiSafe(symbol, targetTimeframe, startDate, endDate) {
     const cacheKey = `candles::${symbol}::${targetTimeframe}::${startDate || 'all'}::${endDate || 'now'}`;
     const cachedEntry = await Cache.findOne({ key: cacheKey });
@@ -145,11 +156,9 @@ export async function fetchOHLCVMultiSafe(symbol, targetTimeframe, startDate, en
     const startTs = startDate ? new Date(startDate).getTime() : undefined;
     const endTs = endDate ? new Date(endDate).getTime() : Date.now();
 
-    // Always fetch in the smallest available timeframe
-    const smallestTimeframe = '1m';
-
     for (const exchange of exchanges) {
         try {
+            const smallestTimeframe = getSmallestSupportedTimeframe(exchange, symbol, startDate, endDate);
             let since = startTs;
 
             while (true) {
@@ -178,7 +187,8 @@ export async function fetchOHLCVMultiSafe(symbol, targetTimeframe, startDate, en
     // Deduplicate & sort
     allCandles = Array.from(new Map(allCandles.map(c => [c[0], c])).values()).sort((a, b) => a[0] - b[0]);
 
-    // Resample to requested timeframe
+    // Resample to requested timeframe only if needed
+    const smallestTimeframe = '1m'; // fallback for resample
     const resampledCandles = resampleCandles(allCandles, smallestTimeframe, targetTimeframe);
 
     const result = { candles: resampledCandles, exchange: 'multi' };

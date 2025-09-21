@@ -52,16 +52,39 @@ export const runBacktestController = async (req, res) => {
     }
 };
 
-export const runComboBacktest = async (req, res) => {
-    try {
-        const userId = req.user._id;
+// Combined Backtest
+export const runCombinedBacktest = async (req, res) => {
+  try {
+    const {
+      combinationRule,
+      strategyCodes,
+      symbol,
+      timeframe,
+      startDate,
+      endDate,
+    } = req.body;
 
-        // Normalize all symbols in combo payload
-        if (Array.isArray(req.body.symbols)) {
-            req.body.symbols = req.body.symbols.map(s => normalizeSymbol(s));
-        } else if (req.body.symbol) {
-            req.body.symbol = normalizeSymbol(req.body.symbol);
-        }
+    if (!Array.isArray(strategyCodes) || strategyCodes.length < 2) {
+      return res.status(400).json({ message: "At least 2 strategies required" });
+    }
+
+    // Pass flat fields into your service
+    const results = await runCombinedBacktestService({
+      combinationRule,
+      strategyCodes,
+      symbol,
+      timeframe,
+      startDate,
+      endDate,
+      userId: req.user._id,
+    });
+
+    res.json(results);
+  } catch (err) {
+    console.error("Combined backtest error:", err);
+    res.status(500).json({ message: "An unexpected error occurred during the combined backtest." });
+  }
+};
 
         const result = await runCombinedStrategyService(userId, req.body);
 

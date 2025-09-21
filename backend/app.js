@@ -1,16 +1,15 @@
 // File: backend/app.js
-// UPGRADED: Corrected the base paths for the routes to be singular, matching the rest of the application.
+// FINAL VERSION: This file now uses a clean, modular routing system with consistent file paths.
 
 import express from "express";
 import cors from "cors";
 
-// ✅ 1. Import all the modular route files
+// ✅ 1. Import all the modular route files with consistent .js extensions
 import userRoutes from './routes/userRoutes.js';
 import strategyRoutes from './routes/strategyRoutes.js';
-import backtestRoutes from './routes/backtestRoutes.mjs';
+import backtestRoutes from './routes/backtestRoutes.js'; // FIXED: Changed .mjs to .js
 import backtestSetupRoutes from './routes/backtestSetupRoutes.js';
 import botRoutes from './routes/botRoutes.js';
-
 
 const app = express();
 
@@ -18,9 +17,10 @@ const app = express();
 const corsOptions = {
   origin: function (origin, callback) {
     const vercelRegex = /\.vercel\.app$/;
+     const localhostRegex = /^http:\/\/localhost:\d+$/;
     if (
       !origin || 
-      origin.startsWith("http://localhost") ||
+      localhostRegex.test(origin) ||
       vercelRegex.test(origin)
     ) {
       callback(null, true);
@@ -38,11 +38,11 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // --- ✅ 2. Upgraded Modular API Routes ---
-// The base paths are now singular to match the frontend API calls.
+// This is now the single source of truth for your API's structure.
 app.use('/api/users', userRoutes);
-app.use('/api/strategy', strategyRoutes); // FIXED: Was '/api/strategies'
-app.use('/api/backtest', backtestRoutes); // FIXED: Was '/api/backtests'
-app.use('/api/backtestSetups', backtestSetupRoutes);
+app.use('/api/strategy', strategyRoutes);
+app.use('/api/backtest', backtestRoutes); 
+app.use('/api/backtest-setups', backtestSetupRoutes); // FIXED: Changed to use a hyphen
 app.use('/api/bot', botRoutes);
 
 export default app;

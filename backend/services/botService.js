@@ -1,23 +1,31 @@
-// File: backend/services/botService.js
-// This service provides a complete, stateful, in-memory trading bot engine
-// that is fully synchronized with the new bot schema and data service.
+// File: services/botService.js
+// FINAL VERSION: This file is now complete and includes all necessary functions and logic for both single and combo bots.
 
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 import { getStrategy } from "../strategies/strategyManager.js";
 import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 
-// In-memory store for active bot intervals, keyed by bot ID
+// In-memory store for active bot intervals, keyed by the bot's database ID
 const activeBots = new Map();
 
+// Helper to apply the combination logic (re-used from backtesting engine)
+function applyCombinationRule(signals, rule) {
+  if (rule === 'AND') {
+    if (signals.length > 0 && signals.every(s => s === 'buy')) return 'buy';
+    if (signals.length > 0 && signals.every(s => s === 'sell')) return 'sell';
+  } else if (rule === 'OR') {
+    if (signals.some(s => s === 'buy')) return 'buy';
+    if (signals.some(s => s === 'sell')) return 'sell';
+  }
+  return 'hold';
+}
+
 /**
- * The core logic loop for a single trading bot.
- * This function runs on a set interval for each active bot.
+ * The core logic loop for a single trading bot. This is the "brain" of the live bot.
  */
 async function botIteration(botId) {
   const bot = await Bot.findById(botId);
-
-  // Stop if the bot has been disabled or deleted
   if (!bot || bot.status !== 'running') {
     if (activeBots.has(botId.toString())) {
         clearInterval(activeBots.get(botId.toString()));
@@ -27,40 +35,45 @@ async function botIteration(botId) {
   }
 
   try {
-    // 1. Fetch the strategy details
-    const strategy = await Strategy.findById(bot.strategyId).lean();
-    if (!strategy) throw new Error(`Strategy with ID ${bot.strategyId} not found.`);
-
-    // 2. Fetch the latest market data
     const { candles, exchange } = await fetchOHLCVMultiSafe(bot.symbol, bot.timeframe);
     if (!candles || candles.length === 0) {
         console.warn(`[Bot Iteration] No market data for ${bot.symbol} on ${exchange}.`);
         return;
     }
 
-    // 3. Get the strategy logic function
-    const strategyFunction = getStrategy(strategy.params.strategyType);
-
-    // 4. Run the strategy to get the latest signals
-    const trades = strategyFunction(candles, strategy.params);
-    const lastSignal = trades.length > 0 ? trades[trades.length - 1].signal : 'hold';
+    let lastSignal = 'hold';
     const currentPrice = candles[candles.length - 1][4];
 
-    bot.addLog('info', `Checked for signals on ${exchange}. Last signal: ${lastSignal}.`);
+    if (bot.isCombo) {
+        // --- Combo Strategy Logic ---
+        const dbStrategies = await Strategy.find({ userId: bot.userId, code: { $in: bot.comboConfig.strategyCodes } }).lean();
+        if (dbStrategies.length !== bot.comboConfig.strategyCodes.length) throw new Error("One or more combo strategies not found.");
 
-    // 5. Manage the bot's position based on the signal
+        const currentSignals = dbStrategies.map(dbStrategy => {
+            const strategyFunction = getStrategy(dbStrategy.params.strategyType);
+            const trades = strategyFunction(candles, dbStrategy.params);
+            return trades.length > 0 ? trades[trades.length - 1].signal : 'hold';
+        });
+        
+        lastSignal = applyCombinationRule(currentSignals, bot.comboConfig.combinationRule);
+        bot.addLog('info', `Checked combo signals on ${exchange}. Final signal: ${lastSignal}.`);
+    } else {
+        // --- Single Strategy Logic ---
+        const strategy = await Strategy.findById(bot.strategyId).lean();
+        if (!strategy) throw new Error(`Strategy with ID ${bot.strategyId} not found.`);
+        
+        const strategyFunction = getStrategy(strategy.params.strategyType);
+        const trades = strategyFunction(candles, strategy.params);
+        lastSignal = trades.length > 0 ? trades[trades.length - 1].signal : 'hold';
+        bot.addLog('info', `Checked for signals on ${exchange}. Last signal: ${lastSignal}.`);
+    }
+
+    // --- Position Management (works for both single and combo) ---
     if (lastSignal === 'buy' && !bot.currentPosition) {
-        // --- ENTER LONG POSITION ---
         const positionSize = bot.currentBalance / currentPrice;
-        bot.currentPosition = {
-            entryPrice: currentPrice,
-            size: positionSize,
-            side: 'long',
-            entryTime: new Date(),
-        };
+        bot.currentPosition = { entryPrice: currentPrice, size: positionSize, side: 'long', entryTime: new Date() };
         bot.addLog('buy', `Entering long position for ${positionSize.toFixed(4)} ${bot.symbol} at $${currentPrice} on ${exchange}.`);
     } else if (lastSignal === 'sell' && bot.currentPosition?.side === 'long') {
-        // --- EXIT LONG POSITION ---
         const entry = bot.currentPosition;
         const profit = (currentPrice - entry.entryPrice) * entry.size;
         
@@ -70,14 +83,13 @@ async function botIteration(botId) {
         
         const wins = profit > 0 ? 1 : 0;
         const total = bot.performanceMetrics.totalTrades;
-        bot.performanceMetrics.winRate = (( (bot.performanceMetrics.winRate / 100 * (total - 1)) + wins) / total) * 100;
+        bot.performanceMetrics.winRate = (((bot.performanceMetrics.winRate / 100 * (total - 1)) + wins) / total) * 100;
         
         bot.addLog('sell', `Exiting long position on ${exchange}. Profit: $${profit.toFixed(2)}`);
         bot.currentPosition = null;
     }
 
     await bot.save();
-
   } catch (err) {
     console.error(`[Bot Iteration Error][${bot.userId}]`, err);
     bot.status = 'error';
@@ -88,11 +100,11 @@ async function botIteration(botId) {
 }
 
 /**
- * Creates and starts a trading bot for a user.
+ * Creates and starts a trading bot for a user. Handles both single and combo strategies.
  */
 export async function startTradingBot(userId, config = {}) {
   if (!userId) throw new Error("Missing userId");
-  const { strategyId, symbol, timeframe, capitalAllocation } = config;
+  const { strategyId, symbol, timeframe, capitalAllocation, comboConfig } = config;
 
   await stopTradingBot(userId); // Stop any existing bot for this user first
 
@@ -101,7 +113,17 @@ export async function startTradingBot(userId, config = {}) {
     bot = new Bot({ userId });
   }
 
-  bot.strategyId = strategyId;
+  // Configure the bot based on whether it's a single or combo strategy
+  if (comboConfig && comboConfig.strategyCodes?.length > 0) {
+      bot.isCombo = true;
+      bot.comboConfig = comboConfig;
+      bot.strategyId = null; // Ensure single strategy ID is cleared
+  } else {
+      bot.isCombo = false;
+      bot.strategyId = strategyId;
+      bot.comboConfig = null; // Ensure combo config is cleared
+  }
+
   bot.symbol = symbol;
   bot.timeframe = timeframe;
   bot.capitalAllocation = capitalAllocation;

@@ -12,7 +12,7 @@ import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/pri
 import { normalizeSymbol } from "../services/backtestDataService.js";
 
 // --- Single backtest ---
-export const runSingleBacktest = async (req, res) => {
+export const runBacktestController = async (req, res) => {
     const { strategyId, symbol, timeframe, startDate, endDate } = req.body;
 
     try {

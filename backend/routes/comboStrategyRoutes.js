@@ -7,7 +7,7 @@ const router = express.Router();
 // ✅ All routes require auth
 router.use(protect);
 
-router.get("/combo", getComboStrategies);
+router.get("/", getComboStrategies);
 router.post("/", createComboStrategy);
 router.delete("/:id", deleteComboStrategy);
 

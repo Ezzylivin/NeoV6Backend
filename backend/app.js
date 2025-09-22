@@ -8,7 +8,7 @@ import cors from "cors";
 import userRoutes from "./routes/userRoutes.js";
 import strategyRoutes from "./routes/strategyRoutes.js";
 import comboStrategyRoutes from "./routes/comboStrategyRoutes.js"; // NEW: Combo strategies
-import backtestRoutes from "./routes/backtestRoutes.js";
+import backtestRoutes from "./routes/backtestRoutes.mjs";
 import backtestSetupRoutes from "./routes/backtestSetupRoutes.js";
 import botRoutes from "./routes/botRoutes.js";
 

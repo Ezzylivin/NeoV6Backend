@@ -37,7 +37,7 @@ export const runBacktestController = async (req, res) => {
 };
 
 // --- Combined backtest ---
-export const runComoBacktest = async (req, res) => {
+export const runComboBacktest = async (req, res) => {
     const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate } = req.body;
 
     try {

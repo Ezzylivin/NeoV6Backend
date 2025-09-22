@@ -37,7 +37,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 // --- API Routes ---
 app.use("/api/users", userRoutes);
 app.use("/api/strategy", strategyRoutes);
-app.use("/api/combo-strategy", comboStrategyRoutes); // NEW: Combo strategies endpoint
+app.use("/api/strategy", comboStrategyRoutes); // NEW: Combo strategies endpoint
 app.use("/api/backtest", backtestRoutes);
 app.use("/api/backtestSetups", backtestSetupRoutes);
 app.use("/api/bot", botRoutes);

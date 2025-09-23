@@ -17,17 +17,37 @@ export const getComboStrategies = async (req, res) => {
   }
 };
 
-// --- Create a new combo strategy ---
 export const createComboStrategy = async (req, res) => {
   try {
-    const { name, description, strategies, params } = req.body;
+    const { name, description, params } = req.body;
 
-    // Basic validation
-    if (!name?.trim() || !Array.isArray(strategies) || strategies.length === 0) {
-      return res
-        .status(400)
-        .json({ message: "Name and at least one strategy are required" });
+    if (!name?.trim() || !params || typeof params !== "object") {
+      return res.status(400).json({ message: "Name and params are required" });
     }
+
+    // Prevent duplicate names for the same user
+    const existing = await ComboStrategy.findOne({ userId: req.user._id, name });
+    if (existing) {
+      return res.status(400).json({ message: "Combo strategy name already exists" });
+    }
+
+    const newCombo = new ComboStrategy({
+      userId: req.user._id,
+      name: name.trim(),
+      description: description?.trim() || "",
+      params
+    });
+
+    await newCombo.save();
+    return res.status(201).json(newCombo);
+  } catch (err) {
+    console.error("createComboStrategy error:", err);
+    return res
+      .status(500)
+      .json({ message: "Failed to create combo strategy", error: err.message });
+  }
+};
+
 
     // Prevent duplicate names for the same user
     const existing = await ComboStrategy.findOne({ userId: req.user._id, name });

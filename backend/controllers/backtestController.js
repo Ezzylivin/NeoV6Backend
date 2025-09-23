@@ -38,26 +38,41 @@ export const runBacktestController = async (req, res) => {
 
 // --- Combined backtest ---
 export const runComboBacktest = async (req, res) => {
-    const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate } = req.body;
+  try {
+    const { strategies, combinationRule, symbol, timeframe, startDate, endDate } = req.body;
 
-    try {
-        if (!strategyCodes || !Array.isArray(strategyCodes) || strategyCodes.length < 2) {
-            return res.status(400).json({ message: "At least 2 strategies required for combined backtest." });
-        }
-        if (!combinationRule || !symbol || !timeframe || !startDate || !endDate) {
-            return res.status(400).json({ message: "Missing required parameters for combined backtest." });
-        }
+    // ✅ Validate inputs
+    if (!strategies || !Array.isArray(strategies) || strategies.length < 2) {
+      return res.status(400).json({ message: "At least 2 strategies are required for a combined backtest." });
+    }
+    if (!combinationRule || !symbol || !timeframe || !startDate || !endDate) {
+      return res.status(400).json({ message: "Missing required parameters for combined backtest." });
+    }
 
-        const normalizedSymbol = normalizeSymbol(symbol);
+    const normalizedSymbol = normalizeSymbol(symbol);
 
-        const result = await runCombinedStrategyService(req.user._id, {
-            strategyCodes,
-            combinationRule,
-            symbol: normalizedSymbol,
-            timeframe,
-            startDate,
-            endDate,
-        });
+    // ✅ Transform strategies into codes + params for service
+    const strategyPayload = strategies.map(s => ({
+      id: s._id,
+      code: s.code,
+      params: s.params || {}
+    }));
+
+    const result = await runCombinedStrategyService(req.user._id, {
+      strategies: strategyPayload,
+      combinationRule,
+      symbol: normalizedSymbol,
+      timeframe,
+      startDate,
+      endDate,
+    });
+
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("Error running combo backtest:", err);
+    res.status(500).json({ message: "Failed to run combo backtest." });
+  }
+};
 
         if (!result.combinedResult?.equityCurve?.length) {
             console.warn(`⚠️ Combo backtest returned no trades for symbol ${symbol}`);

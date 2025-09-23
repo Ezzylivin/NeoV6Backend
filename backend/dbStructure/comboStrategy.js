@@ -14,13 +14,13 @@ const comboStrategySchema = new Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 100, // 🔒 prevent abuse
+      maxlength: 100,
     },
     description: {
       type: String,
       default: "",
       trim: true,
-      maxlength: 500, // 🔒 prevent spammy descriptions
+      maxlength: 500,
     },
     strategies: [
       {
@@ -30,18 +30,16 @@ const comboStrategySchema = new Schema(
       },
     ],
     params: {
+      // Store comboConfig details like combinationRule, strategyCodes, etc.
       type: Schema.Types.Mixed,
-      default: () => ({}), // always an object, never null
+      default: () => ({}),
     },
   },
   { timestamps: true }
 );
 
 // --- Indexes ---
-// 🔑 Enforce unique combo name per user
 comboStrategySchema.index({ userId: 1, name: 1 }, { unique: true });
-
-// ⚡ Optimize frequent queries
 comboStrategySchema.index({ userId: 1, createdAt: -1 });
 
 export default model("ComboStrategy", comboStrategySchema);

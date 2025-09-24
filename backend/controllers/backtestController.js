@@ -11,6 +11,8 @@ import {
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 import { normalizeSymbol } from "../services/backtestDataService.js";
 
+console.log("Combo Backtest Payload:", req.body);
+
 // --- Single backtest ---
 export const runBacktestController = async (req, res) => {
     const { strategyId, symbol, timeframe, startDate, endDate } = req.body;

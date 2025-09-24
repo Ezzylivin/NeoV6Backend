@@ -44,18 +44,58 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     return { metrics, equityCurve, tradeHistory: trades };
 };
 
-// --- Run a single strategy backtest (no changes) ---
 export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
-    // ... (existing code, no changes needed)
+    if (!dbStrategy) throw new Error("Strategy object is required.");
+    if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
+
+    const { symbol, timeframe, startDate, endDate, initialBalance = 1000 } = params;
+    const { candles: allCandles, message: noTradeMessage } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
+
+    const candles = allCandles.filter(c => {
+        const timestamp = new Date(c[0]);
+        return timestamp >= new Date(startDate) && timestamp <= new Date(endDate);
+    });
+
+    let trades = [];
+    let strategyNoTradeReason = null;
+
+    if (!candles || candles.length < 1) {
+        console.warn(`No market data found for ${symbol} in the selected date range.`);
+        strategyNoTradeReason = noTradeMessage;
+    } else {
+        const strategyFunction = getStrategy(dbStrategy.params.strategyType);
+        trades = strategyFunction(candles, dbStrategy.params);
+
+        if (!trades || trades.length === 0) {
+            strategyNoTradeReason = `Strategy conditions were never met: ${dbStrategy.params.strategyType}`;
+        }
+    }
+
+    const { metrics, equityCurve, tradeHistory } = calculateMetrics(trades, initialBalance);
+
+    if (!simulateOnly) {
+        const backtestData = {
+            userId, symbol, timeframe, initialBalance,
+            finalBalance: metrics.finalBalance, profit: metrics.totalProfit,
+            totalTrades: metrics.totalTrades, candlesTested: candles.length,
+            strategy: { name: dbStrategy.name, type: dbStrategy.params.strategyType, parameters: dbStrategy.params },
+            tradeBreakdown: tradeHistory, equityCurve, metrics,
+            startDate, endDate,
+            noTradeReason: strategyNoTradeReason
+        };
+        return await Backtest.create(backtestData);
+    }
+
+    return { trades: tradeHistory, metrics, equityCurve, strategyName: dbStrategy.name, symbol, timeframe, noTradeReason: strategyNoTradeReason };
 };
 
 
 // --- ✅ UPGRADED: Run a combined strategy backtest ---
 export const runCombinedStrategyService = async (userId, comboPayload) => {
-  const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
+  const { strategies, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
 
-  const dbStrategies = await Strategy.find({ userId, code: { $in: strategyCodes } }).lean();
-  if (dbStrategies.length !== strategyCodes.length) throw new Error("One or more strategies not found.");
+  const dbStrategies = await Strategy.find({ userId, code: { $in: strategies } }).lean();
+  if (dbStrategies.length !== strategies.length) throw new Error("One or more strategies not found.");
 
   const { candles: allCandles } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
   

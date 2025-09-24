@@ -51,12 +51,33 @@ export const runComboBacktest = async (req, res) => {
 
         const normalizedSymbol = normalizeSymbol(symbol);
 
-        // ✅ Transform strategies into codes + params for service
-        const strategyPayload = strategies.map((s) => ({
-            id: s._id,
-            code: s.code,
-            params: s.params || {},
-        }));
+        // ✅ Ensure strategies are objects with _id, code, params
+        const strategyPayload = [];
+        for (const s of strategies) {
+            let stratObj;
+            // If already an object with id/code/params, use it
+            if (s._id && s.code) {
+                stratObj = {
+                    id: s._id,
+                    code: s.code,
+                    params: s.params || {},
+                };
+            } else if (s.code) {
+                // Lookup the strategy in DB by code and user
+                const dbStrategy = await Strategy.findOne({ code: s.code, userId: req.user._id }).lean();
+                if (!dbStrategy) {
+                    return res.status(404).json({ message: `Strategy with code "${s.code}" not found.` });
+                }
+                stratObj = {
+                    id: dbStrategy._id,
+                    code: dbStrategy.code,
+                    params: dbStrategy.params || {},
+                };
+            } else {
+                return res.status(400).json({ message: "Invalid strategy object in strategies array." });
+            }
+            strategyPayload.push(stratObj);
+        }
 
         const result = await runCombinedStrategyService(req.user._id, {
             strategies: strategyPayload,

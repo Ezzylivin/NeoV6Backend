@@ -25,7 +25,7 @@ export const createSetup = async (req, res) => {
 
     // Add either the single strategy ID or the combo config
     if (isCombo) {
-      if (!comboConfig || !comboConfig.strategyCodes || !comboConfig.combinationRule) {
+      if (!comboConfig || !comboConfig.strategies || !comboConfig.combinationRule) {
         return res.status(400).json({ message: "Combo config is missing required fields." });
       }
       setupData.comboConfig = comboConfig;

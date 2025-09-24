@@ -45,6 +45,8 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
 };
 
 export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
+    console.log("runStrategyService called with:", { strategy, options, userId, simulateOnly });
+
     if (!dbStrategy) throw new Error("Strategy object is required.");
     if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
 

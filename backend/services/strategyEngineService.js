@@ -99,15 +99,16 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     return { trades: tradeHistory, metrics, equityCurve, strategyName: dbStrategy.name, symbol, timeframe, noTradeReason: strategyNoTradeReason };
 };
 
-
 // --- ✅ UPGRADED: Run a combined strategy backtest ---
 export const runCombinedStrategyService = async (userId, comboPayload) => {
     console.log("runCombinedStrategyService called with:", { userId, comboPayload });
 
     const { strategies, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
 
-    const dbStrategies = await Strategy.find({ userId, code: { $in: strategies } }).lean();
-    if (dbStrategies.length !== strategies.length) throw new Error("One or more strategies not found.");
+    // --- FIX: Ensure only strategy codes (strings) are used in DB query ---
+    const strategyCodes = strategies.map(s => typeof s === 'string' ? s : s.code);
+    const dbStrategies = await Strategy.find({ userId, code: { $in: strategyCodes } }).lean();
+    if (dbStrategies.length !== strategyCodes.length) throw new Error("One or more strategies not found.");
 
     console.log(`Found ${dbStrategies.length} strategies for combo backtest`);
 

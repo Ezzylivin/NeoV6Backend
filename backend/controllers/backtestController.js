@@ -43,19 +43,11 @@ export const runComboBacktest = async (req, res) => {
 
   try {
     const { params } = req.body;
-
     if (!params) return res.status(400).json({ message: "Missing 'params' object in request body." });
 
-    const {
-      combinationRule,
-      symbol,
-      timeframe,
-      startDate,
-      endDate,
-      strategyParams = [],
-    } = params;
+    const { combinationRule, symbol, timeframe, startDate, endDate, strategyParams = [] } = params;
 
-    // Validate
+    // Validate required fields
     if (!combinationRule || !symbol || !timeframe || !startDate || !endDate) {
       return res.status(400).json({ message: "Missing required parameters for combined backtest." });
     }
@@ -65,7 +57,7 @@ export const runComboBacktest = async (req, res) => {
 
     const normalizedSymbol = normalizeSymbol(symbol);
 
-    // Ensure each strategy has strategyId and params
+    // Prepare each strategy for engine
     const preparedStrategies = [];
     for (const s of strategyParams) {
       let stratObj;

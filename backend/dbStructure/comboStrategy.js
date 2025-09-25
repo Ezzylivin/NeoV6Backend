@@ -2,6 +2,22 @@
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
 
+// Define per-strategy parameter schema
+const StrategyParamSchema = new Schema(
+  {
+    strategyId: {
+      type: Schema.Types.ObjectId,
+      ref: "Strategy",
+      required: true,
+    },
+    params: {
+      type: Object, // JSON object with stopLoss, takeProfit, etc.
+      required: true,
+    },
+  },
+  { _id: false }
+);
+
 const comboStrategySchema = new Schema(
   {
     userId: {
@@ -29,10 +45,21 @@ const comboStrategySchema = new Schema(
         required: true,
       },
     ],
+
+    // More explicit params schema
     params: {
-      // Store comboConfig details like combinationRule, strategyCodes, etc.
-      type: Schema.Types.Mixed,
-      default: () => ({}),
+      combinationRule: {
+        type: String,
+        enum: ["AND", "OR"],
+        required: true,
+      },
+      symbol: { type: String, required: true },
+      timeframe: { type: String, required: true },
+      startDate: { type: Date, required: true },
+      endDate: { type: Date, required: true },
+
+      // Per-strategy configs
+      strategyParams: [StrategyParamSchema],
     },
   },
   { timestamps: true }

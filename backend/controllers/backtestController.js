@@ -1,6 +1,5 @@
-// File: controllers/backtestController.js
-// UPGRADED: Now normalizes symbols, logs fetched candle lengths, ensures combo tests handle multiple symbols,
-// and gracefully handles errors when market data for a symbol cannot be found.
+// File: backend/controllers/backtestController.js
+// FIXED: Proper symbol normalization, combo backtests handle multiple strategies without invalid "multi" symbol
 
 import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
@@ -19,8 +18,8 @@ export const runBacktestController = async (req, res) => {
             return res.status(404).json({ message: "Strategy not found" });
         }
 
-        // Normalize symbol for multi-exchange compatibility
-        const normSymbol = normalizeSymbol('multi', symbol);
+        // Normalize the actual trading pair symbol
+        const normSymbol = normalizeSymbol(symbol);
 
         const backtestParams = {
             symbol: normSymbol,
@@ -54,18 +53,14 @@ export const runBacktestController = async (req, res) => {
 };
 
 export const runComboBacktest = async (req, res) => {
-
-     console.log("🎯 runComboBacktest called. User:", req.user?._id, "Payload:", req.body);
-
-    
     try {
         const userId = req.user._id;
 
         // Normalize all symbols in combo payload
         if (Array.isArray(req.body.symbols)) {
-            req.body.symbols = req.body.symbols.map(s => normalizeSymbol('multi', s));
+            req.body.symbols = req.body.symbols.map(s => normalizeSymbol(s));
         } else if (req.body.symbol) {
-            req.body.symbol = normalizeSymbol('multi', req.body.symbol);
+            req.body.symbol = normalizeSymbol(req.body.symbol);
         }
 
         const result = await runCombinedStrategyService(userId, req.body);
@@ -89,8 +84,7 @@ export const runComboBacktest = async (req, res) => {
     }
 };
 
-// --- Other controller functions remain unchanged ---
-
+// --- Fetch backtest options ---
 export const fetchBacktestOptionsController = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -115,6 +109,7 @@ export const fetchBacktestOptionsController = async (req, res) => {
     }
 };
 
+// --- Fetch past backtests ---
 export const fetchPastBacktestsController = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -132,6 +127,7 @@ export const fetchPastBacktestsController = async (req, res) => {
     }
 };
 
+// --- Preview strategy ---
 export const previewStrategyController = async (req, res) => {
     try {
         const { code, symbol, timeframe, params } = req.body;
@@ -139,7 +135,7 @@ export const previewStrategyController = async (req, res) => {
         const dbStrategy = await Strategy.findOne({ code, userId }).lean();
         if (!dbStrategy) return res.status(404).json({ error: "Strategy not found" });
 
-        const normSymbol = normalizeSymbol('multi', symbol);
+        const normSymbol = normalizeSymbol(symbol);
         const backtestParams = { symbol: normSymbol, timeframe, params: { ...dbStrategy.params, ...params } };
         const result = await runStrategyService(dbStrategy, backtestParams, userId, true);
 
@@ -157,6 +153,7 @@ export const previewStrategyController = async (req, res) => {
     }
 };
 
+// --- Get backtest by ID ---
 export const getBacktestById = async (req, res) => {
     try {
         const { backtestId } = req.params;
@@ -172,6 +169,7 @@ export const getBacktestById = async (req, res) => {
     }
 };
 
+// --- Delete backtest ---
 export const deleteBacktestController = async (req, res) => {
     try {
         const { backtestId } = req.params;

@@ -4,11 +4,12 @@
 import jwt from "jsonwebtoken";
 import User from "../dbStructure/user.js";
 
-console.log("🔐 protect middleware triggered. Headers:", req.headers.authorization);
-
 
 // Renamed from authMiddleware to 'protect' to match its usage in route files.
 export const protect = async (req, res, next) => {
+    console.log("🔐 protect middleware triggered. Headers:", req.headers.authorization);
+
+
     let token;
 
     try {

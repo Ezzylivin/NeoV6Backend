@@ -2,22 +2,6 @@
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
 
-// Define per-strategy parameter schema
-const StrategyParamSchema = new Schema(
-  {
-    strategyId: {
-      type: Schema.Types.ObjectId,
-      ref: "Strategy",
-      required: true,
-    },
-    params: {
-      type: Object, // JSON object with stopLoss, takeProfit, etc.
-      required: true,
-    },
-  },
-  { _id: false }
-);
-
 const comboStrategySchema = new Schema(
   {
     userId: {
@@ -30,13 +14,13 @@ const comboStrategySchema = new Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 100,
+      maxlength: 100, // 🔒 prevent abuse
     },
     description: {
       type: String,
       default: "",
       trim: true,
-      maxlength: 500,
+      maxlength: 500, // 🔒 prevent spammy descriptions
     },
     strategies: [
       {
@@ -45,28 +29,19 @@ const comboStrategySchema = new Schema(
         required: true,
       },
     ],
-
-    // More explicit params schema
     params: {
-      combinationRule: {
-        type: String,
-        enum: ["AND", "OR"],
-        required: true,
-      },
-      symbol: { type: String, required: true },
-      timeframe: { type: String, required: true },
-      startDate: { type: Date, required: true },
-      endDate: { type: Date, required: true },
-
-      // Per-strategy configs
-      strategyParams: [StrategyParamSchema],
+      type: Schema.Types.Mixed,
+      default: () => ({}), // always an object, never null
     },
   },
   { timestamps: true }
 );
 
 // --- Indexes ---
+// 🔑 Enforce unique combo name per user
 comboStrategySchema.index({ userId: 1, name: 1 }, { unique: true });
+
+// ⚡ Optimize frequent queries
 comboStrategySchema.index({ userId: 1, createdAt: -1 });
 
 export default model("ComboStrategy", comboStrategySchema);

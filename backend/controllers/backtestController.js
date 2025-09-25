@@ -54,6 +54,10 @@ export const runBacktestController = async (req, res) => {
 };
 
 export const runComboBacktest = async (req, res) => {
+
+     console.log("🎯 runComboBacktest called. User:", req.user?._id, "Payload:", req.body);
+
+    
     try {
         const userId = req.user._id;
 

@@ -10,6 +10,9 @@ import {
 } from "../controllers/backtestController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
+console.log("✅ backtestRoutes.mjs loaded");
+
+
 const router = express.Router();
 
 // --- Existing Routes (no changes) ---

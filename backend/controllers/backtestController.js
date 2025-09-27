@@ -37,7 +37,7 @@ export const runBacktestController = async (req, res) => {
 };
 
 // --- Run combo backtest ---
-export const runComboBacktest = async (req, res) => {
+export const runComboBacktestController = async (req, res) => {
     try {
         const { userId } = req.user;
         const comboPayload = { ...req.body, userId };
@@ -142,7 +142,7 @@ export const fetchPastBacktestsController = async (req, res) => {
     }
 };
 
-export const getBacktestById = async (req, res) => {
+export const getBacktestByIdController = async (req, res) => {
     try {
         const { backtestId } = req.params;
         const { userId } = req.user;

@@ -1,80 +1,226 @@
-// File: backtest.js
+// File: services/backtest.js
 // REAL BACKTEST ENGINE
-// UPDATED: Supports a clean backtesting flow
+// UPGRADED: Re-architected as a chronological simulator with dynamic risk management.
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 import { getStrategy } from "../strategies/strategyManager.js";
 
-// --- Utility for metrics ---
-const calculateMetrics = (trades, initialBalance = 1000) => {
-    if (!trades || trades.length === 0) return {};
-    let equity = 0, equityCurve = [], wins = 0, losses = 0, totalProfit = 0, maxDrawdown = 0, peak = 0;
+/**
+ * A comprehensive, event-driven backtesting simulator.
+ * @param {object} config - The configuration for the simulation.
+ * @returns {object} The results of the simulation including trades and equity curve.
+ */
+const runSimulation = (config) => {
+    const {
+        candles,
+        strategyFunction,
+        strategyParams,
+        riskParams,
+        initialBalance,
+    } = config;
 
-    trades.forEach((trade) => {
-        equity += trade.profit || 0;
-        equityCurve.push({ timestamp: trade.timestamp || trade.entryTimestamp, balance: initialBalance + equity });
-        if (equity > peak) peak = equity;
-        else { const dd = peak - equity; if (dd > maxDrawdown) maxDrawdown = dd; }
-        if (trade.profit > 0) wins++; else losses++;
-        totalProfit += trade.profit || 0;
-    });
+    let currentBalance = initialBalance;
+    let position = null;
+    const closedTrades = [];
+    const equityCurve = [{ timestamp: candles[0][0], balance: initialBalance }];
 
-    const winRate = trades.length ? wins / trades.length : 0;
+    const {
+        riskManagementMode = 'standard',
+        riskPercentage = 1,
+        growthCapitalTarget = initialBalance * 2,
+    } = riskParams;
+    
+    let isInGrowthMode = (riskManagementMode === 'dynamic' && initialBalance < growthCapitalTarget);
 
-    return { totalProfit, totalTrades: trades.length, winRate, maxDrawdown, equityCurve, tradeHistory: trades };
-};
+    // Main Simulation Loop
+    for (let i = 1; i < candles.length; i++) {
+        const [timestamp, open, high, low, close] = candles[i];
+        const historicalCandles = candles.slice(0, i + 1);
 
-// --- Run single backtest ---
-export const runBacktest = async ({ userId, code, symbol, timeframe, startDate, endDate, tp, sl, simulateOnly = true }) => {
-    // 1. Lookup strategy
-    const strategy = await Strategy.findOne({ userId, code });
-    if (!strategy) throw new Error("Strategy not found.");
+        // 1. Check for Exits on Open Positions
+        if (position) {
+            let exitPrice = null;
+            let exitReason = '';
 
-    // 2. Fetch market data
-    const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe);
-    if (!candles) throw new Error("Could not fetch market data.");
+            const { slPrice, tpPrice, signal } = position;
+            
+            if (signal === 'buy') {
+                if (low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
+                else if (high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+            } else { // 'sell'
+                if (high >= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
+                else if (low <= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+            }
 
-    // 3. Get strategy function
-    const strategyFunction = getStrategy(strategy.params.strategyType);
+            if (exitPrice) {
+                const pnl = (exitPrice - position.entryPrice) * position.size * (signal === 'buy' ? 1 : -1);
+                currentBalance += pnl;
 
-    // 4. Run strategy
-    const trades = strategyFunction(candles, strategy.params);
+                position.exitTime = new Date(timestamp);
+                position.exitPrice = exitPrice;
+                position.profit = pnl;
+                position.exitReason = exitReason;
+                closedTrades.push({ ...position });
+                equityCurve.push({ timestamp, balance: currentBalance });
+                position = null;
 
-    // 5. Calculate metrics
-    const metrics = calculateMetrics(trades, strategy.params.initialBalance || 1000);
-    const finalBalance = (strategy.params.initialBalance || 1000) + (metrics.totalProfit || 0);
+                if (currentBalance <= 0) {
+                    console.warn('Account wiped out. Ending simulation.');
+                    break;
+                }
+            }
+        }
 
-    // 6. Prepare backtest object
-    const backtestData = {
-        userId,
-        symbol, // FIX: Use 'symbol' instead of 'pair' for consistency
-        timeframe,
-        initialBalance: strategy.params.initialBalance || 1000,
-        finalBalance,
-        startDate,
-        endDate,
-        takeProfit: tp,
-        stopLoss: sl,
-        candlesTested: candles.length,
-        strategy: {
-            name: strategy.name,
-            type: strategy.params.strategyType,
-            params: strategy.params,
-            code: strategy.code
-        },
-        tradeBreakdown: trades,
-        equityCurve: metrics.equityCurve,
-        metrics
-    };
+        // 2. Check for Entries
+        if (!position) {
+            const signal = strategyFunction(historicalCandles, strategyParams);
+            
+            if (signal.signal === 'buy' || signal.signal === 'sell') {
+                const { SL: slPercent, TP: tpPercent } = strategyParams;
+                if (!slPercent || slPercent <= 0) continue;
 
-    // 7. Save backtest if not in simulateOnly mode
-    if (!simulateOnly) {
-        const savedBacktest = await Backtest.create(backtestData);
-        return savedBacktest;
+                let effectiveRiskPercent = riskPercentage;
+                if (isInGrowthMode) {
+                    if (currentBalance >= growthCapitalTarget) {
+                        isInGrowthMode = false;
+                        effectiveRiskPercent = riskPercentage;
+                    } else {
+                        effectiveRiskPercent = 100;
+                    }
+                }
+
+                const riskDecimal = effectiveRiskPercent / 100;
+                const stopLossDecimal = slPercent / 100;
+                
+                let positionSizeDollars = (currentBalance * riskDecimal) / stopLossDecimal;
+                positionSizeDollars = Math.min(positionSizeDollars, currentBalance);
+                const positionSizeUnits = positionSizeDollars / close;
+
+                position = {
+                    entryPrice: close,
+                    entryTime: new Date(timestamp),
+                    size: positionSizeUnits,
+                    signal: signal.signal,
+                    slPrice: signal.signal === 'buy' ? close * (1 - stopLossDecimal) : close * (1 + stopLossDecimal),
+                    tpPrice: signal.signal === 'buy' ? close * (1 + (tpPercent / 100)) : close * (1 - (tpPercent / 100)),
+                };
+            }
+        }
+    }
+    
+    // Add final equity point
+    const lastTimestamp = candles[candles.length - 1][0];
+    if (equityCurve[equityCurve.length - 1].timestamp !== lastTimestamp) {
+        equityCurve.push({ timestamp: lastTimestamp, balance: currentBalance });
     }
 
-    // 8. Return preview data
+    return { closedTrades, equityCurve };
+};
+
+
+/**
+ * Calculates a comprehensive set of performance metrics from trades.
+ * @param {Array} trades - The array of closed trades.
+ * @param {number} initialBalance - The starting balance of the account.
+ * @param {Array} equityCurve - The equity curve from the simulation.
+ * @returns {object} A full suite of performance metrics.
+ */
+const calculateMetrics = (trades, initialBalance, equityCurve) => {
+    if (trades.length === 0) {
+        return {
+            totalTrades: 0, winRate: 0, totalProfit: 0, finalBalance: initialBalance, initialBalance,
+            maxDrawdown: 0, profitFactor: 0, winningTrades: 0, losingTrades: 0,
+            averageWin: 0, averageLoss: 0, totalReturn: 0,
+        };
+    }
+
+    const finalBalance = equityCurve[equityCurve.length - 1].balance;
+    const totalProfit = finalBalance - initialBalance;
+    const winningTrades = trades.filter(t => t.profit > 0);
+    const losingTrades = trades.filter(t => t.profit <= 0);
+
+    const grossProfit = winningTrades.reduce((sum, t) => sum + t.profit, 0);
+    const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
+    
+    let peakBalance = initialBalance;
+    let maxDrawdownValue = 0;
+    equityCurve.forEach(point => {
+        if (point.balance > peakBalance) peakBalance = point.balance;
+        const drawdown = peakBalance - point.balance;
+        if (drawdown > maxDrawdownValue) maxDrawdownValue = drawdown;
+    });
+
+    return {
+        initialBalance,
+        finalBalance,
+        totalProfit,
+        totalReturn: (totalProfit / initialBalance) * 100,
+        totalTrades: trades.length,
+        winningTrades: winningTrades.length,
+        losingTrades: losingTrades.length,
+        winRate: (winningTrades.length / trades.length) * 100,
+        averageWin: winningTrades.length > 0 ? grossProfit / winningTrades.length : 0,
+        averageLoss: losingTrades.length > 0 ? grossLoss / losingTrades.length : 0,
+        profitFactor: grossLoss > 0 ? grossProfit / grossLoss : Infinity,
+        maxDrawdown: peakBalance > 0 ? (maxDrawdownValue / peakBalance) * 100 : 0,
+    };
+};
+
+/**
+ * Orchestrates a backtest for a single strategy.
+ * @param {object} config - The complete backtest configuration object.
+ * @returns {object} The complete backtest results.
+ */
+export const runBacktest = async (config) => {
+    const { userId, code, symbol, timeframe, startDate, endDate, simulateOnly = true, ...riskParams } = config;
+
+    // 1. Fetch Strategy & Market Data
+    const strategy = await Strategy.findOne({ userId, code }).lean();
+    if (!strategy) throw new Error("Strategy not found.");
+    
+    const { candles } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
+    if (!candles || candles.length < 2) throw new Error("Not enough market data for the selected period.");
+
+    const strategyFunction = getStrategy(strategy.params.strategyType);
+    const initialBalance = config.initialBalance || strategy.params.initialBalance || 1000;
+    
+    // 2. Run the Simulation
+    const { closedTrades, equityCurve } = runSimulation({
+        candles,
+        strategyFunction,
+        strategyParams: { ...strategy.params, ...config.params },
+        riskParams,
+        initialBalance,
+    });
+    
+    // 3. Calculate Final Metrics
+    const metrics = calculateMetrics(closedTrades, initialBalance, equityCurve);
+
+    // 4. Prepare Result Object
+    const backtestData = {
+        userId,
+        symbol,
+        timeframe,
+        initialBalance,
+        finalBalance: metrics.finalBalance,
+        startDate,
+        endDate,
+        strategy: {
+            name: strategy.name,
+            code: strategy.code,
+            type: strategy.params.strategyType,
+            params: { ...strategy.params, ...config.params },
+        },
+        metrics,
+        equityCurve,
+        tradeHistory: closedTrades,
+    };
+
+    // 5. Save to DB or Return
+    if (!simulateOnly) {
+        return await Backtest.create(backtestData);
+    }
     return backtestData;
 };

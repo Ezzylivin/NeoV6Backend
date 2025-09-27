@@ -1,5 +1,5 @@
 // File: services/strategyEngineService.js
-// UPGRADED: Includes SL/TP support for single and combined strategies
+// UPGRADED VERSION: Combined strategies now support SL, TP, and trailing stops
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -26,7 +26,7 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     const closedTrades = [];
 
     for (const trade of trades) {
-        if (trade.exitTime && trade.exitPrice != null) {
+        if (trade.exitTime && trade.exitPrice) {
             trade.duration = trade.exitTime.getTime() - trade.entryTime.getTime();
             balance += trade.profit;
 
@@ -73,12 +73,12 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     return { metrics, equityCurve, tradeHistory: trades };
 };
 
-// --- Run a single strategy backtest with SL/TP support ---
+// --- Run a single strategy backtest ---
 export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
     if (!dbStrategy) throw new Error("Strategy object is required.");
     if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
 
-    const { symbol, timeframe, startDate, endDate, initialBalance = 1000, stopLoss = 0.02, takeProfit = 0.05 } = params;
+    const { symbol, timeframe, startDate, endDate, initialBalance = 1000 } = params;
     const { candles: allCandles, message: noTradeMessage } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
 
     const candles = allCandles.filter(c => {
@@ -90,53 +90,10 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     let strategyNoTradeReason = null;
 
     if (!candles || candles.length < 1) {
-        console.warn(`No market data found for ${symbol} in the selected date range.`);
         strategyNoTradeReason = noTradeMessage;
     } else {
         const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-        const signals = strategyFunction(candles, dbStrategy.params);
-
-        // Apply SL/TP per trade
-        let position = null;
-        for (let i = 0; i < candles.length; i++) {
-            const ts = candles[i][0];
-            const open = candles[i][1];
-            const high = candles[i][2];
-            const low = candles[i][3];
-            const close = candles[i][4];
-
-            const signal = signals.find(s => s.entryTime.getTime() === ts);
-            if (!position && signal && signal.signal === 'buy') {
-                position = { entryTime: new Date(ts), entryPrice: close, size: 1, SL: close * (1 - stopLoss), TP: close * (1 + takeProfit) };
-                trades.push(position);
-            }
-
-            if (position) {
-                if (low <= position.SL) {
-                    position.exitTime = new Date(ts);
-                    position.exitPrice = position.SL;
-                    position.profit = (position.exitPrice - position.entryPrice) * position.size;
-                    position.result = 'loss';
-                    position = null;
-                    continue;
-                }
-                if (high >= position.TP) {
-                    position.exitTime = new Date(ts);
-                    position.exitPrice = position.TP;
-                    position.profit = (position.exitPrice - position.entryPrice) * position.size;
-                    position.result = 'win';
-                    position = null;
-                    continue;
-                }
-                if (signal && signal.signal === 'sell') {
-                    position.exitTime = new Date(ts);
-                    position.exitPrice = close;
-                    position.profit = (position.exitPrice - position.entryPrice) * position.size;
-                    position.result = position.profit >= 0 ? 'win' : 'loss';
-                    position = null;
-                }
-            }
-        }
+        trades = strategyFunction(candles, dbStrategy.params);
 
         if (!trades || trades.length === 0) {
             strategyNoTradeReason = `Strategy conditions were never met: ${dbStrategy.params.strategyType}`;
@@ -161,9 +118,9 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     return { trades: tradeHistory, metrics, equityCurve, strategyName: dbStrategy.name, symbol, timeframe, noTradeReason: strategyNoTradeReason };
 };
 
-// --- Run a combined strategy backtest with SL/TP support ---
+// --- Run a combined strategy backtest with SL/TP ---
 export const runCombinedStrategyService = async (userId, comboPayload) => {
-    const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000, stopLoss = 0.02, takeProfit = 0.05 } = comboPayload;
+    const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
 
     const dbStrategies = await Strategy.find({ userId, code: { $in: strategyCodes } }).lean();
     if (dbStrategies.length !== strategyCodes.length) throw new Error("One or more strategies not found.");
@@ -194,54 +151,65 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
         return { strategyName: dbStrategy.name, metrics, equityCurve, noTradeReason: strategyNoTradeReason };
     });
 
+    // --- Collect signals from each strategy ---
     const strategySignals = dbStrategies.map(dbStrategy => {
         const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-        return strategyFunction(candles, dbStrategy.params).map(trade => ({ timestamp: trade.entryTime.getTime(), signal: trade.signal }));
+        return strategyFunction(candles, dbStrategy.params).map(trade => ({
+            timestamp: trade.entryTime.getTime(),
+            signal: trade.signal,
+            SL: trade.SL,
+            TP: trade.TP,
+            trailingStop: trade.trailingStop || null
+        }));
     });
 
     const combinedTrades = [];
     let position = null;
 
     for (let i = 0; i < candles.length; i++) {
-        const ts = candles[i][0];
-        const open = candles[i][1];
-        const high = candles[i][2];
-        const low = candles[i][3];
-        const close = candles[i][4];
-
+        const timestamp = candles[i][0];
+        const price = candles[i][4]; // close price
         const currentSignals = strategySignals.map(signals => {
-            const found = signals.find(s => s.timestamp === ts);
-            return found ? found.signal : 'hold';
+            const foundSignal = signals.find(s => s.timestamp === timestamp);
+            return foundSignal || { signal: 'hold' };
         });
-        const finalSignal = applyCombinationRule(currentSignals, combinationRule);
 
-        if (!position && finalSignal === 'buy') {
-            position = { entryTime: new Date(ts), entryPrice: close, size: 1, SL: close * (1 - stopLoss), TP: close * (1 + takeProfit), signal: 'buy', position: 'long' };
+        const finalSignal = applyCombinationRule(currentSignals.map(s => s.signal), combinationRule);
+
+        // --- Open position ---
+        if (finalSignal === 'buy' && !position) {
+            const signalWithSLTP = currentSignals.find(s => s.signal === 'buy') || {};
+            position = {
+                entryPrice: price,
+                entryTime: new Date(timestamp),
+                size: 1,
+                SL: signalWithSLTP.SL || null,
+                TP: signalWithSLTP.TP || null,
+                trailingStop: signalWithSLTP.trailingStop || null,
+                signal: 'buy'
+            };
             combinedTrades.push(position);
         }
 
+        // --- Check exits ---
         if (position) {
-            if (low <= position.SL) {
-                position.exitTime = new Date(ts);
-                position.exitPrice = position.SL;
-                position.profit = (position.exitPrice - position.entryPrice) * position.size;
-                position.result = 'loss';
-                position = null;
-                continue;
+            let exit = false;
+            // TP hit
+            if (position.TP && price >= position.TP) exit = true;
+            // SL hit
+            if (position.SL && price <= position.SL) exit = true;
+            // Trailing stop
+            if (position.trailingStop) {
+                if (!position.highestPrice) position.highestPrice = price;
+                if (price > position.highestPrice) position.highestPrice = price;
+                const tsLevel = position.highestPrice * (1 - position.trailingStop);
+                if (price <= tsLevel) exit = true;
             }
-            if (high >= position.TP) {
-                position.exitTime = new Date(ts);
-                position.exitPrice = position.TP;
+
+            if (finalSignal === 'sell' || exit) {
+                position.exitTime = new Date(timestamp);
+                position.exitPrice = price;
                 position.profit = (position.exitPrice - position.entryPrice) * position.size;
-                position.result = 'win';
-                position = null;
-                continue;
-            }
-            if (finalSignal === 'sell') {
-                position.exitTime = new Date(ts);
-                position.exitPrice = close;
-                position.profit = (position.exitPrice - position.entryPrice) * position.size;
-                position.result = position.profit >= 0 ? 'win' : 'loss';
                 position = null;
             }
         }
@@ -250,7 +218,7 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
     const { metrics: combinedMetrics, equityCurve: combinedEquityCurve } = calculateMetrics(combinedTrades, initialBalance);
 
     return {
-        combinedResult: { metrics: combinedMetrics, equityCurve: combinedEquityCurve, trades: combinedTrades },
+        combinedResult: { metrics: combinedMetrics, equityCurve: combinedEquityCurve },
         individualResults
     };
 };
@@ -267,7 +235,7 @@ function applyCombinationRule(signals, rule) {
     return 'hold';
 }
 
-// --- Other required service functions ---
+// --- Other service functions ---
 export const getStrategiesService = async (userId) => {
     return Strategy.find({ userId }).select("_id name code params").lean();
 };

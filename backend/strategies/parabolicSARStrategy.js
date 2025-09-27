@@ -1,81 +1,147 @@
 // File: backend/strategies/parabolicSarStrategy.js
-// UPGRADED: Full implementation of the Parabolic SAR (Stop and Reverse) strategy.
+// PREMIUM UPGRADE: Parabolic SAR strategy with SL, TP, and Trailing Stop Loss.
 
 import { PSAR } from 'technicalindicators';
 
-export function parabolicSARStrategy(candles, params) {
-    // Default parameters for the Parabolic SAR strategy
-    // step is the acceleration factor, max is the maximum acceleration
-    const { step = 0.02, max = 0.2, tradeSize = 1 } = params;
-    const trades = [];
-    let position = null; // Can be 'long', 'short', or null
+export function parabolicSARStrategy(candles, params = {}) {
+    const {
+        step = 0.02,
+        max = 0.2,
+        tradeSize = 1,
+        SL = 0,            // % stop loss
+        TP = 0,            // % take profit
+        trailingStop = 0,  // % trailing stop
+    } = params;
 
-    // 1. Prepare the candle data for the indicator
+    const trades = [];
+    let position = null;     // 'long' | 'short' | null
+    let trailingLevel = null;
+    let highestPrice = -Infinity;
+    let lowestPrice = Infinity;
+
     const highs = candles.map(c => c[2]);
     const lows = candles.map(c => c[3]);
-    if (candles.length < 2) { // PSAR needs at least 2 points to start
-        console.log("Not enough candle data for Parabolic SAR calculation.");
+    const closes = candles.map(c => c[4]);
+    if (candles.length < 2) {
+        console.warn("[ParabolicSAR] Not enough candle data.");
         return [];
     }
 
-    // 2. Calculate the PSAR values once for efficiency
     const psarValues = PSAR.calculate({ high: highs, low: lows, step, max });
-    const psarOffset = candles.length - psarValues.length; // Account for initial candles
+    const psarOffset = candles.length - psarValues.length;
 
-    // 3. Loop through the values to find trade signals
     for (let i = 1; i < psarValues.length; i++) {
-        const candleIndex = i + psarOffset;
+        const idx = i + psarOffset;
         const prevPsar = psarValues[i - 1];
         const currentPsar = psarValues[i];
-        const prevClose = candles[candleIndex - 1][4];
-        const currentClose = candles[candleIndex][4];
-        const currentTime = new Date(candles[candleIndex][0]);
+        const prevClose = closes[idx - 1];
+        const price = closes[idx];
+        const time = new Date(candles[idx][0]);
 
-        // --- LONG TRADE LOGIC ---
-        // Enter a long position if the SAR dot flips from above to below the price
-        if (prevPsar > prevClose && currentPsar <= currentClose && !position) {
-            position = 'long';
-            trades.push({
-                entryTime: currentTime,
-                entryPrice: currentClose,
-                signal: 'buy',
-                position: 'long',
-                size: tradeSize,
-            });
-        }
+        // --- Handle existing position ---
+        if (position) {
+            const lastTrade = trades[trades.length - 1];
 
-        // --- SHORT TRADE LOGIC ---
-        // Enter a short position if the SAR dot flips from below to above the price
-        else if (prevPsar < prevClose && currentPsar >= currentClose && !position) {
-            position = 'short';
-            trades.push({
-                entryTime: currentTime,
-                entryPrice: currentClose,
-                signal: 'sell',
-                position: 'short',
-                size: tradeSize,
-            });
-        }
+            if (position === "long") {
+                highestPrice = Math.max(highestPrice, price);
+                if (trailingStop > 0) trailingLevel = highestPrice * (1 - trailingStop / 100);
 
-        // --- EXIT LOGIC ---
-        // Exit any position when the SAR flips in the opposite direction
-        else if (position && (
-            (position === 'long' && prevPsar < prevClose && currentPsar >= currentClose) ||
-            (position === 'short' && prevPsar > prevClose && currentPsar <= currentClose)
-        )) {
-            const entryTrade = trades[trades.length - 1];
-            entryTrade.exitTime = currentTime;
-            entryTrade.exitPrice = currentClose;
+                if (SL > 0 && price <= lastTrade.entryPrice * (1 - SL / 100)) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - SL / 100);
+                } else if (TP > 0 && price >= lastTrade.entryPrice * (1 + TP / 100)) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + TP / 100);
+                } else if (trailingLevel && price <= trailingLevel) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = trailingLevel;
+                } else if (prevPsar < prevClose && currentPsar >= price) { // SAR flips down -> exit long
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = price;
+                }
 
-            if (position === 'long') {
-                entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
-            } else { // 'short'
-                entryTrade.profit = (entryTrade.entryPrice - entryTrade.exitPrice) * entryTrade.size;
+                if (lastTrade.exitTime) {
+                    lastTrade.profit = (lastTrade.exitPrice - lastTrade.entryPrice) * tradeSize;
+                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
+                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
+                    lastTrade.exitReason = lastTrade.exitPrice === price ? "SAR Exit"
+                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
+                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 + TP / 100) ? "Take Profit"
+                        : "Stop Loss";
+
+                    position = null;
+                    trailingLevel = null;
+                    highestPrice = -Infinity;
+                    continue;
+                }
             }
-            position = null; // Mark the position as closed
+
+            if (position === "short") {
+                lowestPrice = Math.min(lowestPrice, price);
+                if (trailingStop > 0) trailingLevel = lowestPrice * (1 + trailingStop / 100);
+
+                if (SL > 0 && price >= lastTrade.entryPrice * (1 + SL / 100)) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + SL / 100);
+                } else if (TP > 0 && price <= lastTrade.entryPrice * (1 - TP / 100)) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - TP / 100);
+                } else if (trailingLevel && price >= trailingLevel) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = trailingLevel;
+                } else if (prevPsar > prevClose && currentPsar <= price) { // SAR flips up -> exit short
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = price;
+                }
+
+                if (lastTrade.exitTime) {
+                    lastTrade.profit = (lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
+                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
+                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
+                    lastTrade.exitReason = lastTrade.exitPrice === price ? "SAR Exit"
+                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
+                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 - TP / 100) ? "Take Profit"
+                        : "Stop Loss";
+
+                    position = null;
+                    trailingLevel = null;
+                    lowestPrice = Infinity;
+                    continue;
+                }
+            }
+        }
+
+        // --- Entry Logic ---
+        if (!position) {
+            if (prevPsar > prevClose && currentPsar <= price) {
+                position = "long";
+                highestPrice = price;
+                trailingLevel = trailingStop > 0 ? price * (1 - trailingStop / 100) : null;
+                trades.push({ entryTime: time, entryPrice: price, signal: "buy", position, size: tradeSize });
+            } else if (prevPsar < prevClose && currentPsar >= price) {
+                position = "short";
+                lowestPrice = price;
+                trailingLevel = trailingStop > 0 ? price * (1 + trailingStop / 100) : null;
+                trades.push({ entryTime: time, entryPrice: price, signal: "sell", position, size: tradeSize });
+            }
+        }
+    }
+
+    // --- Close any open trade at last candle ---
+    if (position && trades.length > 0) {
+        const lastTrade = trades[trades.length - 1];
+        if (!lastTrade.exitTime) {
+            const lastIdx = closes.length - 1;
+            lastTrade.exitTime = new Date(candles[lastIdx][0]);
+            lastTrade.exitPrice = closes[lastIdx];
+            lastTrade.profit = (position === "long"
+                ? lastTrade.exitPrice - lastTrade.entryPrice
+                : lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
+            lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
+            lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
+            lastTrade.exitReason = "End of Data";
         }
     }
 
     return trades;
 }
-

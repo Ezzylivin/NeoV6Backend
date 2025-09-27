@@ -4,10 +4,11 @@
 import mongoose from "mongoose";
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runStrategyService, runCombinedStrategyService } from "../services/strategyEngineService.js";
+import { runStrategyService } from "../services/strategyEngineService.js";
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 import { normalizeSymbol } from "../services/backtestDataService.js";
 
+// --- Run single strategy backtest ---
 export const runBacktestController = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -18,7 +19,6 @@ export const runBacktestController = async (req, res) => {
             return res.status(404).json({ message: "Strategy not found" });
         }
 
-        // Normalize the actual trading pair symbol
         const normSymbol = normalizeSymbol(symbol);
 
         const backtestParams = {
@@ -33,7 +33,6 @@ export const runBacktestController = async (req, res) => {
 
         const result = await runStrategyService(dbStrategy, backtestParams, userId, false);
 
-        // Log candle lengths for debugging
         if (!result || !result.candles || result.candles.length === 0) {
             console.warn(`⚠️ No candles returned for symbol ${normSymbol} and timeframe ${timeframe}`);
         } else {
@@ -52,151 +51,99 @@ export const runBacktestController = async (req, res) => {
     }
 };
 
+// --- Run combo backtest ---
 export const runComboBacktest = async (req, res) => {
-  try {
-    const userId = req.user._id;
+    try {
+        const userId = req.user._id;
+        const { strategies, symbol, symbols, timeframe, startDate, endDate, initialBalance } = req.body;
 
-    const { strategies, symbol, symbols, timeframe, startDate, endDate, initialBalance } = req.body;
-
-    if (!strategies || !Array.isArray(strategies) || strategies.length === 0) {
-      return res.status(400).json({ message: "Strategies array is required for combo backtest." });
-    }
-
-    const symbolArray = Array.isArray(symbols) ? symbols : symbol ? [symbol] : [];
-    if (symbolArray.length === 0) return res.status(400).json({ message: "At least one symbol is required." });
-    if (!timeframe) return res.status(400).json({ message: "Timeframe is required." });
-
-    const today = new Date();
-    const defaultStart = new Date(today); defaultStart.setFullYear(today.getFullYear() - 1);
-    const defaultEnd = new Date(today); defaultEnd.setDate(today.getDate() - 1);
-
-    const start = startDate || defaultStart.toISOString().split('T')[0];
-    const end = endDate || defaultEnd.toISOString().split('T')[0];
-
-    const normSymbol = normalizeSymbol(symbolArray[0]);
-
-    const individualResults = [];
-    let combinedEquityCurve = [];
-
-    // ✅ Process each strategy object (code + params)
-    for (const strat of strategies) {
-      const { code, params = {} } = strat;
-      const dbStrategy = await Strategy.findOne({ code, userId }).lean();
-      if (!dbStrategy) {
-        console.warn(`⚠️ Strategy ${code} not found for user ${userId}`);
-        continue;
-      }
-
-      try {
-        const result = await runStrategyService(dbStrategy, {
-          symbol: normSymbol,
-          timeframe,
-          startDate: start,
-          endDate: end,
-          initialBalance,
-          params: { ...dbStrategy.params, ...params }
-        }, userId, false);
-
-        if (!result?.equityCurve?.length) {
-          console.warn(`⚠️ No trades returned for strategy ${code}`);
-          continue;
+        if (!strategies || !Array.isArray(strategies) || strategies.length === 0) {
+            return res.status(400).json({ message: "Strategies array is required for combo backtest." });
         }
 
-        individualResults.push({
-          strategyCode: code,
-          equityCurve: result.equityCurve,
-          metrics: result.metrics || {}
-        });
+        const symbolArray = Array.isArray(symbols) ? symbols : symbol ? [symbol] : [];
+        if (symbolArray.length === 0) return res.status(400).json({ message: "At least one symbol is required." });
+        if (!timeframe) return res.status(400).json({ message: "Timeframe is required." });
 
-        if (combinedEquityCurve.length === 0) {
-          combinedEquityCurve = result.equityCurve.map(c => ({ ...c }));
-        } else {
-          combinedEquityCurve = combinedEquityCurve.map((c, idx) => ({
-            date: c.date,
-            equity: c.equity + (result.equityCurve[idx]?.equity || 0)
-          }));
+        const today = new Date();
+        const defaultStart = new Date(today); defaultStart.setFullYear(today.getFullYear() - 1);
+        const defaultEnd = new Date(today); defaultEnd.setDate(today.getDate() - 1);
+
+        const start = startDate || defaultStart.toISOString().split('T')[0];
+        const end = endDate || defaultEnd.toISOString().split('T')[0];
+
+        const normSymbol = normalizeSymbol(symbolArray[0]);
+
+        const individualResults = [];
+        let combinedEquityCurve = [];
+
+        // --- Loop through each strategy object ---
+        for (const strat of strategies) {
+            const { code, params = {} } = strat;
+            const dbStrategy = await Strategy.findOne({ code, userId }).lean();
+            if (!dbStrategy) {
+                console.warn(`⚠️ Strategy ${code} not found for user ${userId}`);
+                continue;
+            }
+
+            try {
+                const result = await runStrategyService(dbStrategy, {
+                    symbol: normSymbol,
+                    timeframe,
+                    startDate: start,
+                    endDate: end,
+                    initialBalance,
+                    params: { ...dbStrategy.params, ...params }
+                }, userId, false);
+
+                if (!result?.equityCurve?.length) {
+                    console.warn(`⚠️ No trades returned for strategy ${code}`);
+                    continue;
+                }
+
+                individualResults.push({
+                    strategyCode: code,
+                    equityCurve: result.equityCurve,
+                    metrics: result.metrics || {}
+                });
+
+                if (combinedEquityCurve.length === 0) {
+                    combinedEquityCurve = result.equityCurve.map(c => ({ ...c }));
+                } else {
+                    combinedEquityCurve = combinedEquityCurve.map((c, idx) => ({
+                        date: c.date,
+                        equity: c.equity + (result.equityCurve[idx]?.equity || 0)
+                    }));
+                }
+            } catch (err) {
+                console.error(`Error running strategy ${code}:`, err.message || err);
+            }
         }
-      } catch (err) {
-        console.error(`Error running strategy ${code}:`, err.message || err);
-      }
-    }
 
-    if (!individualResults.length) {
-      return res.status(400).json({ message: "No valid strategies could be executed." });
-    }
-
-    const combinedResult = {
-      equityCurve: combinedEquityCurve,
-      metrics: {
-        initialBalance,
-        totalProfit: combinedEquityCurve.length ? combinedEquityCurve[combinedEquityCurve.length - 1].equity - initialBalance : 0,
-        finalBalance: combinedEquityCurve.length ? combinedEquityCurve[combinedEquityCurve.length - 1].equity : initialBalance,
-        winRate: 0,
-        maxDrawdown: 0,
-        profitFactor: 0
-      },
-      strategies: strategies.map(s => s.code)
-    };
-
-    console.log("✅ Combo backtest completed");
-    res.status(200).json({ combinedResult, individualResults });
-
-  } catch (error) {
-    console.error("Error running combined backtest:", error);
-    res.status(500).json({ message: "An unexpected error occurred during the combined backtest." });
-  }
-};
-
-        if (!result || !result.equityCurve || result.equityCurve.length === 0) {
-          console.warn(`⚠️ No trades returned for strategy ${stratCode}`);
-          continue;
+        if (!individualResults.length) {
+            return res.status(400).json({ message: "No valid strategies could be executed." });
         }
 
-        individualResults.push({
-          strategyCode: stratCode,
-          equityCurve: result.equityCurve,
-          metrics: result.metrics || {}
-        });
+        const combinedResult = {
+            equityCurve: combinedEquityCurve,
+            metrics: {
+                initialBalance,
+                totalProfit: combinedEquityCurve.length ? combinedEquityCurve[combinedEquityCurve.length - 1].equity - initialBalance : 0,
+                finalBalance: combinedEquityCurve.length ? combinedEquityCurve[combinedEquityCurve.length - 1].equity : initialBalance,
+                winRate: 0,
+                maxDrawdown: 0,
+                profitFactor: 0
+            },
+            strategies: strategies.map(s => s.code)
+        };
 
-        // --- Merge equity curves for combined result ---
-        if (combinedEquityCurve.length === 0) {
-          combinedEquityCurve = result.equityCurve.map(c => ({ ...c }));
-        } else {
-          // Simple sum of equities for combined (can adjust logic)
-          combinedEquityCurve = combinedEquityCurve.map((c, idx) => ({
-            date: c.date,
-            equity: c.equity + (result.equityCurve[idx]?.equity || 0)
-          }));
-        }
-      } catch (err) {
-        console.error(`Error running strategy ${stratCode}:`, err.message || err);
-      }
+        console.log("✅ Combo backtest completed");
+        res.status(200).json({ combinedResult, individualResults });
+
+    } catch (error) {
+        console.error("Error running combined backtest:", error);
+        res.status(500).json({ message: "An unexpected error occurred during the combined backtest." });
     }
-
-    if (individualResults.length === 0) {
-      return res.status(400).json({ message: "No valid strategies could be executed." });
-    }
-
-    const combinedResult = {
-      equityCurve: combinedEquityCurve,
-      metrics: {
-        initial_balance,
-        totalProfit: combinedEquityCurve.length ? combinedEquityCurve[combinedEquityCurve.length-1].equity - initial_balance : 0,
-        finalBalance: combinedEquityCurve.length ? combinedEquityCurve[combinedEquityCurve.length-1].equity : initial_balance,
-        winRate: 0, // Optional: compute across strategies
-        maxDrawdown: 0, // Optional: compute properly
-        profitFactor: 0 // Optional: compute properly
-      },
-      strategies
-    };
-
-    console.log("✅ Combo backtest completed");
-
-    res.status(200).json({ combinedResult, individualResults });
-  } catch (error) {
-    console.error("Error running combined backtest:", error);
-    res.status(500).json({ message: "An unexpected error occurred during the combined backtest." });
-  }
 };
 
 // --- Fetch backtest options ---
@@ -274,9 +221,7 @@ export const getBacktestById = async (req, res) => {
         const { backtestId } = req.params;
         const userId = req.user._id;
         const backtest = await Backtest.findOne({ _id: backtestId, userId }).lean();
-        if (!backtest) {
-            return res.status(404).json({ error: "Backtest not found" });
-        }
+        if (!backtest) return res.status(404).json({ error: "Backtest not found" });
         res.json(backtest);
     } catch (err) {
         console.error("Error fetching backtest by ID:", err);
@@ -290,9 +235,7 @@ export const deleteBacktestController = async (req, res) => {
         const { backtestId } = req.params;
         const userId = req.user._id;
         const deleted = await Backtest.findOneAndDelete({ _id: backtestId, userId });
-        if (!deleted) {
-            return res.status(404).json({ error: "Backtest not found" });
-        }
+        if (!deleted) return res.status(404).json({ error: "Backtest not found" });
         res.json({ success: true, message: "Backtest deleted successfully" });
     } catch (err) {
         console.error("Error deleting backtest:", err);

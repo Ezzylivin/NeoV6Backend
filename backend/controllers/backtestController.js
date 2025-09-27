@@ -81,28 +81,45 @@ export const previewStrategyController = async (req, res) => {
 
 // --- Other Controllers (CRUD, Options) ---
 
+// In backend/controllers/backtestController.js
+
 export const fetchBacktestOptionsController = async (req, res) => {
     try {
         const { userId } = req.user;
+
+        // --- Step 1: Log the incoming User ID ---
+        console.log(`[OPTIONS CONTROLLER] Attempting to fetch strategies for userId: ${userId}`);
+
         const strategies = await Strategy.find({ userId }).select("name code params").lean();
+
+        // --- Step 2: Log what was found in the database ---
+        console.log(`[OPTIONS CONTROLLER] Database query found ${strategies.length} strategies.`);
+        if (strategies.length > 0) {
+            console.log('[OPTIONS CONTROLLER] Found strategies:', strategies.map(s => s.code));
+        }
+
         const [exchangeSymbols, exchangeParams] = await Promise.all([
             fetchAllExchangeSymbols(),
             fetchAllExchangeParams()
         ]);
 
-        // Aggregate unique symbols and timeframes
         const symbolSet = new Set(exchangeSymbols);
         const timeframeSet = new Set(exchangeParams.timeframes);
         strategies.forEach(s => {
             if (s.params?.symbol) symbolSet.add(s.params.symbol);
             if (s.params?.timeframe) timeframeSet.add(s.params.timeframe);
         });
-
-        res.json({
+        
+        const responseData = {
             strategies,
             symbols: Array.from(symbolSet).sort(),
             timeframes: Array.from(timeframeSet)
-        });
+        };
+
+        // --- Step 3: Log right before sending the response ---
+        console.log('[OPTIONS CONTROLLER] Sending successful response to frontend.');
+        res.json(responseData);
+
     } catch (err) {
         handleControllerError(res, err, 'fetchBacktestOptionsController');
     }

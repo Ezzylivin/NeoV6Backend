@@ -1,145 +1,60 @@
 // File: backend/strategies/smaStrategy.js
-// PREMIUM UPGRADE: SMA Crossover strategy with SL, TP, Trailing Stop, and full trade objects.
+// UPGRADED: Converted to a signal generator for the new backtesting engine.
 
 import { SMA } from 'technicalindicators';
 
+/**
+ * Simple Moving Average (SMA) Crossover Strategy
+ * Generates a 'buy' signal on a "Golden Cross" (short-period MA crosses above long-period MA).
+ * Generates a 'sell' signal on a "Death Cross" (short-period MA crosses below long-period MA).
+ * Otherwise, generates a 'hold' signal.
+ * @param {Array<Array<number>>} candles - The historical OHLCV candle data.
+ * @param {object} params - The parameters for the strategy.
+ * @returns {{signal: 'buy'|'sell'|'hold'}} The trading signal for the current candle.
+ */
 export function smaCrossoverStrategy(candles, params = {}) {
+    // --- Parameters with defaults ---
     const {
         shortPeriod = 10,
         longPeriod = 50,
-        tradeSize = 1,
-        SL = 0,            // % stop loss
-        TP = 0,            // % take profit
-        trailingStop = 0,  // % trailing stop
+        ...restParams // Pass through other params like SL, TP
     } = params;
 
-    const trades = [];
-    let position = null;
-    let trailingLevel = null;
-    let highestPrice = -Infinity;
-    let lowestPrice = Infinity;
-
     const closes = candles.map(c => c[4]);
-    if (closes.length < longPeriod) return [];
 
-    const shortMA = SMA.calculate({ values: closes, period: shortPeriod });
-    const longMA = SMA.calculate({ values: closes, period: longPeriod });
-    const longMAOffset = closes.length - longMA.length;
-
-    for (let i = 1; i < longMA.length; i++) {
-        const candleIndex = i + longMAOffset;
-        const shortMAIndex = candleIndex - shortPeriod + 1;
-        const prevShortMA = shortMA[shortMAIndex - 1];
-        const currentShortMA = shortMA[shortMAIndex];
-        const prevLongMA = longMA[i - 1];
-        const currentLongMA = longMA[i];
-        const price = closes[candleIndex];
-        const time = new Date(candles[candleIndex][0]);
-
-        if (!currentShortMA || !currentLongMA) continue;
-
-        // --- Handle existing position ---
-        if (position) {
-            const lastTrade = trades[trades.length - 1];
-
-            if (position === "long") {
-                highestPrice = Math.max(highestPrice, price);
-                if (trailingStop > 0) trailingLevel = highestPrice * (1 - trailingStop / 100);
-
-                if (SL > 0 && price <= lastTrade.entryPrice * (1 - SL / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - SL / 100);
-                } else if (TP > 0 && price >= lastTrade.entryPrice * (1 + TP / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + TP / 100);
-                } else if (trailingLevel && price <= trailingLevel) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = trailingLevel;
-                } else if (currentShortMA < currentLongMA) { // Death cross
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = price;
-                }
-
-                if (lastTrade.exitTime) {
-                    lastTrade.profit = (lastTrade.exitPrice - lastTrade.entryPrice) * tradeSize;
-                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-                    lastTrade.exitReason = lastTrade.exitPrice === price ? "MA Death Cross"
-                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
-                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 + TP / 100) ? "Take Profit"
-                        : "Stop Loss";
-
-                    position = null;
-                    trailingLevel = null;
-                    highestPrice = -Infinity;
-                }
-            }
-
-            if (position === "short") {
-                lowestPrice = Math.min(lowestPrice, price);
-                if (trailingStop > 0) trailingLevel = lowestPrice * (1 + trailingStop / 100);
-
-                if (SL > 0 && price >= lastTrade.entryPrice * (1 + SL / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + SL / 100);
-                } else if (TP > 0 && price <= lastTrade.entryPrice * (1 - TP / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - TP / 100);
-                } else if (trailingLevel && price >= trailingLevel) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = trailingLevel;
-                } else if (currentShortMA > currentLongMA) { // Golden cross
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = price;
-                }
-
-                if (lastTrade.exitTime) {
-                    lastTrade.profit = (lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
-                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-                    lastTrade.exitReason = lastTrade.exitPrice === price ? "MA Golden Cross"
-                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
-                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 - TP / 100) ? "Take Profit"
-                        : "Stop Loss";
-
-                    position = null;
-                    trailingLevel = null;
-                    lowestPrice = Infinity;
-                }
-            }
-        }
-
-        // --- Entry Logic ---
-        if (!position) {
-            if (prevShortMA <= prevLongMA && currentShortMA > currentLongMA) { // Golden Cross
-                position = 'long';
-                highestPrice = price;
-                trailingLevel = trailingStop > 0 ? price * (1 - trailingStop / 100) : null;
-                trades.push({ entryTime: time, entryPrice: price, signal: 'buy', position, size: tradeSize });
-            } else if (prevShortMA >= prevLongMA && currentShortMA < currentLongMA) { // Death Cross
-                position = 'short';
-                lowestPrice = price;
-                trailingLevel = trailingStop > 0 ? price * (1 + trailingStop / 100) : null;
-                trades.push({ entryTime: time, entryPrice: price, signal: 'sell', position, size: tradeSize });
-            }
-        }
+    // --- Guard clause: Not enough data ---
+    if (closes.length < longPeriod + 2) { // Need at least 2 long MA values to check for a cross
+        return { signal: 'hold' };
     }
 
-    // --- Close any open trade at last candle ---
-    if (position && trades.length > 0) {
-        const lastTrade = trades[trades.length - 1];
-        if (!lastTrade.exitTime) {
-            const lastIdx = closes.length - 1;
-            lastTrade.exitTime = new Date(candles[lastIdx][0]);
-            lastTrade.exitPrice = closes[lastIdx];
-            lastTrade.profit = (position === "long"
-                ? lastTrade.exitPrice - lastTrade.entryPrice
-                : lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
-            lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-            lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-            lastTrade.exitReason = "End of Data";
-        }
+    // --- Indicator Calculation ---
+    // Calculate the full series to correctly get the last two values
+    const shortMAValues = SMA.calculate({ values: closes, period: shortPeriod });
+    const longMAValues = SMA.calculate({ values: closes, period: longPeriod });
+
+    // We only need the last two points of each series to check for a crossover
+    const prevShortMA = shortMAValues[shortMAValues.length - 2];
+    const currentShortMA = shortMAValues[shortMAValues.length - 1];
+    
+    const prevLongMA = longMAValues[longMAValues.length - 2];
+    const currentLongMA = longMAValues[longMAValues.length - 1];
+
+    if (!prevShortMA || !currentShortMA || !prevLongMA || !currentLongMA) {
+        return { signal: 'hold' }; // Not enough data from the indicator library yet
+    }
+    
+    // --- Signal Logic (Crossover) ---
+
+    // Buy Signal (Golden Cross): If the short MA crosses from below the long MA to above it.
+    if (prevShortMA < prevLongMA && currentShortMA >= currentLongMA) {
+        return { signal: 'buy', params: restParams };
     }
 
-    return trades;
+    // Sell Signal (Death Cross): If the short MA crosses from above the long MA to below it.
+    if (prevShortMA > prevLongMA && currentShortMA <= currentLongMA) {
+        return { signal: 'sell', params: restParams };
+    }
+
+    // ✅ THE FIX: If no crossover occurred, always return a 'hold' signal.
+    return { signal: 'hold' };
 }

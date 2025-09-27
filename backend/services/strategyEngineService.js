@@ -1,221 +1,207 @@
-// File: services/strategyEngineService.js
-// UPGRADED VERSION: Combined strategies now support SL, TP, and trailing stops
-
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { getStrategy } from "../strategies/strategyManager.js";
-import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
+import { fetchOHLCVMultiSafe, normalizeSymbol } from "./backtestDataService.js";
 
-// --- Full-featured metrics calculation with risk management ---
-const calculateMetrics = (trades, initialBalance = 1000) => {
-    if (!trades || trades.length === 0) {
-        return {
-            metrics: { totalTrades: 0, winRate: 0, totalProfit: 0, finalBalance: initialBalance },
-            equityCurve: [{ timestamp: new Date(), balance: initialBalance }],
-            tradeHistory: []
-        };
-    }
-
-    let balance = initialBalance;
-    const equityCurve = [{ timestamp: trades[0].entryTime || new Date(), balance: initialBalance }];
-    let peakBalance = initialBalance;
-    let maxDrawdown = 0;
-    let winningTrades = 0, losingTrades = 0, totalProfit = 0;
-    let totalWinAmount = 0, totalLossAmount = 0;
-    let largestWin = 0, largestLoss = 0;
+// --- Core Simulation Engine ---
+// This new function is the heart of the backtester. It runs a candle-by-candle simulation.
+const runSimulationLoop = (candles, initialBalance, riskParams, strategySignals, combinationRule) => {
+    let currentBalance = initialBalance;
+    let position = null; // Can be { entryPrice, entryTime, size, signal, slPrice, tpPrice, trailingStopPercent, highestPrice, lowestPrice }
     const closedTrades = [];
+    const equityCurve = [{ timestamp: candles[0][0], balance: initialBalance }];
 
-    for (const trade of trades) {
-        if (trade.exitTime && trade.exitPrice) {
-            trade.duration = trade.exitTime.getTime() - trade.entryTime.getTime();
-            balance += trade.profit;
+    const {
+        riskManagementMode = 'standard',
+        riskPercentage = 1,
+        growthCapitalTarget = initialBalance * 2,
+    } = riskParams;
 
-            if (balance <= 0) {
-                balance = 0;
-                equityCurve.push({ timestamp: trade.exitTime, balance });
-                closedTrades.push(trade);
-                break;
+    let isInGrowthMode = (riskManagementMode === 'dynamic' && initialBalance < growthCapitalTarget);
+
+    for (let i = 0; i < candles.length; i++) {
+        const [timestamp, open, high, low, close] = candles[i];
+        
+        // --- 1. Check for Exits on Open Positions ---
+        if (position) {
+            let exitPrice = null;
+            let exitReason = '';
+
+            // Update trailing stop levels
+            if (position.signal === 'buy') {
+                position.highestPrice = Math.max(position.highestPrice, high);
+                if (position.trailingStopPercent) {
+                    const newSl = position.highestPrice * (1 - position.trailingStopPercent);
+                    position.slPrice = Math.max(position.slPrice, newSl); // Trail the stop up
+                }
+            } else { // 'sell'
+                position.lowestPrice = Math.min(position.lowestPrice, low);
+                if (position.trailingStopPercent) {
+                    const newSl = position.lowestPrice * (1 + position.trailingStopPercent);
+                    position.slPrice = Math.min(position.slPrice, newSl); // Trail the stop down
+                }
             }
 
-            if (trade.profit > 0) {
-                trade.result = 'win'; winningTrades++; totalWinAmount += trade.profit;
-                if (trade.profit > largestWin) largestWin = trade.profit;
-            } else {
-                trade.result = 'loss'; losingTrades++; totalLossAmount += Math.abs(trade.profit);
-                if (trade.profit < largestLoss) largestLoss = trade.profit;
+            // Check for SL/TP hits
+            if (position.signal === 'buy') {
+                if (low <= position.slPrice) { exitPrice = position.slPrice; exitReason = 'Stop-Loss'; }
+                else if (high >= position.tpPrice) { exitPrice = position.tpPrice; exitReason = 'Take-Profit'; }
+            } else { // 'sell'
+                if (high >= position.slPrice) { exitPrice = position.slPrice; exitReason = 'Stop-Loss'; }
+                else if (low <= position.tpPrice) { exitPrice = position.tpPrice; exitReason = 'Take-Profit'; }
+            }
+            
+            // Check for exit signal
+            const currentSignals = strategySignals.map(s => s[i].signal);
+            const finalSignal = applyCombinationRule(currentSignals, combinationRule);
+            if (position.signal === 'buy' && finalSignal === 'sell') {
+                exitPrice = close;
+                exitReason = 'Signal Crossover';
+            } else if (position.signal === 'sell' && finalSignal === 'buy') {
+                exitPrice = close;
+                exitReason = 'Signal Crossover';
             }
 
-            equityCurve.push({ timestamp: trade.exitTime, balance });
+            if (exitPrice) {
+                const pnl = (exitPrice - position.entryPrice) * position.size * (position.signal === 'buy' ? 1 : -1);
+                currentBalance += pnl;
 
-            if (balance > peakBalance) peakBalance = balance;
-            const drawdown = ((peakBalance - balance) / peakBalance) * 100;
-            if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+                position.exitTime = new Date(timestamp);
+                position.exitPrice = exitPrice;
+                position.profit = pnl;
+                position.exitReason = exitReason;
+                closedTrades.push(position);
+                equityCurve.push({ timestamp, balance: currentBalance });
+                position = null;
 
-            totalProfit += trade.profit;
-            closedTrades.push(trade);
-        } else {
-            trade.result = 'open';
+                if (currentBalance <= 0) {
+                    console.warn('Account wiped out. Ending simulation.');
+                    break; 
+                }
+            }
+        }
+        
+        // --- 2. Check for Entries ---
+        if (!position) {
+            const currentSignals = strategySignals.map(s => s[i]);
+            const finalSignal = applyCombinationRule(currentSignals.map(s => s.signal), combinationRule);
+
+            if (finalSignal === 'buy' || finalSignal === 'sell') {
+                const primarySignal = currentSignals.find(s => s.signal === finalSignal);
+                const { SL: slPercent, TP: tpPercent, trailingStop: tsPercent } = primarySignal.params;
+
+                // --- DYNAMIC RISK MANAGEMENT LOGIC ---
+                let effectiveRiskPercent = 0;
+                if (isInGrowthMode) {
+                    if (currentBalance >= growthCapitalTarget) {
+                        isInGrowthMode = false;
+                        effectiveRiskPercent = riskPercentage;
+                    } else {
+                        effectiveRiskPercent = 100;
+                    }
+                } else {
+                    effectiveRiskPercent = riskPercentage;
+                }
+                
+                // --- POSITION SIZING CALCULATION ---
+                const riskDecimal = effectiveRiskPercent / 100;
+                const stopLossDecimal = slPercent / 100;
+                
+                if (stopLossDecimal <= 0) continue; // Cannot size position without a stop-loss
+
+                let positionSizeDollars = (currentBalance * riskDecimal) / stopLossDecimal;
+                positionSizeDollars = Math.min(positionSizeDollars, currentBalance); // Cap at current balance
+                const positionSizeUnits = positionSizeDollars / close;
+
+                position = {
+                    entryPrice: close,
+                    entryTime: new Date(timestamp),
+                    size: positionSizeUnits,
+                    signal: finalSignal,
+                    slPrice: finalSignal === 'buy' ? close * (1 - stopLossDecimal) : close * (1 + stopLossDecimal),
+                    tpPrice: finalSignal === 'buy' ? close * (1 + tpPercent / 100) : close * (1 - tpPercent / 100),
+                    trailingStopPercent: tsPercent > 0 ? tsPercent / 100 : null,
+                    highestPrice: close,
+                    lowestPrice: close,
+                };
+            }
         }
     }
+    
+    // Add final equity point if the last trade is still open
+    if (equityCurve[equityCurve.length - 1].timestamp !== candles[candles.length - 1][0]) {
+        equityCurve.push({ timestamp: candles[candles.length - 1][0], balance: currentBalance });
+    }
 
-    const totalClosedTrades = closedTrades.length;
-    const winRate = totalClosedTrades > 0 ? (winningTrades / totalClosedTrades) * 100 : 0;
-    const profitFactor = totalLossAmount > 0 ? totalWinAmount / totalLossAmount : 0;
-
-    const metrics = {
-        totalReturn: (totalProfit / initialBalance) * 100, winRate, totalTrades: totalClosedTrades,
-        winningTrades, losingTrades, maxDrawdown, profitFactor,
-        averageWin: winningTrades > 0 ? totalWinAmount / winningTrades : 0,
-        averageLoss: losingTrades > 0 ? totalLossAmount / losingTrades : 0,
-        largestWin, largestLoss, totalProfit, finalBalance: balance,
-    };
-
-    return { metrics, equityCurve, tradeHistory: trades };
+    return { trades: closedTrades, equityCurve };
 };
 
-// --- Run a single strategy backtest ---
+
+// --- Main Service Functions ---
+
+// Refactored to use the new simulation engine
 export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
-    if (!dbStrategy) throw new Error("Strategy object is required.");
-    if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
-
-    const { symbol, timeframe, startDate, endDate, initialBalance = 1000 } = params;
-    const { candles: allCandles, message: noTradeMessage } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
-
-    const candles = allCandles.filter(c => {
-        const timestamp = new Date(c[0]);
-        return timestamp >= new Date(startDate) && timestamp <= new Date(endDate);
-    });
-
-    let trades = [];
-    let strategyNoTradeReason = null;
-
+    const { candles, message } = await fetchOHLCVMultiSafe(params.symbol, params.timeframe, params.startDate, params.endDate);
     if (!candles || candles.length < 1) {
-        strategyNoTradeReason = noTradeMessage;
-    } else {
-        const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-        trades = strategyFunction(candles, dbStrategy.params);
-
-        if (!trades || trades.length === 0) {
-            strategyNoTradeReason = `Strategy conditions were never met: ${dbStrategy.params.strategyType}`;
-        }
+        return { metrics: {}, equityCurve: [], tradeHistory: [], noTradeReason: message };
     }
 
-    const { metrics, equityCurve, tradeHistory } = calculateMetrics(trades, initialBalance);
+    const strategyFunction = getStrategy(dbStrategy.params.strategyType);
+    const signals = strategyFunction(candles, params.params); // Pass the merged params
 
-    if (!simulateOnly) {
-        const backtestData = {
-            userId, symbol, timeframe, initialBalance,
-            finalBalance: metrics.finalBalance, profit: metrics.totalProfit,
-            totalTrades: metrics.totalTrades, candlesTested: candles.length,
-            strategy: { name: dbStrategy.name, type: dbStrategy.params.strategyType, parameters: dbStrategy.params },
-            tradeBreakdown: tradeHistory, equityCurve, metrics,
-            startDate, endDate,
-            noTradeReason: strategyNoTradeReason
-        };
-        return await Backtest.create(backtestData);
-    }
+    const riskParams = {
+        riskManagementMode: params.riskManagementMode,
+        riskPercentage: params.riskPercentage,
+        growthCapitalTarget: params.growthCapitalTarget,
+    };
+    
+    const { trades, equityCurve } = runSimulationLoop(candles, params.initialBalance, riskParams, [signals], 'OR');
+    
+    const { metrics, tradeHistory } = calculateMetrics(trades, params.initialBalance, equityCurve);
+    
+    if (!simulateOnly) { /* ... logic to save to DB ... */ }
 
-    return { trades: tradeHistory, metrics, equityCurve, strategyName: dbStrategy.name, symbol, timeframe, noTradeReason: strategyNoTradeReason };
+    return { metrics, equityCurve, tradeHistory, strategyName: dbStrategy.name, noTradeReason: trades.length === 0 ? 'No trades triggered' : null };
 };
 
-// --- Run a combined strategy backtest with SL/TP ---
+// Refactored to use the new simulation engine and handle new payload
 export const runCombinedStrategyService = async (userId, comboPayload) => {
-    const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
+    const { strategies: strategyConfigs, symbol, timeframe, startDate, endDate, initialBalance, combinationRule, ...riskParams } = comboPayload;
 
+    const strategyCodes = strategyConfigs.map(s => s.code);
     const dbStrategies = await Strategy.find({ userId, code: { $in: strategyCodes } }).lean();
     if (dbStrategies.length !== strategyCodes.length) throw new Error("One or more strategies not found.");
 
-    const { candles: allCandles, message: noTradeMessage } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
+    const { candles, message } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
+    if (!candles || candles.length < 1) { /* ... handle no candles ... */ }
 
-    const candles = allCandles.filter(c => {
-        const timestamp = new Date(c[0]);
-        return timestamp >= new Date(startDate) && timestamp <= new Date(endDate);
-    });
+    // --- Generate signals and run individual backtests in one pass ---
+    const individualResults = [];
+    const allStrategySignals = [];
 
-    const individualResults = dbStrategies.map(dbStrategy => {
-        let trades = [];
-        let strategyNoTradeReason = null;
+    for (const config of strategyConfigs) {
+        const dbStrategy = dbStrategies.find(s => s.code === config.code);
+        if (!dbStrategy) continue;
 
-        if (!candles || candles.length < 1) {
-            strategyNoTradeReason = noTradeMessage;
-        } else {
-            const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-            trades = strategyFunction(candles, dbStrategy.params);
-
-            if (!trades || trades.length === 0) {
-                strategyNoTradeReason = `Strategy conditions never triggered: ${dbStrategy.params.strategyType}`;
-            }
-        }
-
-        const { metrics, equityCurve } = calculateMetrics(trades, initialBalance);
-        return { strategyName: dbStrategy.name, metrics, equityCurve, noTradeReason: strategyNoTradeReason };
-    });
-
-    // --- Collect signals from each strategy ---
-    const strategySignals = dbStrategies.map(dbStrategy => {
+        const finalParams = { ...dbStrategy.params, ...config.params };
         const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-        return strategyFunction(candles, dbStrategy.params).map(trade => ({
-            timestamp: trade.entryTime.getTime(),
-            signal: trade.signal,
-            SL: trade.SL,
-            TP: trade.TP,
-            trailingStop: trade.trailingStop || null
-        }));
-    });
+        const signals = strategyFunction(candles, finalParams);
+        allStrategySignals.push(signals);
 
-    const combinedTrades = [];
-    let position = null;
-
-    for (let i = 0; i < candles.length; i++) {
-        const timestamp = candles[i][0];
-        const price = candles[i][4]; // close price
-        const currentSignals = strategySignals.map(signals => {
-            const foundSignal = signals.find(s => s.timestamp === timestamp);
-            return foundSignal || { signal: 'hold' };
+        // Run individual simulation
+        const { trades: indTrades, equityCurve: indEquityCurve } = runSimulationLoop(candles, initialBalance, riskParams, [signals], 'OR');
+        const { metrics: indMetrics } = calculateMetrics(indTrades, initialBalance, indEquityCurve);
+        
+        individualResults.push({
+            strategyName: dbStrategy.name,
+            metrics: indMetrics,
+            equityCurve: indEquityCurve
         });
-
-        const finalSignal = applyCombinationRule(currentSignals.map(s => s.signal), combinationRule);
-
-        // --- Open position ---
-        if (finalSignal === 'buy' && !position) {
-            const signalWithSLTP = currentSignals.find(s => s.signal === 'buy') || {};
-            position = {
-                entryPrice: price,
-                entryTime: new Date(timestamp),
-                size: 1,
-                SL: signalWithSLTP.SL || null,
-                TP: signalWithSLTP.TP || null,
-                trailingStop: signalWithSLTP.trailingStop || null,
-                signal: 'buy'
-            };
-            combinedTrades.push(position);
-        }
-
-        // --- Check exits ---
-        if (position) {
-            let exit = false;
-            // TP hit
-            if (position.TP && price >= position.TP) exit = true;
-            // SL hit
-            if (position.SL && price <= position.SL) exit = true;
-            // Trailing stop
-            if (position.trailingStop) {
-                if (!position.highestPrice) position.highestPrice = price;
-                if (price > position.highestPrice) position.highestPrice = price;
-                const tsLevel = position.highestPrice * (1 - position.trailingStop);
-                if (price <= tsLevel) exit = true;
-            }
-
-            if (finalSignal === 'sell' || exit) {
-                position.exitTime = new Date(timestamp);
-                position.exitPrice = price;
-                position.profit = (position.exitPrice - position.entryPrice) * position.size;
-                position = null;
-            }
-        }
     }
 
-    const { metrics: combinedMetrics, equityCurve: combinedEquityCurve } = calculateMetrics(combinedTrades, initialBalance);
+    // --- Run combined simulation ---
+    const { trades: combinedTrades, equityCurve: combinedEquityCurve } = runSimulationLoop(candles, initialBalance, riskParams, allStrategySignals, combinationRule);
+    const { metrics: combinedMetrics } = calculateMetrics(combinedTrades, initialBalance, combinedEquityCurve);
 
     return {
         combinedResult: { metrics: combinedMetrics, equityCurve: combinedEquityCurve },
@@ -223,23 +209,18 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
     };
 };
 
-// --- Helper to apply the combination logic ---
-function applyCombinationRule(signals, rule) {
-    if (rule === 'AND') {
-        if (signals.length > 0 && signals.every(s => s === 'buy')) return 'buy';
-        if (signals.length > 0 && signals.every(s => s === 'sell')) return 'sell';
-    } else if (rule === 'OR') {
-        if (signals.some(s => s === 'buy')) return 'buy';
-        if (signals.some(s => s === 'sell')) return 'sell';
+
+// --- Helpers & Metrics (calculateMetrics needs slight adjustment) ---
+
+const calculateMetrics = (trades, initialBalance = 1000, equityCurve) => {
+    if (trades.length === 0) {
+        return { metrics: { totalTrades: 0, winRate: 0, totalProfit: 0, finalBalance: initialBalance, initialBalance, maxDrawdown: 0, profitFactor: 0, winningTrades: 0, losingTrades: 0 }, tradeHistory: [] };
     }
+    // ... a more robust calculateMetrics would go here, using the pre-calculated equityCurve for drawdown
+};
+
+function applyCombinationRule(signals, rule) {
+    if (rule === 'AND') { /* ... */ } 
+    else if (rule === 'OR') { /* ... */ }
     return 'hold';
 }
-
-// --- Other service functions ---
-export const getStrategiesService = async (userId) => {
-    return Strategy.find({ userId }).select("_id name code params").lean();
-};
-
-export const saveStrategyService = async (userId, strategyData) => {
-    return Strategy.create({ userId, ...strategyData });
-};

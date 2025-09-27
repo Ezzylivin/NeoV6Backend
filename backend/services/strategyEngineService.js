@@ -1,6 +1,5 @@
-//snapshot
 // File: services/strategyEngineService.js
-// FINAL VERSION: Now includes exact no-trade reasons per strategy
+// UPGRADED: Includes SL/TP support for single and combined strategies
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -27,7 +26,7 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     const closedTrades = [];
 
     for (const trade of trades) {
-        if (trade.exitTime && trade.exitPrice) {
+        if (trade.exitTime && trade.exitPrice != null) {
             trade.duration = trade.exitTime.getTime() - trade.entryTime.getTime();
             balance += trade.profit;
 
@@ -74,12 +73,12 @@ const calculateMetrics = (trades, initialBalance = 1000) => {
     return { metrics, equityCurve, tradeHistory: trades };
 };
 
-// --- Run a single strategy backtest with no-trade reason ---
+// --- Run a single strategy backtest with SL/TP support ---
 export const runStrategyService = async (dbStrategy, params = {}, userId, simulateOnly = true) => {
     if (!dbStrategy) throw new Error("Strategy object is required.");
     if (dbStrategy.userId.toString() !== userId.toString()) throw new Error("Not authorized.");
 
-    const { symbol, timeframe, startDate, endDate, initialBalance = 1000 } = params;
+    const { symbol, timeframe, startDate, endDate, initialBalance = 1000, stopLoss = 0.02, takeProfit = 0.05 } = params;
     const { candles: allCandles, message: noTradeMessage } = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
 
     const candles = allCandles.filter(c => {
@@ -95,7 +94,49 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
         strategyNoTradeReason = noTradeMessage;
     } else {
         const strategyFunction = getStrategy(dbStrategy.params.strategyType);
-        trades = strategyFunction(candles, dbStrategy.params);
+        const signals = strategyFunction(candles, dbStrategy.params);
+
+        // Apply SL/TP per trade
+        let position = null;
+        for (let i = 0; i < candles.length; i++) {
+            const ts = candles[i][0];
+            const open = candles[i][1];
+            const high = candles[i][2];
+            const low = candles[i][3];
+            const close = candles[i][4];
+
+            const signal = signals.find(s => s.entryTime.getTime() === ts);
+            if (!position && signal && signal.signal === 'buy') {
+                position = { entryTime: new Date(ts), entryPrice: close, size: 1, SL: close * (1 - stopLoss), TP: close * (1 + takeProfit) };
+                trades.push(position);
+            }
+
+            if (position) {
+                if (low <= position.SL) {
+                    position.exitTime = new Date(ts);
+                    position.exitPrice = position.SL;
+                    position.profit = (position.exitPrice - position.entryPrice) * position.size;
+                    position.result = 'loss';
+                    position = null;
+                    continue;
+                }
+                if (high >= position.TP) {
+                    position.exitTime = new Date(ts);
+                    position.exitPrice = position.TP;
+                    position.profit = (position.exitPrice - position.entryPrice) * position.size;
+                    position.result = 'win';
+                    position = null;
+                    continue;
+                }
+                if (signal && signal.signal === 'sell') {
+                    position.exitTime = new Date(ts);
+                    position.exitPrice = close;
+                    position.profit = (position.exitPrice - position.entryPrice) * position.size;
+                    position.result = position.profit >= 0 ? 'win' : 'loss';
+                    position = null;
+                }
+            }
+        }
 
         if (!trades || trades.length === 0) {
             strategyNoTradeReason = `Strategy conditions were never met: ${dbStrategy.params.strategyType}`;
@@ -120,9 +161,9 @@ export const runStrategyService = async (dbStrategy, params = {}, userId, simula
     return { trades: tradeHistory, metrics, equityCurve, strategyName: dbStrategy.name, symbol, timeframe, noTradeReason: strategyNoTradeReason };
 };
 
-// --- Run a combined strategy backtest ---
+// --- Run a combined strategy backtest with SL/TP support ---
 export const runCombinedStrategyService = async (userId, comboPayload) => {
-    const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000 } = comboPayload;
+    const { strategyCodes, combinationRule, symbol, timeframe, startDate, endDate, initialBalance = 1000, stopLoss = 0.02, takeProfit = 0.05 } = comboPayload;
 
     const dbStrategies = await Strategy.find({ userId, code: { $in: strategyCodes } }).lean();
     if (dbStrategies.length !== strategyCodes.length) throw new Error("One or more strategies not found.");
@@ -160,28 +201,56 @@ export const runCombinedStrategyService = async (userId, comboPayload) => {
 
     const combinedTrades = [];
     let position = null;
+
     for (let i = 0; i < candles.length; i++) {
-        const timestamp = candles[i][0];
+        const ts = candles[i][0];
+        const open = candles[i][1];
+        const high = candles[i][2];
+        const low = candles[i][3];
+        const close = candles[i][4];
+
         const currentSignals = strategySignals.map(signals => {
-            const foundSignal = signals.find(s => s.timestamp === timestamp);
-            return foundSignal ? foundSignal.signal : 'hold';
+            const found = signals.find(s => s.timestamp === ts);
+            return found ? found.signal : 'hold';
         });
         const finalSignal = applyCombinationRule(currentSignals, combinationRule);
-        if (finalSignal === 'buy' && !position) {
-            position = 'long';
-            combinedTrades.push({ entryTime: new Date(timestamp), entryPrice: candles[i][4], signal: 'buy', position: 'long', size: 1 });
-        } else if (finalSignal === 'sell' && position === 'long') {
-            const entryTrade = combinedTrades[combinedTrades.length - 1];
-            entryTrade.exitTime = new Date(timestamp);
-            entryTrade.exitPrice = candles[i][4];
-            entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
-            position = null;
+
+        if (!position && finalSignal === 'buy') {
+            position = { entryTime: new Date(ts), entryPrice: close, size: 1, SL: close * (1 - stopLoss), TP: close * (1 + takeProfit), signal: 'buy', position: 'long' };
+            combinedTrades.push(position);
+        }
+
+        if (position) {
+            if (low <= position.SL) {
+                position.exitTime = new Date(ts);
+                position.exitPrice = position.SL;
+                position.profit = (position.exitPrice - position.entryPrice) * position.size;
+                position.result = 'loss';
+                position = null;
+                continue;
+            }
+            if (high >= position.TP) {
+                position.exitTime = new Date(ts);
+                position.exitPrice = position.TP;
+                position.profit = (position.exitPrice - position.entryPrice) * position.size;
+                position.result = 'win';
+                position = null;
+                continue;
+            }
+            if (finalSignal === 'sell') {
+                position.exitTime = new Date(ts);
+                position.exitPrice = close;
+                position.profit = (position.exitPrice - position.entryPrice) * position.size;
+                position.result = position.profit >= 0 ? 'win' : 'loss';
+                position = null;
+            }
         }
     }
 
     const { metrics: combinedMetrics, equityCurve: combinedEquityCurve } = calculateMetrics(combinedTrades, initialBalance);
+
     return {
-        combinedResult: { metrics: combinedMetrics, equityCurve: combinedEquityCurve },
+        combinedResult: { metrics: combinedMetrics, equityCurve: combinedEquityCurve, trades: combinedTrades },
         individualResults
     };
 };

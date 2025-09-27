@@ -125,7 +125,7 @@ export const fetchPastBacktestsController = async (req, res) => {
     }
 };
 
-export const getBacktestByIdController = async (req, res) => {
+export const getBacktestById = async (req, res) => {
     try {
         const { backtestId } = req.params;
         const { userId } = req.user;

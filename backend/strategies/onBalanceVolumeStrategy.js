@@ -1,82 +1,147 @@
 // File: backend/strategies/obvStrategy.js
-// UPGRADED: Full implementation of the On-Balance Volume (OBV) strategy.
+// PREMIUM UPGRADE: OBV strategy with SL, TP, and Trailing Stop Loss.
 
 import { OBV, SMA } from 'technicalindicators';
 
-export function onBalanceVolumeStrategy(candles, params) {
-    // Default parameters for the OBV strategy
-    const { obvPeriod = 20, tradeSize = 1 } = params;
-    const trades = [];
-    let position = null; // Can be 'long', 'short', or null
+export function onBalanceVolumeStrategy(candles, params = {}) {
+    const {
+        obvPeriod = 20,
+        tradeSize = 1,
+        SL = 0,             // % stop loss
+        TP = 0,             // % take profit
+        trailingStop = 0,   // % trailing stop
+    } = params;
 
-    // 1. Prepare the candle data for the indicator
+    const trades = [];
+    let position = null;      // 'long' | 'short' | null
+    let trailingLevel = null;
+    let highestPrice = -Infinity;
+    let lowestPrice = Infinity;
+
     const closes = candles.map(c => c[4]);
     const volumes = candles.map(c => c[5]);
     if (candles.length < obvPeriod) {
-        console.log("Not enough candle data for OBV calculation.");
+        console.warn("[OBV] Not enough candle data.");
         return [];
     }
 
-    // 2. Calculate the OBV and its moving average
     const obvValues = OBV.calculate({ close: closes, volume: volumes });
     const obvSma = SMA.calculate({ values: obvValues, period: obvPeriod });
-    const obvOffset = obvValues.length - obvSma.length; // Account for initial candles
+    const offset = obvValues.length - obvSma.length;
 
-    // 3. Loop through the values to find trade signals
     for (let i = 1; i < obvSma.length; i++) {
-        const candleIndex = i + obvOffset;
-        const prevObv = obvValues[candleIndex - 1];
-        const currentObv = obvValues[candleIndex];
+        const idx = i + offset;
+        const prevObv = obvValues[idx - 1];
+        const currentObv = obvValues[idx];
         const prevSma = obvSma[i - 1];
         const currentSma = obvSma[i];
-        const currentPrice = closes[candleIndex];
-        const currentTime = new Date(candles[candleIndex][0]);
+        const price = closes[idx];
+        const time = new Date(candles[idx][0]);
 
-        // --- LONG TRADE LOGIC ---
-        // Enter a long position if OBV crosses above its moving average
-        if (prevObv <= prevSma && currentObv > currentSma) {
-            if (position === 'short') { // Exit short
-                const entryTrade = trades[trades.length - 1];
-                entryTrade.exitTime = currentTime;
-                entryTrade.exitPrice = currentPrice;
-                entryTrade.profit = (entryTrade.entryPrice - entryTrade.exitPrice) * entryTrade.size;
-                position = null;
+        // --- Handle existing position ---
+        if (position) {
+            const lastTrade = trades[trades.length - 1];
+
+            if (position === "long") {
+                highestPrice = Math.max(highestPrice, price);
+                if (trailingStop > 0) trailingLevel = highestPrice * (1 - trailingStop / 100);
+
+                if (SL > 0 && price <= lastTrade.entryPrice * (1 - SL / 100)) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - SL / 100);
+                } else if (TP > 0 && price >= lastTrade.entryPrice * (1 + TP / 100)) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + TP / 100);
+                } else if (trailingLevel && price <= trailingLevel) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = trailingLevel;
+                } else if (prevObv >= prevSma && currentObv < currentSma) { // OBV crosses down -> exit long
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = price;
+                }
+
+                if (lastTrade.exitTime) {
+                    lastTrade.profit = (lastTrade.exitPrice - lastTrade.entryPrice) * tradeSize;
+                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
+                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
+                    lastTrade.exitReason = lastTrade.exitPrice === price ? "OBV Exit"
+                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
+                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 + TP / 100) ? "Take Profit"
+                        : "Stop Loss";
+
+                    position = null;
+                    trailingLevel = null;
+                    highestPrice = -Infinity;
+                    continue;
+                }
             }
-            if (!position) { // Enter long
-                position = 'long';
-                trades.push({
-                    entryTime: currentTime,
-                    entryPrice: currentPrice,
-                    signal: 'buy',
-                    position: 'long',
-                    size: tradeSize,
-                });
+
+            if (position === "short") {
+                lowestPrice = Math.min(lowestPrice, price);
+                if (trailingStop > 0) trailingLevel = lowestPrice * (1 + trailingStop / 100);
+
+                if (SL > 0 && price >= lastTrade.entryPrice * (1 + SL / 100)) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + SL / 100);
+                } else if (TP > 0 && price <= lastTrade.entryPrice * (1 - TP / 100)) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - TP / 100);
+                } else if (trailingLevel && price >= trailingLevel) {
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = trailingLevel;
+                } else if (prevObv <= prevSma && currentObv > currentSma) { // OBV crosses up -> exit short
+                    lastTrade.exitTime = time;
+                    lastTrade.exitPrice = price;
+                }
+
+                if (lastTrade.exitTime) {
+                    lastTrade.profit = (lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
+                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
+                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
+                    lastTrade.exitReason = lastTrade.exitPrice === price ? "OBV Exit"
+                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
+                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 - TP / 100) ? "Take Profit"
+                        : "Stop Loss";
+
+                    position = null;
+                    trailingLevel = null;
+                    lowestPrice = Infinity;
+                    continue;
+                }
             }
         }
 
-        // --- SHORT TRADE LOGIC ---
-        // Enter a short position if OBV crosses below its moving average
-        else if (prevObv >= prevSma && currentObv < currentSma) {
-            if (position === 'long') { // Exit long
-                const entryTrade = trades[trades.length - 1];
-                entryTrade.exitTime = currentTime;
-                entryTrade.exitPrice = currentPrice;
-                entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
-                position = null;
+        // --- Entry Logic ---
+        if (!position) {
+            if (prevObv <= prevSma && currentObv > currentSma) {
+                position = "long";
+                highestPrice = price;
+                trailingLevel = trailingStop > 0 ? price * (1 - trailingStop / 100) : null;
+                trades.push({ entryTime: time, entryPrice: price, signal: "buy", position, size: tradeSize });
+            } else if (prevObv >= prevSma && currentObv < currentSma) {
+                position = "short";
+                lowestPrice = price;
+                trailingLevel = trailingStop > 0 ? price * (1 + trailingStop / 100) : null;
+                trades.push({ entryTime: time, entryPrice: price, signal: "sell", position, size: tradeSize });
             }
-            if (!position) { // Enter short
-                position = 'short';
-                trades.push({
-                    entryTime: currentTime,
-                    entryPrice: currentPrice,
-                    signal: 'sell',
-                    position: 'short',
-                    size: tradeSize,
-                });
-            }
+        }
+    }
+
+    // --- Close any open trade at last candle ---
+    if (position && trades.length > 0) {
+        const lastTrade = trades[trades.length - 1];
+        if (!lastTrade.exitTime) {
+            const lastIdx = closes.length - 1;
+            lastTrade.exitTime = new Date(candles[lastIdx][0]);
+            lastTrade.exitPrice = closes[lastIdx];
+            lastTrade.profit = (position === "long"
+                ? lastTrade.exitPrice - lastTrade.entryPrice
+                : lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
+            lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
+            lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
+            lastTrade.exitReason = "End of Data";
         }
     }
 
     return trades;
 }
-

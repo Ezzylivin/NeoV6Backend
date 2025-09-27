@@ -1,6 +1,6 @@
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runBacktest } from "../services/backtest.js"; // Assuming this is the new single backtest engine
+import { runBacktest } from "../services/backtestService.js"; // Assuming this is the new single backtest engine
 import { runCombinedStrategyService } from "../services/strategyEngineService.js"; // The combo engine
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 import { normalizeSymbol } from "../services/backtestDataService.js";

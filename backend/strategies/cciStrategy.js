@@ -1,150 +1,60 @@
 // File: backend/strategies/cciStrategy.js
-// PREMIUM UPGRADE: CCI strategy with SL, TP, and Trailing Stop Loss.
+// UPGRADED: Converted to a signal generator for the new backtesting engine.
 
 import { CCI } from 'technicalindicators';
 
+/**
+ * Commodity Channel Index (CCI) Mean Reversion Strategy
+ * Generates a 'buy' signal when the CCI crosses up from the oversold level.
+ * Generates a 'sell' signal when the CCI crosses down from the overbought level.
+ * Otherwise, generates a 'hold' signal.
+ * @param {Array<Array<number>>} candles - The historical OHLCV candle data.
+ * @param {object} params - The parameters for the strategy.
+ * @returns {{signal: 'buy'|'sell'|'hold'}} The trading signal for the current candle.
+ */
 export function cciStrategy(candles, params = {}) {
+    // --- Parameters with defaults ---
     const {
         cciPeriod = 20,
         overbought = 100,
         oversold = -100,
-        tradeSize = 1,
-        SL = 0,            // % stop loss
-        TP = 0,            // % take profit
-        trailingStop = 0,  // % trailing stop
+        ...restParams // Pass through other params like SL, TP
     } = params;
-
-    const trades = [];
-    let position = null;       // 'long' | 'short' | null
-    let trailingLevel = null;  // dynamic trailing stop
-    let highestPrice = -Infinity;
-    let lowestPrice = Infinity;
 
     const highs = candles.map(c => c[2]);
     const lows = candles.map(c => c[3]);
     const closes = candles.map(c => c[4]);
 
-    if (candles.length < cciPeriod) {
-        console.warn("[CCI] Not enough candles to calculate CCI.");
-        return [];
+    // --- Guard clause: Not enough data ---
+    if (candles.length < cciPeriod + 2) { // Need at least 2 CCI values to check for a cross
+        return { signal: 'hold' };
     }
 
-    const cciValues = CCI.calculate({ high: highs, low: lows, close: closes, period: cciPeriod });
-    const offset = closes.length - cciValues.length;
+    // --- Indicator Calculation ---
+    // We only need the last two CCI values to check for a crossover.
+    const cciInput = {
+        high: highs.slice(-(cciPeriod + 2)), // Get enough data for two CCI values
+        low: lows.slice(-(cciPeriod + 2)),
+        close: closes.slice(-(cciPeriod + 2)),
+        period: cciPeriod,
+    };
+    
+    const cciValues = CCI.calculate(cciInput);
+    const prevCci = cciValues[cciValues.length - 2];
+    const currentCci = cciValues[cciValues.length - 1];
+    
+    // --- Signal Logic (Mean Reversion Crossover) ---
 
-    for (let i = 1; i < cciValues.length; i++) {
-        const idx = i + offset;
-        const prevCci = cciValues[i - 1];
-        const currentCci = cciValues[i];
-        const price = closes[idx];
-        const time = new Date(candles[idx][0]);
-
-        // --- Handle existing position ---
-        if (position) {
-            const lastTrade = trades[trades.length - 1];
-
-            // LONG
-            if (position === "long") {
-                highestPrice = Math.max(highestPrice, price);
-                if (trailingStop > 0) trailingLevel = highestPrice * (1 - trailingStop / 100);
-
-                if (SL > 0 && lows[idx] <= lastTrade.entryPrice * (1 - SL / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - SL / 100);
-                } else if (TP > 0 && price >= lastTrade.entryPrice * (1 + TP / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + TP / 100);
-                } else if (trailingLevel && price <= trailingLevel) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = trailingLevel;
-                } else if (currentCci >= overbought) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = price;
-                }
-
-                if (lastTrade.exitTime) {
-                    lastTrade.profit = (lastTrade.exitPrice - lastTrade.entryPrice) * tradeSize;
-                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-                    lastTrade.exitReason = lastTrade.exitPrice === price ? "CCI Exit"
-                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
-                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 + TP / 100) ? "Take Profit"
-                        : "Stop Loss";
-
-                    position = null;
-                    trailingLevel = null;
-                    highestPrice = -Infinity;
-                    continue;
-                }
-            }
-
-            // SHORT
-            if (position === "short") {
-                lowestPrice = Math.min(lowestPrice, price);
-                if (trailingStop > 0) trailingLevel = lowestPrice * (1 + trailingStop / 100);
-
-                if (SL > 0 && highs[idx] >= lastTrade.entryPrice * (1 + SL / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + SL / 100);
-                } else if (TP > 0 && price <= lastTrade.entryPrice * (1 - TP / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - TP / 100);
-                } else if (trailingLevel && price >= trailingLevel) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = trailingLevel;
-                } else if (currentCci <= oversold) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = price;
-                }
-
-                if (lastTrade.exitTime) {
-                    lastTrade.profit = (lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
-                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-                    lastTrade.exitReason = lastTrade.exitPrice === price ? "CCI Exit"
-                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
-                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 - TP / 100) ? "Take Profit"
-                        : "Stop Loss";
-
-                    position = null;
-                    trailingLevel = null;
-                    lowestPrice = Infinity;
-                    continue;
-                }
-            }
-        }
-
-        // --- Entry Logic ---
-        if (!position) {
-            if (prevCci < oversold && currentCci >= oversold) {
-                position = "long";
-                highestPrice = price;
-                trailingLevel = trailingStop > 0 ? price * (1 - trailingStop / 100) : null;
-                trades.push({ entryTime: time, entryPrice: price, signal: "buy", position, size: tradeSize });
-            } else if (prevCci > overbought && currentCci <= overbought) {
-                position = "short";
-                lowestPrice = price;
-                trailingLevel = trailingStop > 0 ? price * (1 + trailingStop / 100) : null;
-                trades.push({ entryTime: time, entryPrice: price, signal: "sell", position, size: tradeSize });
-            }
-        }
+    // Buy Signal: If the CCI crosses from below the oversold line to above it.
+    if (prevCci < oversold && currentCci >= oversold) {
+        return { signal: 'buy', params: restParams };
     }
 
-    // --- Close any open trade at last candle ---
-    if (position && trades.length > 0) {
-        const lastTrade = trades[trades.length - 1];
-        if (!lastTrade.exitTime) {
-            const lastIdx = closes.length - 1;
-            lastTrade.exitTime = new Date(candles[lastIdx][0]);
-            lastTrade.exitPrice = closes[lastIdx];
-            lastTrade.profit = (position === "long"
-                ? lastTrade.exitPrice - lastTrade.entryPrice
-                : lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
-            lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-            lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-            lastTrade.exitReason = "End of Data";
-        }
+    // Sell Signal: If the CCI crosses from above the overbought line to below it.
+    if (prevCci > overbought && currentCci <= overbought) {
+        return { signal: 'sell', params: restParams };
     }
 
-    return trades;
+    // ✅ THE FIX: If no signal is generated, always return a 'hold' signal.
+    return { signal: 'hold' };
 }

@@ -1,147 +1,62 @@
 // File: backend/strategies/obvStrategy.js
-// PREMIUM UPGRADE: OBV strategy with SL, TP, and Trailing Stop Loss.
+// UPGRADED: Converted to a signal generator for the new backtesting engine.
 
 import { OBV, SMA } from 'technicalindicators';
 
+/**
+ * On-Balance Volume (OBV) Crossover Strategy
+ * Generates a 'buy' signal when the OBV crosses above its Simple Moving Average (SMA).
+ * Generates a 'sell' signal when the OBV crosses below its SMA.
+ * Otherwise, generates a 'hold' signal.
+ * @param {Array<Array<number>>} candles - The historical OHLCV candle data.
+ * @param {object} params - The parameters for the strategy.
+ * @returns {{signal: 'buy'|'sell'|'hold'}} The trading signal for the current candle.
+ */
 export function onBalanceVolumeStrategy(candles, params = {}) {
+    // --- Parameters with defaults ---
     const {
         obvPeriod = 20,
-        tradeSize = 1,
-        SL = 0,             // % stop loss
-        TP = 0,             // % take profit
-        trailingStop = 0,   // % trailing stop
+        ...restParams // Pass through other params like SL, TP
     } = params;
-
-    const trades = [];
-    let position = null;      // 'long' | 'short' | null
-    let trailingLevel = null;
-    let highestPrice = -Infinity;
-    let lowestPrice = Infinity;
 
     const closes = candles.map(c => c[4]);
     const volumes = candles.map(c => c[5]);
-    if (candles.length < obvPeriod) {
-        console.warn("[OBV] Not enough candle data.");
-        return [];
+
+    // --- Guard clause: Not enough data ---
+    if (candles.length < obvPeriod + 2) { // Need at least 2 SMA values to check for a cross
+        return { signal: 'hold' };
     }
 
-    const obvValues = OBV.calculate({ close: closes, volume: volumes });
-    const obvSma = SMA.calculate({ values: obvValues, period: obvPeriod });
-    const offset = obvValues.length - obvSma.length;
+    // --- Indicator Calculation ---
+    const obvInput = { close: closes, volume: volumes };
+    const obvValues = OBV.calculate(obvInput);
 
-    for (let i = 1; i < obvSma.length; i++) {
-        const idx = i + offset;
-        const prevObv = obvValues[idx - 1];
-        const currentObv = obvValues[idx];
-        const prevSma = obvSma[i - 1];
-        const currentSma = obvSma[i];
-        const price = closes[idx];
-        const time = new Date(candles[idx][0]);
+    const smaInput = { values: obvValues, period: obvPeriod };
+    const obvSmaValues = SMA.calculate(smaInput);
 
-        // --- Handle existing position ---
-        if (position) {
-            const lastTrade = trades[trades.length - 1];
+    // We only need the last two points of each series to check for a crossover
+    const prevObv = obvValues[obvValues.length - 2];
+    const currentObv = obvValues[obvValues.length - 1];
 
-            if (position === "long") {
-                highestPrice = Math.max(highestPrice, price);
-                if (trailingStop > 0) trailingLevel = highestPrice * (1 - trailingStop / 100);
-
-                if (SL > 0 && price <= lastTrade.entryPrice * (1 - SL / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - SL / 100);
-                } else if (TP > 0 && price >= lastTrade.entryPrice * (1 + TP / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + TP / 100);
-                } else if (trailingLevel && price <= trailingLevel) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = trailingLevel;
-                } else if (prevObv >= prevSma && currentObv < currentSma) { // OBV crosses down -> exit long
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = price;
-                }
-
-                if (lastTrade.exitTime) {
-                    lastTrade.profit = (lastTrade.exitPrice - lastTrade.entryPrice) * tradeSize;
-                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-                    lastTrade.exitReason = lastTrade.exitPrice === price ? "OBV Exit"
-                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
-                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 + TP / 100) ? "Take Profit"
-                        : "Stop Loss";
-
-                    position = null;
-                    trailingLevel = null;
-                    highestPrice = -Infinity;
-                    continue;
-                }
-            }
-
-            if (position === "short") {
-                lowestPrice = Math.min(lowestPrice, price);
-                if (trailingStop > 0) trailingLevel = lowestPrice * (1 + trailingStop / 100);
-
-                if (SL > 0 && price >= lastTrade.entryPrice * (1 + SL / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 + SL / 100);
-                } else if (TP > 0 && price <= lastTrade.entryPrice * (1 - TP / 100)) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = lastTrade.entryPrice * (1 - TP / 100);
-                } else if (trailingLevel && price >= trailingLevel) {
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = trailingLevel;
-                } else if (prevObv <= prevSma && currentObv > currentSma) { // OBV crosses up -> exit short
-                    lastTrade.exitTime = time;
-                    lastTrade.exitPrice = price;
-                }
-
-                if (lastTrade.exitTime) {
-                    lastTrade.profit = (lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
-                    lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-                    lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-                    lastTrade.exitReason = lastTrade.exitPrice === price ? "OBV Exit"
-                        : lastTrade.exitPrice === trailingLevel ? "Trailing Stop"
-                        : lastTrade.exitPrice === lastTrade.entryPrice * (1 - TP / 100) ? "Take Profit"
-                        : "Stop Loss";
-
-                    position = null;
-                    trailingLevel = null;
-                    lowestPrice = Infinity;
-                    continue;
-                }
-            }
-        }
-
-        // --- Entry Logic ---
-        if (!position) {
-            if (prevObv <= prevSma && currentObv > currentSma) {
-                position = "long";
-                highestPrice = price;
-                trailingLevel = trailingStop > 0 ? price * (1 - trailingStop / 100) : null;
-                trades.push({ entryTime: time, entryPrice: price, signal: "buy", position, size: tradeSize });
-            } else if (prevObv >= prevSma && currentObv < currentSma) {
-                position = "short";
-                lowestPrice = price;
-                trailingLevel = trailingStop > 0 ? price * (1 + trailingStop / 100) : null;
-                trades.push({ entryTime: time, entryPrice: price, signal: "sell", position, size: tradeSize });
-            }
-        }
+    const prevSma = obvSmaValues[obvSmaValues.length - 2];
+    const currentSma = obvSmaValues[obvSmaValues.length - 1];
+    
+    if (prevObv === undefined || currentObv === undefined || prevSma === undefined || currentSma === undefined) {
+        return { signal: 'hold' }; // Not enough data from the indicator library yet
     }
 
-    // --- Close any open trade at last candle ---
-    if (position && trades.length > 0) {
-        const lastTrade = trades[trades.length - 1];
-        if (!lastTrade.exitTime) {
-            const lastIdx = closes.length - 1;
-            lastTrade.exitTime = new Date(candles[lastIdx][0]);
-            lastTrade.exitPrice = closes[lastIdx];
-            lastTrade.profit = (position === "long"
-                ? lastTrade.exitPrice - lastTrade.entryPrice
-                : lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
-            lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
-            lastTrade.duration = `${Math.round((lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60))} min`;
-            lastTrade.exitReason = "End of Data";
-        }
+    // --- Signal Logic (Crossover) ---
+
+    // Buy Signal: If the OBV crosses from below its SMA to above it.
+    if (prevObv < prevSma && currentObv >= currentSma) {
+        return { signal: 'buy', params: restParams };
     }
 
-    return trades;
+    // Sell Signal: If the OBV crosses from above its SMA to below it.
+    if (prevObv > prevSma && currentObv <= prevSma) {
+        return { signal: 'sell', params: restParams };
+    }
+
+    // ✅ THE FIX: If no crossover occurred, always return a 'hold' signal.
+    return { signal: 'hold' };
 }

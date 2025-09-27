@@ -56,21 +56,16 @@ export const runComboBacktest = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // --- Validate payload ---
-    const { strategies, symbols, symbol, timeframe, startDate, endDate, initial_balance } = req.body;
+    const { strategies, symbol, symbols, timeframe, startDate, endDate, initialBalance } = req.body;
 
     if (!strategies || !Array.isArray(strategies) || strategies.length === 0) {
       return res.status(400).json({ message: "Strategies array is required for combo backtest." });
     }
 
     const symbolArray = Array.isArray(symbols) ? symbols : symbol ? [symbol] : [];
-    if (symbolArray.length === 0) {
-      return res.status(400).json({ message: "At least one symbol is required." });
-    }
-
+    if (symbolArray.length === 0) return res.status(400).json({ message: "At least one symbol is required." });
     if (!timeframe) return res.status(400).json({ message: "Timeframe is required." });
 
-    // --- Set default dates if missing ---
     const today = new Date();
     const defaultStart = new Date(today); defaultStart.setFullYear(today.getFullYear() - 1);
     const defaultEnd = new Date(today); defaultEnd.setDate(today.getDate() - 1);
@@ -78,29 +73,79 @@ export const runComboBacktest = async (req, res) => {
     const start = startDate || defaultStart.toISOString().split('T')[0];
     const end = endDate || defaultEnd.toISOString().split('T')[0];
 
-    // --- Normalize symbols ---
-    const normSymbols = symbolArray.map(s => normalizeSymbol(s));
+    const normSymbol = normalizeSymbol(symbolArray[0]);
 
-    console.log("✅ Running combo backtest");
-    console.log("User:", userId);
-    console.log("Strategies:", strategies);
-    console.log("Symbols:", normSymbols);
-    console.log("Timeframe:", timeframe);
-    console.log("Dates:", start, "-", end);
-    console.log("Initial balance:", initial_balance);
-
-    // --- Prepare results container ---
     const individualResults = [];
     let combinedEquityCurve = [];
 
-    // --- Run each strategy individually and safely ---
-    for (const stratCode of strategies) {
+    // ✅ Process each strategy object (code + params)
+    for (const strat of strategies) {
+      const { code, params = {} } = strat;
+      const dbStrategy = await Strategy.findOne({ code, userId }).lean();
+      if (!dbStrategy) {
+        console.warn(`⚠️ Strategy ${code} not found for user ${userId}`);
+        continue;
+      }
+
       try {
-        const result = await runStrategyService(userId, stratCode, normSymbols[0], timeframe, {
+        const result = await runStrategyService(dbStrategy, {
+          symbol: normSymbol,
+          timeframe,
           startDate: start,
           endDate: end,
-          initial_balance
+          initialBalance,
+          params: { ...dbStrategy.params, ...params }
+        }, userId, false);
+
+        if (!result?.equityCurve?.length) {
+          console.warn(`⚠️ No trades returned for strategy ${code}`);
+          continue;
+        }
+
+        individualResults.push({
+          strategyCode: code,
+          equityCurve: result.equityCurve,
+          metrics: result.metrics || {}
         });
+
+        if (combinedEquityCurve.length === 0) {
+          combinedEquityCurve = result.equityCurve.map(c => ({ ...c }));
+        } else {
+          combinedEquityCurve = combinedEquityCurve.map((c, idx) => ({
+            date: c.date,
+            equity: c.equity + (result.equityCurve[idx]?.equity || 0)
+          }));
+        }
+      } catch (err) {
+        console.error(`Error running strategy ${code}:`, err.message || err);
+      }
+    }
+
+    if (!individualResults.length) {
+      return res.status(400).json({ message: "No valid strategies could be executed." });
+    }
+
+    const combinedResult = {
+      equityCurve: combinedEquityCurve,
+      metrics: {
+        initialBalance,
+        totalProfit: combinedEquityCurve.length ? combinedEquityCurve[combinedEquityCurve.length - 1].equity - initialBalance : 0,
+        finalBalance: combinedEquityCurve.length ? combinedEquityCurve[combinedEquityCurve.length - 1].equity : initialBalance,
+        winRate: 0,
+        maxDrawdown: 0,
+        profitFactor: 0
+      },
+      strategies: strategies.map(s => s.code)
+    };
+
+    console.log("✅ Combo backtest completed");
+    res.status(200).json({ combinedResult, individualResults });
+
+  } catch (error) {
+    console.error("Error running combined backtest:", error);
+    res.status(500).json({ message: "An unexpected error occurred during the combined backtest." });
+  }
+};
 
         if (!result || !result.equityCurve || result.equityCurve.length === 0) {
           console.warn(`⚠️ No trades returned for strategy ${stratCode}`);

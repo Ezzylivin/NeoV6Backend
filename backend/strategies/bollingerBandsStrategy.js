@@ -1,77 +1,152 @@
 // File: backend/strategies/bollingerBandsStrategy.js
-// UPGRADED: Full implementation of the Bollinger Bands Mean Reversion strategy.
+// PREMIUM UPGRADE: Bollinger Bands Mean Reversion with SL, TP, and Trailing Stop Loss.
 
-import { BollingerBands } from 'technicalindicators';
+import { BollingerBands } from "technicalindicators";
 
-export function bollingerBandsStrategy(candles, params) {
-    // Default parameters for the Bollinger Bands strategy
-    const { period = 20, stdDev = 2, tradeSize = 1 } = params;
+export function bollingerBandsStrategy(candles, params = {}) {
+    const {
+        period = 20,
+        stdDev = 2,
+        tradeSize = 1,
+        stopLossPct = null,      // % below entry for SL (e.g. 3 = 3%)
+        takeProfitPct = null,    // % above entry for TP (e.g. 10 = 10%)
+        trailingStopPct = null   // % trailing stop (e.g. 2 = 2%)
+    } = params;
+
     const trades = [];
-    let position = null; // Can be 'long', 'short', or null
+    let position = null; 
+    let trailingStop = null;
+    let highestPrice = -Infinity;
+    let lowestPrice = Infinity;
 
-    // 1. Prepare the closing prices for the indicator
     const closes = candles.map(c => c[4]);
     if (closes.length < period) {
-        console.log("Not enough candle data for Bollinger Bands calculation.");
+        console.warn("[BollingerBands] Not enough candles to calculate bands.");
         return [];
     }
 
-    // 2. Calculate the Bollinger Bands once for efficiency
     const bbValues = BollingerBands.calculate({ period, values: closes, stdDev });
-    const bbOffset = closes.length - bbValues.length; // Account for initial candles
+    const bbOffset = closes.length - bbValues.length;
 
-    // 3. Loop through the bands to find trade signals
     for (let i = 0; i < bbValues.length; i++) {
-        const candleIndex = i + bbOffset;
-        const currentPrice = closes[candleIndex];
+        const idx = i + bbOffset;
+        const price = closes[idx];
         const { upper, lower } = bbValues[i];
-        const currentTime = new Date(candles[candleIndex][0]);
+        const time = new Date(candles[idx][0]);
 
-        // --- LONG TRADE LOGIC ---
-        // Enter a long position if the price touches or drops below the lower band
-        if (currentPrice < lower && !position) {
-            position = 'long';
+        // --- LONG ENTRY ---
+        if (!position && price <= lower) {
+            position = "long";
+            highestPrice = price;
+            trailingStop = trailingStopPct ? price * (1 - trailingStopPct / 100) : null;
             trades.push({
-                entryTime: currentTime,
-                entryPrice: currentPrice,
-                signal: 'buy',
-                position: 'long',
+                entryTime: time,
+                entryPrice: price,
+                signal: "buy",
+                position,
                 size: tradeSize,
             });
         }
 
-        // --- SHORT TRADE LOGIC ---
-        // Enter a short position if the price touches or rises above the upper band
-        else if (currentPrice > upper && !position) {
-            position = 'short';
+        // --- SHORT ENTRY ---
+        else if (!position && price >= upper) {
+            position = "short";
+            lowestPrice = price;
+            trailingStop = trailingStopPct ? price * (1 + trailingStopPct / 100) : null;
             trades.push({
-                entryTime: currentTime,
-                entryPrice: currentPrice,
-                signal: 'sell',
-                position: 'short',
+                entryTime: time,
+                entryPrice: price,
+                signal: "sell",
+                position,
                 size: tradeSize,
             });
         }
 
         // --- EXIT LOGIC ---
-        // Exit a long position if the price crosses the upper band, or a short if it crosses the lower
-        else if (position && (
-            (position === 'long' && currentPrice >= upper) ||
-            (position === 'short' && currentPrice <= lower)
-        )) {
+        else if (position) {
             const entryTrade = trades[trades.length - 1];
-            entryTrade.exitTime = currentTime;
-            entryTrade.exitPrice = currentPrice;
+            const entryPrice = entryTrade.entryPrice;
 
-            if (position === 'long') {
-                entryTrade.profit = (entryTrade.exitPrice - entryTrade.entryPrice) * entryTrade.size;
-            } else { // 'short'
-                entryTrade.profit = (entryTrade.entryPrice - entryTrade.exitPrice) * entryTrade.size;
+            let exitReason = null;
+
+            if (position === "long") {
+                highestPrice = Math.max(highestPrice, price);
+                if (trailingStopPct) {
+                    trailingStop = highestPrice * (1 - trailingStopPct / 100);
+                }
+
+                if (stopLossPct && price <= entryPrice * (1 - stopLossPct / 100)) {
+                    exitReason = "Stop Loss";
+                } else if (takeProfitPct && price >= entryPrice * (1 + takeProfitPct / 100)) {
+                    exitReason = "Take Profit";
+                } else if (trailingStop && price <= trailingStop) {
+                    exitReason = "Trailing Stop";
+                } else if (price >= upper) {
+                    exitReason = "Band Exit";
+                }
             }
-            position = null; // Mark the position as closed
+
+            else if (position === "short") {
+                lowestPrice = Math.min(lowestPrice, price);
+                if (trailingStopPct) {
+                    trailingStop = lowestPrice * (1 + trailingStopPct / 100);
+                }
+
+                if (stopLossPct && price >= entryPrice * (1 + stopLossPct / 100)) {
+                    exitReason = "Stop Loss";
+                } else if (takeProfitPct && price <= entryPrice * (1 - takeProfitPct / 100)) {
+                    exitReason = "Take Profit";
+                } else if (trailingStop && price >= trailingStop) {
+                    exitReason = "Trailing Stop";
+                } else if (price <= lower) {
+                    exitReason = "Band Exit";
+                }
+            }
+
+            if (exitReason) {
+                entryTrade.exitTime = time;
+                entryTrade.exitPrice = price;
+                entryTrade.exitReason = exitReason;
+
+                if (position === "long") {
+                    entryTrade.profit = (price - entryPrice) * tradeSize;
+                } else {
+                    entryTrade.profit = (entryPrice - price) * tradeSize;
+                }
+
+                entryTrade.returnPct = ((entryTrade.profit / entryPrice) * 100).toFixed(2);
+                entryTrade.duration = `${Math.round(
+                    (entryTrade.exitTime - entryTrade.entryTime) / (1000 * 60)
+                )} min`;
+
+                position = null;
+                trailingStop = null;
+            }
+        }
+    }
+
+    // --- Close any open trade at the last candle ---
+    if (position && trades.length > 0) {
+        const lastTrade = trades[trades.length - 1];
+        if (!lastTrade.exitTime) {
+            const lastIdx = closes.length - 1;
+            lastTrade.exitTime = new Date(candles[lastIdx][0]);
+            lastTrade.exitPrice = closes[lastIdx];
+
+            if (position === "long") {
+                lastTrade.profit = (lastTrade.exitPrice - lastTrade.entryPrice) * tradeSize;
+            } else {
+                lastTrade.profit = (lastTrade.entryPrice - lastTrade.exitPrice) * tradeSize;
+            }
+
+            lastTrade.returnPct = ((lastTrade.profit / lastTrade.entryPrice) * 100).toFixed(2);
+            lastTrade.duration = `${Math.round(
+                (lastTrade.exitTime - lastTrade.entryTime) / (1000 * 60)
+            )} min`;
+
+            lastTrade.exitReason = "End of Data";
         }
     }
 
     return trades;
 }
-

@@ -1,15 +1,13 @@
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runBacktest } from "../services/backtestService.js"; // Assuming this is the new single backtest engine
-import { runCombinedStrategyService } from "../services/strategyEngineService.js"; // The combo engine
+import { runBacktest } from "../services/backtestService.js";
+import { runCombinedStrategyService } from "../services/strategyEngineService.js";
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
-import { normalizeSymbol } from "../services/backtestDataService.js";
 import mongoose from "mongoose";
 
 // --- A centralized error handler for controllers ---
 const handleControllerError = (res, error, context) => {
     console.error(`Error in ${context}:`, error);
-    // Check for specific error types if needed
     if (error.message.includes("Not found")) {
         return res.status(404).json({ message: error.message });
     }
@@ -19,18 +17,16 @@ const handleControllerError = (res, error, context) => {
 // --- Run single strategy backtest ---
 export const runBacktestController = async (req, res) => {
     try {
-        const { userId } = req.user;
-        const config = { ...req.body, userId, simulateOnly: false }; // Combine user ID and payload
+        // ✅ FIX: Get the user ID from the `_id` property
+        const userId = req.user._id;
+        const config = { ...req.body, userId, simulateOnly: false };
 
-        // Basic Validation
         if (!config.code || !config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
-
-        // Pass the entire config object to the robust backtest service
+        
         const result = await runBacktest(config);
-
-        res.status(201).json(result); // Use 201 Created since a new backtest resource is made
+        res.status(201).json(result);
     } catch (err) {
         handleControllerError(res, err, 'runBacktestController');
     }
@@ -39,10 +35,10 @@ export const runBacktestController = async (req, res) => {
 // --- Run combo backtest ---
 export const runComboBacktestController = async (req, res) => {
     try {
-        const { userId } = req.user;
+        // ✅ FIX: Get the user ID from the `_id` property
+        const userId = req.user._id;
         const comboPayload = { ...req.body, userId };
 
-        // Basic Validation
         if (!comboPayload.strategies || !Array.isArray(comboPayload.strategies) || comboPayload.strategies.length === 0) {
             return res.status(400).json({ message: "The 'strategies' array is required." });
         }
@@ -50,9 +46,7 @@ export const runComboBacktestController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
         }
 
-        // Pass the entire payload to the combined strategy service
         const result = await runCombinedStrategyService(userId, comboPayload);
-
         res.status(200).json(result);
     } catch (error) {
         handleControllerError(res, error, 'runComboBacktestController');
@@ -62,41 +56,30 @@ export const runComboBacktestController = async (req, res) => {
 // --- Preview a strategy ---
 export const previewStrategyController = async (req, res) => {
     try {
-        const { userId } = req.user;
-        const config = { ...req.body, userId, simulateOnly: true }; // Preview is always a simulation
+        // ✅ FIX: Get the user ID from the `_id` property
+        const userId = req.user._id;
+        const config = { ...req.body, userId, simulateOnly: true };
 
         if (!config.code || !config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
-
-        // Use the same powerful backtest engine for previews
+        
         const result = await runBacktest(config);
-
         res.status(200).json(result);
     } catch (err) {
         handleControllerError(res, err, 'previewStrategyController');
     }
 };
 
-
 // --- Other Controllers (CRUD, Options) ---
-
-// In backend/controllers/backtestController.js
-
 export const fetchBacktestOptionsController = async (req, res) => {
     try {
-        const { userId } = req.user;
-
-        // --- Step 1: Log the incoming User ID ---
+        // ✅ FIX: Get the user ID from the `_id` property
+        const userId = req.user._id;
         console.log(`[OPTIONS CONTROLLER] Attempting to fetch strategies for userId: ${userId}`);
 
         const strategies = await Strategy.find({ userId }).select("name code params").lean();
-
-        // --- Step 2: Log what was found in the database ---
         console.log(`[OPTIONS CONTROLLER] Database query found ${strategies.length} strategies.`);
-        if (strategies.length > 0) {
-            console.log('[OPTIONS CONTROLLER] Found strategies:', strategies.map(s => s.code));
-        }
 
         const [exchangeSymbols, exchangeParams] = await Promise.all([
             fetchAllExchangeSymbols(),
@@ -116,10 +99,8 @@ export const fetchBacktestOptionsController = async (req, res) => {
             timeframes: Array.from(timeframeSet)
         };
 
-        // --- Step 3: Log right before sending the response ---
         console.log('[OPTIONS CONTROLLER] Sending successful response to frontend.');
         res.json(responseData);
-
     } catch (err) {
         handleControllerError(res, err, 'fetchBacktestOptionsController');
     }
@@ -127,7 +108,8 @@ export const fetchBacktestOptionsController = async (req, res) => {
 
 export const fetchPastBacktestsController = async (req, res) => {
     try {
-        const { userId } = req.user;
+        // ✅ FIX: Get the user ID from the `_id` property
+        const userId = req.user._id;
         const page = parseInt(req.query.page, 10) || 1;
         const limit = 20;
         const skip = (page - 1) * limit;
@@ -145,7 +127,8 @@ export const fetchPastBacktestsController = async (req, res) => {
 export const getBacktestByIdController = async (req, res) => {
     try {
         const { backtestId } = req.params;
-        const { userId } = req.user;
+        // ✅ FIX: Get the user ID from the `_id` property
+        const userId = req.user._id;
 
         if (!mongoose.Types.ObjectId.isValid(backtestId)) {
             return res.status(400).json({ message: "Invalid backtest ID format." });
@@ -164,7 +147,8 @@ export const getBacktestByIdController = async (req, res) => {
 export const deleteBacktestController = async (req, res) => {
     try {
         const { backtestId } = req.params;
-        const { userId } = req.user;
+        // ✅ FIX: Get the user ID from the `_id` property
+        const userId = req.user._id;
 
         if (!mongoose.Types.ObjectId.isValid(backtestId)) {
             return res.status(400).json({ message: "Invalid backtest ID format." });

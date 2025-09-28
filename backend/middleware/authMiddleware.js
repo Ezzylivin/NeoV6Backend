@@ -7,6 +7,9 @@ import User from "../dbStructure/user.js";
 
 // Renamed from authMiddleware to 'protect' to match its usage in route files.
 export const protect = async (req, res, next) => {
+
+     console.log('--- [AUTH MIDDLEWARE] INCOMING HEADERS:', req.headers);
+
     console.log("🔐 protect middleware triggered. Headers:", req.headers.authorization);
 
 

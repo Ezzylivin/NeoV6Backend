@@ -76,15 +76,14 @@ const runSimulation = (config) => {
         // 2. Check for Entries
         if (!position) {
             let signal = {};
-            try {
-                // 🚨 FIX: Safety net for strategy code execution 🚨
-                signal = strategyFunction(historicalCandles, strategyParams);
-            } catch (strategyError) {
-                // Log the error for the strategy and skip the candle/entry check
-                // This prevents a crash but lets the simulation continue
-                console.error(`[Strategy Execution Crash at ${new Date(timestamp).toISOString()}]:`, strategyError.message);
-                continue; 
-            }
+            try {
+                // 🚨 FIX 1: Safety net for strategy code execution 🚨
+                signal = strategyFunction(historicalCandles, strategyParams);
+            } catch (strategyError) {
+                // Log the error for the strategy and skip the candle/entry check
+                console.error(`[Strategy Execution Crash at ${new Date(timestamp).toISOString()}]:`, strategyError.message);
+                continue; 
+            }
             
             if (signal.signal === 'buy' || signal.signal === 'sell') {
                 const { SL: slPercent, TP: tpPercent } = strategyParams;
@@ -216,6 +215,8 @@ export const runBacktest = async (config) => {
         finalBalance: metrics.finalBalance,
         startDate,
         endDate,
+        // 🚨 FIX 2: Add the required 'candlesTested' field
+        candlesTested: candles.length, // <--- FIX for Mongoose validation error!
         strategy: {
             name: strategy.name,
             code: strategy.code,

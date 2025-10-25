@@ -125,8 +125,8 @@ const _getBulkPredictions = async (modelName, features, authToken) => {
 
     } catch (error) {
         let errorMessage = `Bulk prediction failed for model ${modelName}.`;
-         if (error.response) {
-             errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
+        if (error.response) {
+            errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
         } else if (error.request) { errorMessage += ` No response from ML server. Is it running?`; }
         else { errorMessage += ` Error: ${error.message}`; }
         console.error(`[ML] Bulk prediction failed: ${errorMessage}`);
@@ -151,6 +151,7 @@ const runSimulation = (config) => {
     } = config;
 
     console.log(`[Simulation] Starting simulation. Mode: ${mlMode}. Candles: ${candles.length}. Predictions: ${mlPredictions?.length || 0}`);
+    console.log(`[Simulation] Initial Balance: $${initialBalance.toFixed(2)}. Risk: ${riskParams.riskPercentage}%`); // DEBUG
 
     let currentBalance = initialBalance;
     let position = null;
@@ -192,9 +193,11 @@ const runSimulation = (config) => {
                 if (mlSignal === -1 && signal === 'buy') {
                     exitPrice = close;
                     exitReason = 'ML Exit Signal (Reverse)';
+                    console.log(`[DEBUG: Exit] ML Reverse Exit (Buy -> Sell) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
                 } else if (mlSignal === 1 && signal === 'sell') {
                     exitPrice = close;
                     exitReason = 'ML Exit Signal (Reverse)';
+                    console.log(`[DEBUG: Exit] ML Reverse Exit (Sell -> Buy) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
                 }
             }
 
@@ -220,6 +223,10 @@ const runSimulation = (config) => {
                 position.exitReason = exitReason;
                 closedTrades.push({ ...position });
                 equityCurve.push({ timestamp, balance: currentBalance });
+                
+                // DEBUG: Log a trade exit
+                console.log(`[DEBUG: Trade Exit] ${signal.toUpperCase()} closed at ${exitPrice.toFixed(2)} (${exitReason}). PnL: $${pnl.toFixed(2)}. New Balance: $${currentBalance.toFixed(2)}`);
+
                 position = null;
 
                 if (currentBalance <= 0) {
@@ -251,7 +258,8 @@ const runSimulation = (config) => {
             // B. Get ML Signal (if applicable)
             if (mlMode === 'on' || mlMode === 'predictions') {
                 if (!mlPredictions || i >= mlPredictions.length) {
-                    console.warn(`[Simulation] ML mode selected but prediction missing for candle index ${i}.`);
+                    // This warning might be too noisy if only a few at the end are missing, but good for initial debug.
+                    // console.warn(`[Simulation] ML mode selected but prediction missing for candle index ${i}.`); 
                     continue;
                 }
                 mlSignal = mlPredictions[i];
@@ -276,8 +284,13 @@ const runSimulation = (config) => {
                     finalSignal = 'buy';
                 }
                 else if (taSignal === 'sell' && mlSignal === -1) {
-                     finalSignal = 'sell';
+                    finalSignal = 'sell';
                 }
+            }
+            
+            // DEBUG: Log the final signal determination
+            if (mlMode === 'predictions' || mlMode === 'on') {
+                console.log(`[DEBUG: Signal] Time: ${new Date(timestamp).toISOString()}. Mode: ${mlMode}. TA: ${taSignal}. ML: ${mlSignal}. Final: ${finalSignal}`);
             }
 
             if (finalSignal === 'buy' || finalSignal === 'sell') {
@@ -291,6 +304,7 @@ const runSimulation = (config) => {
                         effectiveRiskPercent = riskPercentage;
                     } else {
                         effectiveRiskPercent = 100;
+                        console.log(`[DEBUG: Risk] In Growth Mode. Risk set to 100%.`); // DEBUG
                     }
                 }
 
@@ -302,14 +316,20 @@ const runSimulation = (config) => {
                 const positionSizeUnits = close > 0 ? positionSizeDollars / close : 0;
 
                  if (positionSizeUnits > 0) {
+                    const slPrice = finalSignal === 'buy' ? close * (1 - stopLossDecimal) : close * (1 + stopLossDecimal);
+                    const tpPrice = finalSignal === 'buy' ? close * (1 + (tpPercent / 100)) : close * (1 - (tpPercent / 100));
+
                     position = {
                         entryPrice: close,
                         entryTime: new Date(timestamp),
                         size: positionSizeUnits,
                         signal: finalSignal,
-                        slPrice: finalSignal === 'buy' ? close * (1 - stopLossDecimal) : close * (1 + stopLossDecimal),
-                        tpPrice: finalSignal === 'buy' ? close * (1 + (tpPercent / 100)) : close * (1 - (tpPercent / 100)),
+                        slPrice: slPrice,
+                        tpPrice: tpPrice,
                     };
+
+                    // DEBUG: Log a trade entry
+                    console.log(`[DEBUG: Trade Entry] ${finalSignal.toUpperCase()} signal at ${close.toFixed(2)}. Size: ${positionSizeUnits.toFixed(4)} units. SL: ${slPrice.toFixed(2)}, TP: ${tpPrice.toFixed(2)}`);
                  }
             }
         }
@@ -334,6 +354,7 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
     // (Unchanged logic for calculating metrics: totalReturn, winRate, drawdown, etc.)
     
     if (!equityCurve || equityCurve.length === 0) {
+        console.warn("[Metrics] Equity curve is empty. Returning zeroed metrics."); // DEBUG
         return { initialBalance, finalBalance: initialBalance, totalProfit: 0, totalReturn: 0, totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0, averageWin: 0, averageLoss: 0, profitFactor: 0, maxDrawdown: 0 };
     }
 
@@ -357,7 +378,7 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
     // 🛑 FIX APPLIED HERE: Prevent NaN error when totalTrades is 0
     const totalTrades = trades.length;
 
-    return {
+    const metrics = {
         initialBalance, finalBalance, totalProfit,
         totalReturn: (totalProfit / initialBalance) * 100,
         totalTrades: totalTrades,
@@ -370,6 +391,9 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
         profitFactor: grossLoss > 0 ? grossProfit / grossLoss : Infinity,
         maxDrawdown: maxDrawdownPercent,
     };
+    
+    console.log(`[Metrics] Total Trades: ${metrics.totalTrades}, Win Rate: ${metrics.winRate.toFixed(2)}%, Final Balance: $${metrics.finalBalance.toFixed(2)}`); // DEBUG
+    return metrics;
 };
 
 /**
@@ -407,11 +431,13 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
             strategyParams = { ...strategy.params, ...(config.params || {}) };
             strategyName = strategy.name;
             strategyType = strategy.params.strategyType;
+            console.log(`[Orchestrator] TA Strategy loaded: ${strategyName} (Type: ${strategyType})`); // DEBUG
         }
 
         // --- STEP 2: Fetch Data & ML Predictions (if ML or Hybrid) ---
         if (mlMode === 'on' || mlMode === 'predictions') {
             if (!mlModel) throw new Error("ML Model name ('mlModel') is required for ML or Hybrid mode.");
+            console.log(`[Orchestrator] ML/Hybrid mode detected. Model: ${mlModel}.`); // DEBUG
 
             // Use the new feature data downloader (Memory Safe)
             const fullFeatureData = await _getFeatureData(symbol, timeframe, startDate, endDate);
@@ -437,15 +463,17 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
                 }));
 
             if (features.length !== candles.length) {
-                  throw new Error(`Mismatch between candle count (${candles.length}) and feature set count (${features.length}).`);
+                 throw new Error(`Mismatch between candle count (${candles.length}) and feature set count (${features.length}).`);
             }
 
             // C. Get bulk predictions from Python server (FIXED: authToken passed here)
             mlPredictions = await _getBulkPredictions(mlModel, features, authToken);
 
             if (mlPredictions.length !== candles.length) {
-                  throw new Error(`Mismatch between candle count (${candles.length}) and prediction count (${mlPredictions.length}).`);
+                 throw new Error(`Mismatch between candle count (${candles.length}) and prediction count (${mlPredictions.length}).`);
             }
+            
+            console.log(`[Orchestrator] Successfully fetched ${candles.length} candles and ${mlPredictions.length} predictions.`); // DEBUG
 
             if (mlMode === 'on') {
                 strategyName = `ML: ${mlModel}`;
@@ -458,14 +486,18 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
 
         } else {
             // Pure TA mode
+            console.log(`[Orchestrator] Pure TA mode detected. Fetching OHLCV data.`); // DEBUG
             const data = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
             if (!data.candles || data.candles.length < 2) throw new Error("Not enough market data for the selected period.");
             candles = data.candles;
+            console.log(`[Orchestrator] Successfully fetched ${candles.length} candles for Pure TA.`); // DEBUG
         }
+        
+        // Final configuration log before simulation
+        const initialBalance = config.initialBalance || strategyParams.initialBalance || 1000;
+        console.log(`[Orchestrator] Final Config: Mode: ${mlMode}, Strategy: ${strategyName}, Initial Balance: $${initialBalance}`); // DEBUG
 
         // --- STEP 3: Run the Simulation ---
-        const initialBalance = config.initialBalance || strategyParams.initialBalance || 1000;
-
         const { closedTrades, equityCurve } = runSimulation({
             candles,
             strategyFunction,
@@ -493,10 +525,13 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
 
         // --- STEP 6: Save to DB or Return ---
         if (!simulateOnly) {
+            console.log(`[Orchestrator] Saving backtest result to database.`); // DEBUG
             return await Backtest.create(backtestData);
         }
+        console.log(`[Orchestrator] Returning simulation-only result.`); // DEBUG
         return backtestData;
     } catch (error) {
+        console.error(`[Orchestrator] Backtest failed with a critical error: ${error.message}`); // DEBUG
         throw error;
     }
 };

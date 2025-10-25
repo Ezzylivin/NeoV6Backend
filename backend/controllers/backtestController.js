@@ -1,3 +1,4 @@
+// File: controllers/backtestController.js
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runBacktest } from "../services/backtestService.js";
@@ -14,36 +15,28 @@ const handleControllerError = (res, error, context) => {
     res.status(500).json({ message: `An unexpected error occurred in ${context}.` });
 };
 
+// --- Helper to extract JWT Token ---
+const extractAuthToken = (req) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        return authHeader.split(' ')[1];
+    }
+    return null;
+};
+
 // --- Run single strategy backtest ---
 export const runBacktestController = async (req, res) => {
     try {
-        // ✅ FIX: Get the user ID from the `_id` property
         const userId = req.user._id;
         const config = { ...req.body, userId, simulateOnly: false };
+        const authToken = extractAuthToken(req); // Extract the token
 
-        // --- ADD THIS BLOCK ---
-        // Extract the raw JWT token from the Authorization header
-        let authToken = null;
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            authToken = authHeader.split(' ')[1];
+        if (!config.symbol || !config.timeframe) {
+            return res.status(400).json({ message: "Missing required fields: symbol, or timeframe." });
         }
-        if (!authToken) {
-            console.warn("[runBacktestController] Auth token missing from request headers.");
-            // Decide if this is critical. For now, we'll proceed without it,
-            // but ML calls will fail if the ML server requires auth.
-        }
-        // --- END OF ADDED BLOCK ---
-
-        if (!config.code || !config.symbol || !config.timeframe) {
-            return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
-        }
-
-        // --- MODIFIED CALL ---
+        
         // Pass the authToken to the service
         const result = await runBacktest(config, authToken);
-        // --- END OF MODIFIED CALL ---
-        
         res.status(201).json(result);
     } catch (err) {
         handleControllerError(res, err, 'runBacktestController');
@@ -55,15 +48,8 @@ export const runComboBacktestController = async (req, res) => {
     try {
         const userId = req.user._id;
         const comboPayload = { ...req.body, userId };
+        const authToken = extractAuthToken(req); // Extract the token
 
-        // Extract the raw JWT token
-        let authToken = null;
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            authToken = authHeader.split(' ')[1];
-        }
-
-        // Basic validation
         if (!comboPayload.strategies || !Array.isArray(comboPayload.strategies) || comboPayload.strategies.length === 0) {
             return res.status(400).json({ message: "The 'strategies' array is required." });
         }
@@ -71,8 +57,7 @@ export const runComboBacktestController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
         }
 
-        // ✅ FIX: Pass authToken to the service
-        // Make sure your runCombinedStrategyService is updated to accept/use it if needed
+        // Pass the authToken to the service
         const result = await runCombinedStrategyService(userId, comboPayload, authToken);
         res.status(200).json(result);
     } catch (error) {
@@ -80,39 +65,29 @@ export const runComboBacktestController = async (req, res) => {
     }
 };
 
-
 // --- Preview a strategy ---
 export const previewStrategyController = async (req, res) => {
     try {
         const userId = req.user._id;
-        // simulateOnly: true tells the service not to save the result
         const config = { ...req.body, userId, simulateOnly: true };
+        const authToken = extractAuthToken(req); // Extract the token
 
-        // Extract the raw JWT token
-        let authToken = null;
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            authToken = authHeader.split(' ')[1];
-        }
-
-        // Basic validation
         if (!config.code || !config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
-
-        // ✅ FIX: Call runBacktest ONLY ONCE and pass the authToken
+        
+        // Pass the authToken to the service
         const result = await runBacktest(config, authToken);
         res.status(200).json(result);
-
     } catch (err) {
         handleControllerError(res, err, 'previewStrategyController');
     }
 };
 
 // --- Other Controllers (CRUD, Options) ---
+// (These remain unchanged)
 export const fetchBacktestOptionsController = async (req, res) => {
     try {
-        // ✅ FIX: Get the user ID from the `_id` property
         const userId = req.user._id;
         console.log(`[OPTIONS CONTROLLER] Attempting to fetch strategies for userId: ${userId}`);
 
@@ -146,7 +121,6 @@ export const fetchBacktestOptionsController = async (req, res) => {
 
 export const fetchPastBacktestsController = async (req, res) => {
     try {
-        // ✅ FIX: Get the user ID from the `_id` property
         const userId = req.user._id;
         const page = parseInt(req.query.page, 10) || 1;
         const limit = 20;
@@ -165,7 +139,6 @@ export const fetchPastBacktestsController = async (req, res) => {
 export const getBacktestByIdController = async (req, res) => {
     try {
         const { backtestId } = req.params;
-        // ✅ FIX: Get the user ID from the `_id` property
         const userId = req.user._id;
 
         if (!mongoose.Types.ObjectId.isValid(backtestId)) {
@@ -185,7 +158,6 @@ export const getBacktestByIdController = async (req, res) => {
 export const deleteBacktestController = async (req, res) => {
     try {
         const { backtestId } = req.params;
-        // ✅ FIX: Get the user ID from the `_id` property
         const userId = req.user._id;
 
         if (!mongoose.Types.ObjectId.isValid(backtestId)) {

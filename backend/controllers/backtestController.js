@@ -21,9 +21,28 @@ export const runBacktestController = async (req, res) => {
         const userId = req.user._id;
         const config = { ...req.body, userId, simulateOnly: false };
 
+        // --- ADD THIS BLOCK ---
+        // Extract the raw JWT token from the Authorization header
+        let authToken = null;
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            authToken = authHeader.split(' ')[1];
+        }
+        if (!authToken) {
+            console.warn("[runBacktestController] Auth token missing from request headers.");
+            // Decide if this is critical. For now, we'll proceed without it,
+            // but ML calls will fail if the ML server requires auth.
+        }
+        // --- END OF ADDED BLOCK ---
+
         if (!config.code || !config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
+
+        // --- MODIFIED CALL ---
+        // Pass the authToken to the service
+        const result = await runBacktest(config, authToken);
+        // --- END OF MODIFIED CALL ---
         
         const result = await runBacktest(config);
         res.status(201).json(result);

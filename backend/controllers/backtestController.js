@@ -53,10 +53,17 @@ export const runBacktestController = async (req, res) => {
 // --- Run combo backtest ---
 export const runComboBacktestController = async (req, res) => {
     try {
-        // ✅ FIX: Get the user ID from the `_id` property
         const userId = req.user._id;
         const comboPayload = { ...req.body, userId };
 
+        // Extract the raw JWT token
+        let authToken = null;
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            authToken = authHeader.split(' ')[1];
+        }
+
+        // Basic validation
         if (!comboPayload.strategies || !Array.isArray(comboPayload.strategies) || comboPayload.strategies.length === 0) {
             return res.status(400).json({ message: "The 'strategies' array is required." });
         }
@@ -64,26 +71,39 @@ export const runComboBacktestController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
         }
 
-        const result = await runCombinedStrategyService(userId, comboPayload);
+        // ✅ FIX: Pass authToken to the service
+        // Make sure your runCombinedStrategyService is updated to accept/use it if needed
+        const result = await runCombinedStrategyService(userId, comboPayload, authToken);
         res.status(200).json(result);
     } catch (error) {
         handleControllerError(res, error, 'runComboBacktestController');
     }
 };
 
+
 // --- Preview a strategy ---
 export const previewStrategyController = async (req, res) => {
     try {
-        // ✅ FIX: Get the user ID from the `_id` property
         const userId = req.user._id;
+        // simulateOnly: true tells the service not to save the result
         const config = { ...req.body, userId, simulateOnly: true };
 
+        // Extract the raw JWT token
+        let authToken = null;
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            authToken = authHeader.split(' ')[1];
+        }
+
+        // Basic validation
         if (!config.code || !config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
-        
-        const result = await runBacktest(config);
+
+        // ✅ FIX: Call runBacktest ONLY ONCE and pass the authToken
+        const result = await runBacktest(config, authToken);
         res.status(200).json(result);
+
     } catch (err) {
         handleControllerError(res, err, 'previewStrategyController');
     }

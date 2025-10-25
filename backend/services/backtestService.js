@@ -5,6 +5,7 @@
 // UPGRADED: Integrated ML Threshold check.
 // UPGRADED: Added robustness checks (SL/TP validation, param validation, empty features).
 // UPGRADED: Streamlined data fetching logic.
+// UPGRADE: FEATURE_NAMES are now fetched dynamically from the ML server.
 // FIX: Uses streams for CSV parsing to prevent memory errors (OOM).
 // FIX: Correctly forwards the JWT token to the Python ML server (401 fix).
 // FIX: Corrected metrics calculation to prevent NaN database error (WinRate fix).
@@ -22,23 +23,46 @@ import { finished } from 'stream/promises'; // For stream handling
 
 // --- CONFIGURATION ---
 const ML_SERVER_URL = "https://74.208.28.77:8000";
-// ⚠️ TODO: Fetch FEATURE_NAMES dynamically from ML server configuration endpoint
-const FEATURE_NAMES = [
-    'RSI_14', 'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9',
-    'STOCHk_14_3_3', 'STOCHd_14_3_3', 'STOCHh_14_3_3', 'CCI_20_0.015',
-    'BBL_20_2.0_2.0', 'BBM_20_2.0_2.0', 'BBU_20_2.0_2.0', 'BBB_20_2.0_2.0',
-    'BBP_20_2.0_2.0', 'ATRr_14', 'SMA_50', 'SMA_200', 'PSARl_0.02_0.2',
-    'PSARs_0.02_0.2', 'PSARaf_0.02_0.2', 'PSARr_0.02_0.2', 'ISA_9',
-    'ISB_26', 'ITS_9', 'IKS_26', 'ICS_26', 'OBV', 'BBL_5_2.0_2.0',
-    'BBM_5_2.0_2.0', 'BBU_5_2.0_2.0', 'BBB_5_2.0_2.0', 'BBP_5_2.0_2.0',
-    'sma_crossover', 'atr_signal', 'bb_signal', 'cci_signal',
-    'ichimoku_signal', 'macd_signal', 'obv_signal', 'psar_signal',
-    'rsi_signal', 'sma_crossover_signal', 'stoch_signal', 'momentum_strength'
-];
+// ⚠️ FEATURE_NAMES constant is now REMOVED. It will be fetched dynamically.
 // --------------------------------------------------------
 
 // Agent to ignore SSL errors for the self-signed certificate on the ML server
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+/**
+ * NEW: Fetches the model's configuration (like feature list) from the ML server.
+ */
+const _getMLConfig = async (modelName, authToken) => {
+    const config_url = `${ML_SERVER_URL}/api/ml/config/${modelName}`;
+    console.log(`[ML] Fetching config for model: ${modelName}`);
+    
+    const headers = {};
+    if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+    }
+
+    try {
+        const response = await axios.get(config_url, {
+            httpsAgent: httpsAgent,
+            headers: headers
+        });
+        
+        if (!response.data || !response.data.features || !Array.isArray(response.data.features)) {
+            throw new Error("Invalid config format received from ML server.");
+        }
+        
+        console.log(`[ML] Received ${response.data.features.length} feature names for ${modelName}.`);
+        return response.data; // Expects { features: [...], horizon: X, ... }
+
+    } catch (error) {
+        let errorMessage = `Failed to fetch ML config for ${modelName}.`;
+        if (error.response) { errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`; }
+        else if (error.request) { errorMessage += ` No response from ML server.`; }
+        else { errorMessage += ` Error: ${error.message}`; }
+        console.error(`[ML] Config fetch failed: ${errorMessage}`);
+        throw new Error(errorMessage);
+    }
+};
 
 
 /**
@@ -50,8 +74,7 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
     const data_url = `${ML_SERVER_URL}/data/${data_filename}`;
     console.log(`[ML] Streaming feature data from: ${data_url}`);
 
-    // Standardize boundary dates (e.g., to start/end of day UTC, depending on timeframe needs)
-    // Basic UTC conversion - More robust handling might be needed for specific timeframes/DST
+    // Standardize boundary dates
     const start_dt = new Date(startDate);
     const end_dt = new Date(endDate);
     end_dt.setUTCHours(23, 59, 59, 999); // Ensure end date includes the full day
@@ -97,13 +120,9 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
 
     } catch (error) {
         let errorMessage = `Failed to stream feature file from ${data_url}.`;
-        if (error.response) {
-            errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
-        } else if (error.request) {
-            errorMessage += ` No response from ML server. Is it running?`;
-        } else {
-            errorMessage += ` Error: ${error.message}`;
-        }
+        if (error.response) { errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`; }
+        else if (error.request) { errorMessage += ` No response from ML server. Is it running?`; }
+        else { errorMessage += ` Error: ${error.message}`; }
         console.error(`[ML] Failed to stream feature file: ${errorMessage}`);
         throw new Error(errorMessage);
     }
@@ -436,6 +455,7 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
  * --- HEAVILY MODIFIED ORCHESTRATOR ---
  * Orchestrates a backtest, now handling all 3 ML modes and authentication.
  * UPGRADED: Streamlined data fetching. Added parameter validation.
+ * UPGRADED: Fetches feature list dynamically.
  */
 export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
     console.log("[runBacktest] Starting orchestrator with config:", config);
@@ -449,6 +469,7 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
     let strategyFunction = null;
     let strategyParams = { ...(config.params || {}) };
     let strategyName = 'N/A', strategyType = 'N/A';
+    let dynamicFeatureNames = []; // Store dynamic features here
 
     try {
         // --- STEP 1: Fetch Strategy (if TA or Hybrid) ---
@@ -461,7 +482,6 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
             if (!strategy.params || !strategy.params.strategyType) {
                  throw new Error(`Strategy '${code}' is missing required parameters (e.g., strategyType).`);
             }
-            // Add more specific checks if needed, e.g., typeof strategy.params.shortPeriod === 'number'
 
             strategyFunction = getStrategy(strategy.params.strategyType);
             if (!strategyFunction) {
@@ -479,6 +499,11 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
             if (!mlModel) throw new Error("ML Model name ('mlModel') is required for ML or Hybrid mode.");
             console.log(`[Orchestrator] ML/Hybrid mode detected. Model: ${mlModel}.`);
 
+            // 🛑 UPGRADE: Fetch dynamic config first
+            const mlConfig = await _getMLConfig(mlModel, authToken);
+            dynamicFeatureNames = mlConfig.features; // Get feature list from server
+            // You could also use mlConfig.horizon here if needed
+
             const fullFeatureData = await _getFeatureData(symbol, timeframe, startDate, endDate);
 
             // Extract candles
@@ -491,10 +516,10 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
             
             if (!candles || candles.length < 2) throw new Error("Not enough valid candle data in feature file.");
             
-            // Extract features
+            // Extract features using the DYNAMIC feature list
             const features = fullFeatureData
-                .filter(row => !isNaN(new Date(row.datetime).getTime())) // Redundant check, but safe
-                .map(row => FEATURE_NAMES.map(feature => {
+                .filter(row => !isNaN(new Date(row.datetime).getTime()))
+                .map(row => dynamicFeatureNames.map(feature => { // Use dynamic list here
                     const val = row[feature];
                     return (typeof val !== 'number' || isNaN(val)) ? 0 : val; // Default missing features to 0
                 }));
@@ -516,7 +541,6 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
             } else { // Hybrid mode
                 strategyName = `Hybrid: ${strategyName} + ${mlModel}`;
                 strategyType = 'hybrid';
-                // Strategy function is already loaded if we reached here.
             }
 
         } else {
@@ -580,7 +604,7 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
         return backtestData;
     } catch (error) {
         console.error(`[Orchestrator] Backtest failed with a critical error: ${error.message}`); // DEBUG
-        // Consider logging stack trace for complex errors: console.error(error.stack);
+        // console.error(error.stack); // Uncomment for detailed stack traces
         throw error; // Re-throw the error to be handled by the caller
     }
 };

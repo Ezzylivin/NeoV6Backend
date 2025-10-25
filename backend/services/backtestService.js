@@ -1,13 +1,11 @@
-/**
- * --- MODIFIED SIMULATION ENGINE ---
- * Now accepts mlMode and mlPredictions to run all 3 backtest types.
- */
 // File: services/backtestService.js
 // UPGRADED: Full support for Pure TA, Pure ML, and Hybrid (TA+ML) backtesting.
+// UPGRADED: ML signal 2 is now interpreted as a Buy signal in all ML modes.
+// UPGRADED: Hybrid mode now uses "TA OR ML" (permissive) logic for entries.
 // FIX: Uses streams for CSV parsing to prevent memory errors (OOM).
 // FIX: Correctly forwards the JWT token to the Python ML server (401 fix).
 // FIX: Corrected metrics calculation to prevent NaN database error (WinRate fix).
-// FIX: Added explicit exit logic for Pure ML mode (1=Buy, 0=Hold, -1=Sell).
+// FIX: Added explicit exit logic for Pure ML/Hybrid mode (1/2=Buy, 0=Hold, -1=Sell).
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
@@ -142,6 +140,8 @@ const _getBulkPredictions = async (modelName, features, authToken) => {
 /**
  * --- MODIFIED SIMULATION ENGINE ---
  * Now accepts mlMode and mlPredictions to run all 3 backtest types.
+ * UPGRADE: Added support for ML signal '2' (Buy) in entry and exit logic for both 'on' and 'predictions' modes.
+ * UPGRADE: Hybrid logic changed to OR (TA or ML).
  */
 const runSimulation = (config) => {
     const {
@@ -189,7 +189,7 @@ const runSimulation = (config) => {
             let exitReason = '';
             const { slPrice, tpPrice, signal } = position;
 
-            // 🛑 UPGRADE: ML Exit Logic now includes 'predictions' mode AND checks for ML signal '2' as a reverse Buy signal.
+            // 🛑 ML Exit Logic now includes 'predictions' mode AND checks for ML signal '2' as a reverse Buy signal.
             if ((mlMode === 'on' || mlMode === 'predictions') && mlPredictions && i < mlPredictions.length) {
                 const mlSignal = mlPredictions[i];
                 
@@ -276,7 +276,7 @@ const runSimulation = (config) => {
                 finalSignal = taSignal;
             }
             else if (mlMode === 'on') {
-                // 🛑 UPGRADE: PURE ML: Now accepts ML signal '2' for Buy
+                // PURE ML: Now accepts ML signal '2' for Buy
                 if (mlSignal === 1 || mlSignal === 2) {
                     finalSignal = 'buy';
                 } else if (mlSignal === -1) {
@@ -284,11 +284,15 @@ const runSimulation = (config) => {
                 }
             }
             else if (mlMode === 'predictions') {
-                // 🛑 UPGRADE: Hybrid: Now accepts ML signal '2' for agreement with TA Buy signal
-                if (taSignal === 'buy' && (mlSignal === 1 || mlSignal === 2)) {
+                // 🛑 UPGRADE: Hybrid 'OR' Logic: Trade if EITHER TA OR ML signals Buy/Sell
+                const mlIsBuy = (mlSignal === 1 || mlSignal === 2);
+                const mlIsSell = (mlSignal === -1);
+                
+                // Give Buy preference if conflicting signals (TA=Buy, ML=Sell)
+                if (taSignal === 'buy' || mlIsBuy) {
                     finalSignal = 'buy';
                 }
-                else if (taSignal === 'sell' && mlSignal === -1) {
+                else if (taSignal === 'sell' || mlIsSell) {
                     finalSignal = 'sell';
                 }
             }
@@ -350,6 +354,7 @@ const runSimulation = (config) => {
     console.log(`[Simulation] Finished. Trades: ${closedTrades.length}. Final Balance: ${currentBalance.toFixed(2)}`);
     return { closedTrades, equityCurve };
 };
+
 
 /**
  * Calculates a comprehensive set of performance metrics from trades.

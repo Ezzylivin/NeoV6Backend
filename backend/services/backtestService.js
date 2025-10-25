@@ -398,7 +398,7 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
  * --- HEAVILY MODIFIED ORCHESTRATOR ---
  * Orchestrates a backtest, now handling all 3 ML modes.
  */
-export const runBacktest = async (config) => {
+export const runBacktest = async (config, authToken) => {
     console.log("[runBacktest] Starting orchestrator with config:", config);
     const {
         userId, code, symbol, timeframe, startDate, endDate,
@@ -484,7 +484,7 @@ export const runBacktest = async (config) => {
 
 
             // C. Get bulk predictions from Python server
-            mlPredictions = await _getBulkPredictions(mlModel, features);
+            mlPredictions = await _getBulkPredictions(mlModel, features, authToken);
 
              if (mlPredictions.length !== candles.length) {
                   throw new Error(`Mismatch between candle count (${candles.length}) and prediction count (${mlPredictions.length}). Check bulk prediction endpoint.`);

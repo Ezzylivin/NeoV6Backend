@@ -44,7 +44,6 @@ export const runBacktestController = async (req, res) => {
         const result = await runBacktest(config, authToken);
         // --- END OF MODIFIED CALL ---
         
-        const result = await runBacktest(config);
         res.status(201).json(result);
     } catch (err) {
         handleControllerError(res, err, 'runBacktestController');

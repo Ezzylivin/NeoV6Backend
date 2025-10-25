@@ -1,13 +1,16 @@
 // File: services/backtestService.js
 // UPGRADED to support Pure TA, Pure ML, and Hybrid (TA+ML) backtesting.
+// FIXED Memory Error by using streams for CSV download and parsing.
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 import { getStrategy } from "../strategies/strategyManager.js";
-import axios from "axios"; // --- ADD THIS ---
-import { parse } from "csv-parse/sync"; // --- ADD THIS ---
-import https from 'https'; // --- ADD THIS --- For disabling SSL checks (dev only)
+import axios from "axios";
+// --- UPDATED CSV PARSER IMPORT ---
+import { parse } from "csv-parse"; // Use the stream parser
+import https from 'https';
+import { finished } from 'stream/promises'; // --- ADD THIS for stream handling ---
 
 // --- ADD THIS: Define your ML Server and Feature Names ---
 const ML_SERVER_URL = "https://74.208.28.77:8000";
@@ -32,41 +35,60 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 
 /**
- * --- ADD THIS HELPER ---
- * Downloads the full feature file from your ML server.
+ * --- UPDATED HELPER ---
+ * Downloads and parses the feature file using streams to save memory.
  */
 const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
     const data_filename = `${symbol}-${timeframe}-features.csv`;
     const data_url = `${ML_SERVER_URL}/data/${data_filename}`;
-    console.log(`[ML] Downloading feature data from: ${data_url}`);
+    console.log(`[ML] Streaming feature data from: ${data_url}`);
+
+    const start_dt = new Date(startDate);
+    const end_dt = new Date(endDate);
+    const filteredData = [];
+
+    // Configure the CSV parser
+    const parser = parse({
+        columns: true,
+        skip_empty_lines: true,
+        cast: true // Auto-cast numbers
+    });
+
+    // Handle each parsed record
+    parser.on('readable', () => {
+        let record;
+        while ((record = parser.read()) !== null) {
+            // Filter by date
+            const row_dt = new Date(record.datetime);
+            if (isNaN(row_dt.getTime())) {
+                console.warn(`[ML] Skipping row with invalid date: ${record.datetime}`);
+                continue;
+            }
+            if (row_dt >= start_dt && row_dt <= end_dt) {
+                filteredData.push(record);
+            }
+        }
+    });
+
+    // Handle parsing errors
+    parser.on('error', (err) => {
+        console.error(`[ML] CSV parsing error: ${err.message}`);
+        // Re-throw or handle as needed, maybe throw a more specific error
+        throw new Error(`Failed to parse CSV data: ${err.message}`);
+    });
 
     try {
+        // Initiate the download stream
         const response = await axios.get(data_url, {
-            // WARNING: Using this agent ignores SSL certificate errors.
-            // Remove this in production if your ML server has a valid certificate.
-            httpsAgent: httpsAgent
+            responseType: 'stream', // --- IMPORTANT: Request a stream ---
+            httpsAgent: httpsAgent // Still ignoring SSL errors for dev
         });
 
-        // Parse the CSV text into objects
-        const records = parse(response.data, {
-            columns: true,
-            skip_empty_lines: true,
-            cast: true // Auto-cast numbers
-        });
+        // Pipe the download stream into the CSV parser
+        response.data.pipe(parser);
 
-        // Filter by date
-        const start_dt = new Date(startDate);
-        const end_dt = new Date(endDate);
-
-        const filteredData = records.filter(row => {
-            const row_dt = new Date(row.datetime);
-            // Ensure valid date comparison
-            if (isNaN(row_dt.getTime())) {
-                console.warn(`[ML] Skipping row with invalid date: ${row.datetime}`);
-                return false;
-            }
-            return row_dt >= start_dt && row_dt <= end_dt;
-        });
+        // Wait for the stream processing to complete
+        await finished(parser);
 
         if (filteredData.length === 0) {
             throw new Error(`No historical data found for the selected date range (${startDate} to ${endDate}).`);
@@ -75,16 +97,16 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
         return filteredData;
 
     } catch (error) {
-        let errorMessage = `Failed to download feature file from ${data_url}.`;
-        if (error.response) { // Error from server (e.g., 404)
+        let errorMessage = `Failed to stream feature file from ${data_url}.`;
+         if (error.response) { // Error during download request itself
             errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
         } else if (error.request) { // No response received
             errorMessage += ` No response from ML server. Is it running?`;
-        } else { // Other errors (parsing, etc.)
+        } else { // Other errors (parsing errors caught above, network issues)
             errorMessage += ` Error: ${error.message}`;
         }
-        console.error(`[ML] Failed to download feature file: ${errorMessage}`);
-        throw new Error(errorMessage);
+        console.error(`[ML] Failed to stream feature file: ${errorMessage}`);
+        throw new Error(errorMessage); // Propagate the error
     }
 };
 
@@ -396,7 +418,7 @@ export const runBacktest = async (config) => {
             console.log(`[runBacktest] Fetching strategy: ${code} for user: ${userId}`);
             const strategy = await Strategy.findOne({ userId, code }).lean();
             if (!strategy) throw new Error(`Strategy with code '${code}' not found.`);
-            
+
             // Ensure strategy.params exists and has strategyType
              if (!strategy.params || !strategy.params.strategyType) {
                  throw new Error(`Strategy '${code}' is missing required parameters (strategyType).`);
@@ -554,3 +576,4 @@ export const runBacktest = async (config) => {
          throw error;
     }
 };
+

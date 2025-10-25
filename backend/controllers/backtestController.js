@@ -1,4 +1,4 @@
-// File: controllers/backtestController.js
+// File: src/backend/controllers/backtestController.js
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runBacktest } from "../services/backtestService.js";
@@ -12,11 +12,13 @@ const handleControllerError = (res, error, context) => {
     if (error.message.includes("Not found")) {
         return res.status(404).json({ message: error.message });
     }
-    res.status(500).json({ message: `An unexpected error occurred in ${context}.` });
+    // Return a specific error if possible, otherwise generic 500
+    res.status(500).json({ message: `Backtest failed: ${error.message}` });
 };
 
 // --- Helper to extract JWT Token ---
 const extractAuthToken = (req) => {
+    // Note: Express headers are lowercased by default
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         return authHeader.split(' ')[1];
@@ -35,7 +37,7 @@ export const runBacktestController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: symbol, or timeframe." });
         }
         
-        // Pass the authToken to the service
+        // PASS authToken to the service
         const result = await runBacktest(config, authToken);
         res.status(201).json(result);
     } catch (err) {
@@ -57,7 +59,8 @@ export const runComboBacktestController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
         }
 
-        // Pass the authToken to the service
+        // PASS authToken to the service
+        // NOTE: You must ensure runCombinedStrategyService is updated to accept this argument
         const result = await runCombinedStrategyService(userId, comboPayload, authToken);
         res.status(200).json(result);
     } catch (error) {
@@ -76,7 +79,7 @@ export const previewStrategyController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
         
-        // Pass the authToken to the service
+        // PASS authToken to the service
         const result = await runBacktest(config, authToken);
         res.status(200).json(result);
     } catch (err) {
@@ -85,7 +88,6 @@ export const previewStrategyController = async (req, res) => {
 };
 
 // --- Other Controllers (CRUD, Options) ---
-// (These remain unchanged)
 export const fetchBacktestOptionsController = async (req, res) => {
     try {
         const userId = req.user._id;

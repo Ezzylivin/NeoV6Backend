@@ -1,18 +1,18 @@
 // File: services/backtestService.js
-// UPGRADED to support Pure TA, Pure ML, and Hybrid (TA+ML) backtesting.
-// FIXED Memory Error by using streams for CSV download and parsing.
+// UPGRADED: Full support for Pure TA, Pure ML, and Hybrid (TA+ML) backtesting.
+// FIX: Uses streams for CSV parsing to prevent memory errors (OOM).
+// FIX: Correctly forwards the JWT token to the Python ML server (401 fix).
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
 import { getStrategy } from "../strategies/strategyManager.js";
 import axios from "axios";
-// --- UPDATED CSV PARSER IMPORT ---
 import { parse } from "csv-parse"; // Use the stream parser
 import https from 'https';
-import { finished } from 'stream/promises'; // --- ADD THIS for stream handling ---
+import { finished } from 'stream/promises'; // For stream handling
 
-// --- ADD THIS: Define your ML Server and Feature Names ---
+// --- CONFIGURATION ---
 const ML_SERVER_URL = "https://74.208.28.77:8000";
 // Ensure this list exactly matches the feature names your Python model expects
 const FEATURE_NAMES = [
@@ -29,13 +29,11 @@ const FEATURE_NAMES = [
 ];
 // --------------------------------------------------------
 
-// --- ADD THIS AGENT (For Development Only - Ignores SSL Errors) ---
+// Agent to ignore SSL errors for the self-signed certificate on the ML server
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-// --------------------------------------------------------------------
 
 
 /**
- * --- UPDATED HELPER ---
  * Downloads and parses the feature file using streams to save memory.
  */
 const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
@@ -47,47 +45,34 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
     const end_dt = new Date(endDate);
     const filteredData = [];
 
-    // Configure the CSV parser
     const parser = parse({
         columns: true,
         skip_empty_lines: true,
-        cast: true // Auto-cast numbers
+        cast: true
     });
 
-    // Handle each parsed record
     parser.on('readable', () => {
         let record;
         while ((record = parser.read()) !== null) {
-            // Filter by date
             const row_dt = new Date(record.datetime);
-            if (isNaN(row_dt.getTime())) {
-                console.warn(`[ML] Skipping row with invalid date: ${record.datetime}`);
-                continue;
-            }
+            if (isNaN(row_dt.getTime())) continue;
             if (row_dt >= start_dt && row_dt <= end_dt) {
                 filteredData.push(record);
             }
         }
     });
 
-    // Handle parsing errors
     parser.on('error', (err) => {
-        console.error(`[ML] CSV parsing error: ${err.message}`);
-        // Re-throw or handle as needed, maybe throw a more specific error
         throw new Error(`Failed to parse CSV data: ${err.message}`);
     });
 
     try {
-        // Initiate the download stream
         const response = await axios.get(data_url, {
-            responseType: 'stream', // --- IMPORTANT: Request a stream ---
-            httpsAgent: httpsAgent // Still ignoring SSL errors for dev
+            responseType: 'stream',
+            httpsAgent: httpsAgent
         });
 
-        // Pipe the download stream into the CSV parser
         response.data.pipe(parser);
-
-        // Wait for the stream processing to complete
         await finished(parser);
 
         if (filteredData.length === 0) {
@@ -98,47 +83,50 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
 
     } catch (error) {
         let errorMessage = `Failed to stream feature file from ${data_url}.`;
-         if (error.response) { // Error during download request itself
+        if (error.response) {
             errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
-        } else if (error.request) { // No response received
+        } else if (error.request) {
             errorMessage += ` No response from ML server. Is it running?`;
-        } else { // Other errors (parsing errors caught above, network issues)
+        } else {
             errorMessage += ` Error: ${error.message}`;
         }
         console.error(`[ML] Failed to stream feature file: ${errorMessage}`);
-        throw new Error(errorMessage); // Propagate the error
+        throw new Error(errorMessage);
     }
 };
 
 /**
- * --- ADD THIS HELPER ---
- * Gets bulk ML predictions from the Python server.
+ * Gets bulk ML predictions, accepting and using the Authorization header.
  */
-const _getBulkPredictions = async (modelName, features) => {
+const _getBulkPredictions = async (modelName, features, authToken) => {
     const bulk_url = `${ML_SERVER_URL}/api/ml/predict_bulk`;
-    console.log(`[ML] Getting bulk predictions for ${modelName} (${features.length} samples)...`);
+    console.log(`[ML] Getting bulk predictions for ${modelName} (${features.length} samples})...`);
 
     try {
-        const payload = {
-            model_name: modelName,
-            features: features // This is already the array of arrays
-        };
+        const payload = { model_name: modelName, features: features };
+
+        // --- FIX: Add Authorization Header ---
+        const headers = {};
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+        } else {
+            console.warn("[ML] WARNING: No auth token provided for bulk prediction call.");
+        }
+        // --- END FIX ---
+
         const response = await axios.post(bulk_url, payload, {
-            // WARNING: Using this agent ignores SSL certificate errors.
-            httpsAgent: httpsAgent
+            httpsAgent: httpsAgent,
+            headers: headers // Pass the headers with the token
         });
         console.log(`[ML] Received ${response.data.predictions.length} predictions.`);
-        return response.data.predictions; // Returns an array [0, 1, 0, 1, ...]
+        return response.data.predictions;
 
     } catch (error) {
         let errorMessage = `Bulk prediction failed for model ${modelName}.`;
-         if (error.response) { // Error from server (e.g., 404, 500)
-            errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
-        } else if (error.request) { // No response received
-            errorMessage += ` No response from ML server. Is it running?`;
-        } else { // Other errors
-            errorMessage += ` Error: ${error.message}`;
-        }
+         if (error.response) {
+             errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
+        } else if (error.request) { errorMessage += ` No response from ML server. Is it running?`; }
+        else { errorMessage += ` Error: ${error.message}`; }
         console.error(`[ML] Bulk prediction failed: ${errorMessage}`);
         throw new Error(errorMessage);
     }
@@ -152,12 +140,12 @@ const _getBulkPredictions = async (modelName, features) => {
 const runSimulation = (config) => {
     const {
         candles,
-        strategyFunction, // TA strategy (e.g., MA Crossover)
+        strategyFunction,
         strategyParams,
         riskParams,
         initialBalance,
-        mlMode, // 'off', 'on', 'predictions'
-        mlPredictions // Array of [0, 1, 0, ...] or null
+        mlMode,
+        mlPredictions
     } = config;
 
     console.log(`[Simulation] Starting simulation. Mode: ${mlMode}. Candles: ${candles.length}. Predictions: ${mlPredictions?.length || 0}`);
@@ -165,13 +153,11 @@ const runSimulation = (config) => {
     let currentBalance = initialBalance;
     let position = null;
     const closedTrades = [];
-    // Ensure the first candle timestamp is valid
     const firstTimestamp = candles[0]?.[0];
     if (typeof firstTimestamp !== 'number' || isNaN(firstTimestamp)) {
         throw new Error("Invalid timestamp for the first candle.");
     }
     const equityCurve = [{ timestamp: firstTimestamp, balance: initialBalance }];
-
 
     const {
         riskManagementMode = 'standard',
@@ -184,29 +170,27 @@ const runSimulation = (config) => {
     // Main Simulation Loop - Start from 1 to have history for indicators
     for (let i = 1; i < candles.length; i++) {
         const [timestamp, open, high, low, close] = candles[i];
-         // Basic validation for candle data
         if ([timestamp, open, high, low, close].some(v => typeof v !== 'number' || isNaN(v))) {
             console.warn(`[Simulation] Skipping candle ${i} due to invalid data:`, candles[i]);
             continue;
         }
         const historicalCandles = candles.slice(0, i + 1);
 
-        // 1. Check for Exits (This logic remains the same)
+        // 1. Check for Exits
         if (position) {
             let exitPrice = null;
             let exitReason = '';
             const { slPrice, tpPrice, signal } = position;
 
-            // Simplified exit logic for clarity
             if (signal === 'buy') {
                 if (low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
                 else if (high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
-            } else if (signal === 'sell') { // Added explicit check for 'sell'
+            } else if (signal === 'sell') {
                 if (high >= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
                 else if (low <= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
             }
 
-            if (exitPrice !== null) { // Check against null
+            if (exitPrice !== null) {
                 const pnl = (exitPrice - position.entryPrice) * position.size * (signal === 'buy' ? 1 : -1);
                 currentBalance += pnl;
 
@@ -216,30 +200,28 @@ const runSimulation = (config) => {
                 position.exitReason = exitReason;
                 closedTrades.push({ ...position });
                 equityCurve.push({ timestamp, balance: currentBalance });
-                position = null; // Reset position AFTER recording the trade
+                position = null;
 
                 if (currentBalance <= 0) {
                     console.warn('[Simulation] Account wiped out. Ending simulation.');
-                    break; // Stop simulation if balance is zero or negative
+                    break;
                 }
             }
         }
 
         // 2. Check for Entries
-        if (!position) { // Only check for entry if not already in a position
-            // --- MODIFIED SIGNAL LOGIC ---
+        if (!position) {
             let taSignal = 'hold';
-            let mlSignal = 0; // Default ML signal is 0 (Sell/Hold)
+            let mlSignal = 0;
 
             // A. Get TA Signal (if applicable)
             if (mlMode === 'off' || mlMode === 'predictions') {
                 if (!strategyFunction) {
                     console.error("[Simulation] TA mode selected but strategyFunction is missing.");
-                    continue; // Skip candle if strategy is missing
+                    continue;
                 }
                 try {
-                    const taResult = strategyFunction(historicalCandles, strategyParams);
-                    taSignal = taResult?.signal || 'hold';
+                    taSignal = strategyFunction(historicalCandles, strategyParams)?.signal || 'hold';
                 } catch (strategyError) {
                     console.error(`[Simulation] Strategy Execution Crash at ${new Date(timestamp).toISOString()}:`, strategyError.message, strategyError.stack);
                     continue;
@@ -250,40 +232,34 @@ const runSimulation = (config) => {
             if (mlMode === 'on' || mlMode === 'predictions') {
                 if (!mlPredictions || i >= mlPredictions.length) {
                     console.warn(`[Simulation] ML mode selected but prediction missing for candle index ${i}.`);
-                    continue; // Skip candle if prediction is missing
+                    continue;
                 }
-                mlSignal = mlPredictions[i]; // Get the pre-calculated signal for the CURRENT candle index
+                mlSignal = mlPredictions[i];
             }
 
             // C. Determine Final Signal based on Mode
             let finalSignal = 'hold';
             if (mlMode === 'off') {
-                // PURE TA
                 finalSignal = taSignal;
             }
             else if (mlMode === 'on') {
-                // PURE ML
-                finalSignal = (mlSignal === 1) ? 'buy' : 'hold'; // Assuming 1=Buy, 0=Hold/Sell
+                // Pure ML: 1=Buy, 0=Sell/Hold
+                finalSignal = (mlSignal === 1) ? 'buy' : 'hold';
             }
             else if (mlMode === 'predictions') {
-                // HYBRID (TA + ML Filter)
+                // Hybrid: Only trade if TA signal AND ML prediction agree
                 if (taSignal === 'buy' && mlSignal === 1) {
                     finalSignal = 'buy';
                 }
-                 // Add explicit sell logic if your TA strategy supports it
-                 else if (taSignal === 'sell' && mlSignal === 0) {
+                // Example for sell-side filter:
+                else if (taSignal === 'sell' && mlSignal === 0) {
                      finalSignal = 'sell';
-                 }
+                }
             }
-            // --- END OF MODIFIED LOGIC ---
 
             if (finalSignal === 'buy' || finalSignal === 'sell') {
-                // Ensure strategyParams are available and contain SL/TP
-                const { SL: slPercent = 1, TP: tpPercent = 2 } = strategyParams || {}; // Default SL/TP
-                if (slPercent <= 0) {
-                     console.warn(`[Simulation] Invalid SL ${slPercent} at ${new Date(timestamp).toISOString()}, skipping entry.`);
-                     continue; // Skip if SL is invalid
-                }
+                const { SL: slPercent = 1, TP: tpPercent = 2 } = strategyParams || {};
+                if (slPercent <= 0) { continue; }
 
                 let effectiveRiskPercent = riskPercentage;
                 if (isInGrowthMode) {
@@ -291,17 +267,16 @@ const runSimulation = (config) => {
                         isInGrowthMode = false;
                         effectiveRiskPercent = riskPercentage;
                     } else {
-                        effectiveRiskPercent = 100; // "All in" for growth
+                        effectiveRiskPercent = 100;
                     }
                 }
 
-                const riskDecimal = Math.max(0, Math.min(1, effectiveRiskPercent / 100)); // Ensure risk is between 0 and 1
+                const riskDecimal = Math.max(0, Math.min(1, effectiveRiskPercent / 100));
                 const stopLossDecimal = slPercent / 100;
 
-                // Position sizing calculation
                 let positionSizeDollars = (currentBalance * riskDecimal) / stopLossDecimal;
-                positionSizeDollars = Math.min(positionSizeDollars, currentBalance); // Cannot risk more than balance
-                const positionSizeUnits = close > 0 ? positionSizeDollars / close : 0; // Avoid division by zero
+                positionSizeDollars = Math.min(positionSizeDollars, currentBalance);
+                const positionSizeUnits = close > 0 ? positionSizeDollars / close : 0;
 
                  if (positionSizeUnits > 0) {
                     position = {
@@ -312,21 +287,17 @@ const runSimulation = (config) => {
                         slPrice: finalSignal === 'buy' ? close * (1 - stopLossDecimal) : close * (1 + stopLossDecimal),
                         tpPrice: finalSignal === 'buy' ? close * (1 + (tpPercent / 100)) : close * (1 - (tpPercent / 100)),
                     };
-                 } else {
-                      console.warn(`[Simulation] Calculated position size is zero or negative at ${new Date(timestamp).toISOString()}, skipping entry.`);
                  }
             }
         }
-    } // End of main simulation loop
+    }
 
-    // Add final equity point if the last recorded point is not the last candle
     if (candles.length > 0) {
         const lastTimestamp = candles[candles.length - 1][0];
         if (equityCurve.length === 0 || equityCurve[equityCurve.length - 1].timestamp !== lastTimestamp) {
             equityCurve.push({ timestamp: lastTimestamp, balance: currentBalance });
         }
     }
-
 
     console.log(`[Simulation] Finished. Trades: ${closedTrades.length}. Final Balance: ${currentBalance.toFixed(2)}`);
     return { closedTrades, equityCurve };
@@ -335,38 +306,22 @@ const runSimulation = (config) => {
 
 /**
  * Calculates a comprehensive set of performance metrics from trades.
- * (Unchanged, but added some console logs)
  */
 const calculateMetrics = (trades, initialBalance, equityCurve) => {
-     console.log(`[Metrics] Calculating metrics. Trades: ${trades.length}. Initial Balance: ${initialBalance}`);
+    // (Unchanged logic for calculating metrics: totalReturn, winRate, drawdown, etc.)
+    
     if (!equityCurve || equityCurve.length === 0) {
-        console.error("[Metrics] Equity curve is empty or missing.");
-        // Return default zero metrics if equity curve is invalid
-         return {
-            initialBalance, finalBalance: initialBalance, totalProfit: 0, totalReturn: 0,
-            totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0,
-            averageWin: 0, averageLoss: 0, profitFactor: 0, maxDrawdown: 0,
-        };
-    }
-
-    if (trades.length === 0) {
-         console.log("[Metrics] No trades executed.");
-        return {
-            initialBalance, finalBalance: initialBalance, totalProfit: 0, totalReturn: 0,
-            totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0,
-            averageWin: 0, averageLoss: 0, profitFactor: 0, maxDrawdown: 0,
-        };
+        return { initialBalance, finalBalance: initialBalance, totalProfit: 0, totalReturn: 0, totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0, averageWin: 0, averageLoss: 0, profitFactor: 0, maxDrawdown: 0 };
     }
 
     const finalBalance = equityCurve[equityCurve.length - 1].balance;
     const totalProfit = finalBalance - initialBalance;
     const winningTrades = trades.filter(t => t.profit > 0);
-    const losingTrades = trades.filter(t => t.profit <= 0); // Include trades with zero profit as losing
+    const losingTrades = trades.filter(t => t.profit <= 0);
 
     const grossProfit = winningTrades.reduce((sum, t) => sum + t.profit, 0);
     const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
 
-    // Calculate Max Drawdown
     let peakBalance = initialBalance;
     let maxDrawdownValue = 0;
     equityCurve.forEach(point => {
@@ -376,10 +331,8 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
     });
     const maxDrawdownPercent = peakBalance > 0 ? (maxDrawdownValue / peakBalance) * 100 : 0;
 
-    const metricsResult = {
-        initialBalance,
-        finalBalance,
-        totalProfit,
+    return {
+        initialBalance, finalBalance, totalProfit,
         totalReturn: (totalProfit / initialBalance) * 100,
         totalTrades: trades.length,
         winningTrades: winningTrades.length,
@@ -387,18 +340,16 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
         winRate: (winningTrades.length / trades.length) * 100,
         averageWin: winningTrades.length > 0 ? grossProfit / winningTrades.length : 0,
         averageLoss: losingTrades.length > 0 ? grossLoss / losingTrades.length : 0,
-        profitFactor: grossLoss > 0 ? grossProfit / grossLoss : Infinity, // Avoid division by zero
+        profitFactor: grossLoss > 0 ? grossProfit / grossLoss : Infinity,
         maxDrawdown: maxDrawdownPercent,
     };
-    console.log("[Metrics] Calculation complete:", metricsResult);
-    return metricsResult;
 };
 
 /**
  * --- HEAVILY MODIFIED ORCHESTRATOR ---
- * Orchestrates a backtest, now handling all 3 ML modes.
+ * Orchestrates a backtest, now handling all 3 ML modes and authentication.
  */
-export const runBacktest = async (config, authToken) => {
+export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
     console.log("[runBacktest] Starting orchestrator with config:", config);
     const {
         userId, code, symbol, timeframe, startDate, endDate,
@@ -407,115 +358,86 @@ export const runBacktest = async (config, authToken) => {
 
     let candles;
     let mlPredictions = null;
-    let strategyFunction = null; // Initialize as null
-    let strategyParams = { ...(config.params || {}) }; // Ensure params object exists
+    let strategyFunction = null;
+    let strategyParams = { ...(config.params || {}) };
     let strategyName = 'N/A', strategyType = 'N/A';
 
     try {
         // --- STEP 1: Fetch Strategy (if TA or Hybrid) ---
         if (mlMode === 'off' || mlMode === 'predictions') {
             if (!code) throw new Error("Strategy 'code' is required for TA or Hybrid mode.");
-            console.log(`[runBacktest] Fetching strategy: ${code} for user: ${userId}`);
             const strategy = await Strategy.findOne({ userId, code }).lean();
             if (!strategy) throw new Error(`Strategy with code '${code}' not found.`);
 
-            // Ensure strategy.params exists and has strategyType
-             if (!strategy.params || !strategy.params.strategyType) {
+            if (!strategy.params || !strategy.params.strategyType) {
                  throw new Error(`Strategy '${code}' is missing required parameters (strategyType).`);
-             }
+            }
 
             strategyFunction = getStrategy(strategy.params.strategyType);
-             if (!strategyFunction) {
+            if (!strategyFunction) {
                  throw new Error(`Could not load strategy function for type: ${strategy.params.strategyType}`);
-             }
-            strategyParams = { ...strategy.params, ...(config.params || {}) }; // Merge DB params with request params
+            }
+            strategyParams = { ...strategy.params, ...(config.params || {}) };
             strategyName = strategy.name;
             strategyType = strategy.params.strategyType;
-             console.log(`[runBacktest] TA Strategy '${strategyName}' loaded.`);
         }
 
         // --- STEP 2: Fetch Data & ML Predictions (if ML or Hybrid) ---
         if (mlMode === 'on' || mlMode === 'predictions') {
-            console.log(`[runBacktest] ML Mode detected: ${mlMode}. Model: ${mlModel}`);
             if (!mlModel) throw new Error("ML Model name ('mlModel') is required for ML or Hybrid mode.");
 
-            // Use the new feature data downloader
+            // Use the new feature data downloader (Memory Safe)
             const fullFeatureData = await _getFeatureData(symbol, timeframe, startDate, endDate);
 
-            // A. Extract candles (ensure format matches runSimulation expectations)
+            // A. Extract candles (required format: [[timestamp, open, high, low, close], ...])
             candles = fullFeatureData.map(row => {
-                 // Validate candle data during mapping
                  const timestamp = new Date(row.datetime).getTime();
                  const { open, high, low, close } = row;
-                 if ([timestamp, open, high, low, close].some(v => typeof v !== 'number' || isNaN(v))) {
-                      console.warn(`[runBacktest] Invalid candle data in feature row:`, row);
-                      return null; // Mark as invalid
-                 }
+                 if ([timestamp, open, high, low, close].some(v => typeof v !== 'number' || isNaN(v))) return null;
                  return [timestamp, open, high, low, close];
-            }).filter(candle => candle !== null); // Remove invalid candles
+            }).filter(candle => candle !== null);
 
             if (!candles || candles.length < 2) {
                  throw new Error("Not enough valid market data found in feature file for the selected period.");
             }
-             console.log(`[runBacktest] Extracted ${candles.length} candles from feature data.`);
 
-
-            // B. Extract features for the model
-             const features = fullFeatureData
-                // Filter out rows corresponding to null candles (if any)
+            // B. Extract features for the model (array of arrays, shape [N, 43])
+            const features = fullFeatureData
                 .filter(row => !isNaN(new Date(row.datetime).getTime()))
-                .map(row =>
-                    FEATURE_NAMES.map(feature => {
-                        const val = row[feature];
-                        // Basic check for valid numbers
-                        if (typeof val !== 'number' || isNaN(val)) {
-                            console.warn(`[runBacktest] Invalid feature '${feature}' in row:`, row);
-                            return 0; // Or handle as needed (e.g., throw error, use null)
-                        }
-                        return val;
-                    })
-                );
+                .map(row => FEATURE_NAMES.map(feature => {
+                    const val = row[feature];
+                    return (typeof val !== 'number' || isNaN(val)) ? 0 : val;
+                }));
 
+            if (features.length !== candles.length) {
+                  throw new Error(`Mismatch between candle count (${candles.length}) and feature set count (${features.length}).`);
+            }
 
-             if (features.length !== candles.length) {
-                  throw new Error(`Mismatch between candle count (${candles.length}) and feature set count (${features.length}). Check feature data integrity.`);
-             }
-             console.log(`[runBacktest] Extracted features for ${features.length} candles.`);
-
-
-            // C. Get bulk predictions from Python server
+            // C. Get bulk predictions from Python server (FIXED: authToken passed here)
             mlPredictions = await _getBulkPredictions(mlModel, features, authToken);
 
-             if (mlPredictions.length !== candles.length) {
-                  throw new Error(`Mismatch between candle count (${candles.length}) and prediction count (${mlPredictions.length}). Check bulk prediction endpoint.`);
-             }
-             console.log(`[runBacktest] Received ${mlPredictions.length} ML predictions.`);
-
+            if (mlPredictions.length !== candles.length) {
+                  throw new Error(`Mismatch between candle count (${candles.length}) and prediction count (${mlPredictions.length}).`);
+            }
 
             if (mlMode === 'on') {
-                // Pure ML mode
                 strategyName = `ML: ${mlModel}`;
                 strategyType = 'ml';
-                // Reset TA strategy function if Pure ML
                 strategyFunction = () => ({ signal: 'hold' });
             } else {
-                // Hybrid mode
                 strategyName = `Hybrid: ${strategyName} + ${mlModel}`;
                 strategyType = 'hybrid';
             }
 
         } else {
-            // Pure TA mode (old logic)
-             console.log("[runBacktest] Pure TA Mode detected.");
+            // Pure TA mode
             const data = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
             if (!data.candles || data.candles.length < 2) throw new Error("Not enough market data for the selected period.");
             candles = data.candles;
-             console.log(`[runBacktest] Fetched ${candles.length} candles for TA backtest.`);
         }
 
         // --- STEP 3: Run the Simulation ---
         const initialBalance = config.initialBalance || strategyParams.initialBalance || 1000;
-        console.log(`[runBacktest] Running simulation with initial balance: ${initialBalance}`);
 
         const { closedTrades, equityCurve } = runSimulation({
             candles,
@@ -523,8 +445,8 @@ export const runBacktest = async (config, authToken) => {
             strategyParams,
             riskParams,
             initialBalance,
-            mlMode, // Pass the mode to the simulator
-            mlPredictions // Pass the predictions to the simulator
+            mlMode,
+            mlPredictions
         });
 
         // --- STEP 4: Calculate Final Metrics ---
@@ -532,48 +454,22 @@ export const runBacktest = async (config, authToken) => {
 
         // --- STEP 5: Prepare Result Object ---
         const backtestData = {
-            userId,
-            symbol,
-            timeframe,
-            initialBalance,
-            finalBalance: metrics.finalBalance,
-            profit: metrics.totalProfit,
-            totalTrades: metrics.totalTrades,
-            startDate: new Date(startDate).toISOString(), // Ensure ISO format
-            endDate: new Date(endDate).toISOString(),     // Ensure ISO format
+            userId, symbol, timeframe, initialBalance,
+            finalBalance: metrics.finalBalance, profit: metrics.totalProfit, totalTrades: metrics.totalTrades,
+            startDate: new Date(startDate).toISOString(), endDate: new Date(endDate).toISOString(),
             candlesTested: candles.length,
-            strategy: {
-                name: strategyName,
-                type: strategyType,
-                params: strategyParams,
-                mlModel: mlModel // Store which model was used
-            },
+            strategy: { name: strategyName, type: strategyType, params: strategyParams, mlModel: mlModel },
             metrics,
-            equityCurve: equityCurve.map(p => ({ // Ensure ISO format for equity curve
-                 timestamp: typeof p.timestamp === 'number' ? new Date(p.timestamp).toISOString() : p.timestamp,
-                 balance: p.balance
-            })),
-            tradeHistory: closedTrades.map(t => ({ // Ensure ISO format for trades
-                ...t,
-                entryTime: t.entryTime instanceof Date ? t.entryTime.toISOString() : t.entryTime,
-                exitTime: t.exitTime instanceof Date ? t.exitTime.toISOString() : t.exitTime,
-            })),
+            equityCurve: equityCurve.map(p => ({ timestamp: typeof p.timestamp === 'number' ? new Date(p.timestamp).toISOString() : p.timestamp, balance: p.balance })),
+            tradeHistory: closedTrades.map(t => ({ ...t, entryTime: t.entryTime instanceof Date ? t.entryTime.toISOString() : t.entryTime, exitTime: t.exitTime instanceof Date ? t.exitTime.toISOString() : t.exitTime })),
         };
 
         // --- STEP 6: Save to DB or Return ---
         if (!simulateOnly) {
-             console.log("[runBacktest] Saving backtest result to database...");
-            const savedBacktest = await Backtest.create(backtestData);
-             console.log(`[runBacktest] Backtest saved with ID: ${savedBacktest._id}`);
-            return savedBacktest;
-        } else {
-             console.log("[runBacktest] Simulation only, returning results without saving.");
-            return backtestData;
+            return await Backtest.create(backtestData);
         }
+        return backtestData;
     } catch (error) {
-         console.error(`[runBacktest] Orchestration failed: ${error.message}`, error.stack);
-         // Re-throw the error so the controller can handle it
-         throw error;
+        throw error;
     }
 };
-

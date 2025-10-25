@@ -139,6 +139,147 @@ const _getBulkPredictions = async (modelName, features, authToken) => {
  * --- MODIFIED SIMULATION ENGINE ---
  * Now accepts mlMode and mlPredictions to run all 3 backtest types.
  */
+// File: services/backtestService.js
+// UPGRADED: Full support for Pure TA, Pure ML, and Hybrid (TA+ML) backtesting.
+// FIX: Uses streams for CSV parsing to prevent memory errors (OOM).
+// FIX: Correctly forwards the JWT token to the Python ML server (401 fix).
+// FIX: Corrected metrics calculation to prevent NaN database error (WinRate fix).
+// FIX: Added explicit exit logic for Pure ML mode (1=Buy, 0=Hold, -1=Sell).
+
+import Backtest from "../dbStructure/backtest.js";
+import Strategy from "../dbStructure/strategy.js";
+import { fetchOHLCVMultiSafe } from "./backtestDataService.js";
+import { getStrategy } from "../strategies/strategyManager.js";
+import axios from "axios";
+import { parse } from "csv-parse"; // Use the stream parser
+import https from 'https';
+import { finished } from 'stream/promises'; // For stream handling
+
+// --- CONFIGURATION ---
+const ML_SERVER_URL = "https://74.208.28.77:8000";
+// Ensure this list exactly matches the feature names your Python model expects
+const FEATURE_NAMES = [
+    'RSI_14', 'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9',
+    'STOCHk_14_3_3', 'STOCHd_14_3_3', 'STOCHh_14_3_3', 'CCI_20_0.015',
+    'BBL_20_2.0_2.0', 'BBM_20_2.0_2.0', 'BBU_20_2.0_2.0', 'BBB_20_2.0_2.0',
+    'BBP_20_2.0_2.0', 'ATRr_14', 'SMA_50', 'SMA_200', 'PSARl_0.02_0.2',
+    'PSARs_0.02_0.2', 'PSARaf_0.02_0.2', 'PSARr_0.02_0.2', 'ISA_9',
+    'ISB_26', 'ITS_9', 'IKS_26', 'ICS_26', 'OBV', 'BBL_5_2.0_2.0',
+    'BBM_5_2.0_2.0', 'BBU_5_2.0_2.0', 'BBB_5_2.0_2.0', 'BBP_5_2.0_2.0',
+    'sma_crossover', 'atr_signal', 'bb_signal', 'cci_signal',
+    'ichimoku_signal', 'macd_signal', 'obv_signal', 'psar_signal',
+    'rsi_signal', 'sma_crossover_signal', 'stoch_signal', 'momentum_strength'
+];
+// --------------------------------------------------------
+
+// Agent to ignore SSL errors for the self-signed certificate on the ML server
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+
+/**
+ * Downloads and parses the feature file using streams to save memory.
+ */
+const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
+    const data_filename = `${symbol}-${timeframe}-features.csv`;
+    const data_url = `${ML_SERVER_URL}/data/${data_filename}`;
+    console.log(`[ML] Streaming feature data from: ${data_url}`);
+
+    const start_dt = new Date(startDate);
+    const end_dt = new Date(endDate);
+    const filteredData = [];
+
+    const parser = parse({
+        columns: true,
+        skip_empty_lines: true,
+        cast: true
+    });
+
+    parser.on('readable', () => {
+        let record;
+        while ((record = parser.read()) !== null) {
+            const row_dt = new Date(record.datetime);
+            if (isNaN(row_dt.getTime())) continue;
+            if (row_dt >= start_dt && row_dt <= end_dt) {
+                filteredData.push(record);
+            }
+        }
+    });
+
+    parser.on('error', (err) => {
+        throw new Error(`Failed to parse CSV data: ${err.message}`);
+    });
+
+    try {
+        const response = await axios.get(data_url, {
+            responseType: 'stream',
+            httpsAgent: httpsAgent
+        });
+
+        response.data.pipe(parser);
+        await finished(parser);
+
+        if (filteredData.length === 0) {
+            throw new Error(`No historical data found for the selected date range (${startDate} to ${endDate}).`);
+        }
+        console.log(`[ML] Found ${filteredData.length} feature rows for the date range.`);
+        return filteredData;
+
+    } catch (error) {
+        let errorMessage = `Failed to stream feature file from ${data_url}.`;
+        if (error.response) {
+            errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
+        } else if (error.request) {
+            errorMessage += ` No response from ML server. Is it running?`;
+        } else {
+            errorMessage += ` Error: ${error.message}`;
+        }
+        console.error(`[ML] Failed to stream feature file: ${errorMessage}`);
+        throw new Error(errorMessage);
+    }
+};
+
+/**
+ * Gets bulk ML predictions, accepting and using the Authorization header.
+ */
+const _getBulkPredictions = async (modelName, features, authToken) => {
+    const bulk_url = `${ML_SERVER_URL}/api/ml/predict_bulk`;
+    console.log(`[ML] Getting bulk predictions for ${modelName} (${features.length} samples})...`);
+
+    try {
+        const payload = { model_name: modelName, features: features };
+
+        // --- FIX: Add Authorization Header ---
+        const headers = {};
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+        } else {
+            console.warn("[ML] WARNING: No auth token provided for bulk prediction call.");
+        }
+        // --- END FIX ---
+
+        const response = await axios.post(bulk_url, payload, {
+            httpsAgent: httpsAgent,
+            headers: headers // Pass the headers with the token
+        });
+        console.log(`[ML] Received ${response.data.predictions.length} predictions.`);
+        return response.data.predictions;
+
+    } catch (error) {
+        let errorMessage = `Bulk prediction failed for model ${modelName}.`;
+        if (error.response) {
+            errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`;
+        } else if (error.request) { errorMessage += ` No response from ML server. Is it running?`; }
+        else { errorMessage += ` Error: ${error.message}`; }
+        console.error(`[ML] Bulk prediction failed: ${errorMessage}`);
+        throw new Error(errorMessage);
+    }
+};
+
+
+/**
+ * --- MODIFIED SIMULATION ENGINE ---
+ * Now accepts mlMode and mlPredictions to run all 3 backtest types.
+ */
 const runSimulation = (config) => {
     const {
         candles,

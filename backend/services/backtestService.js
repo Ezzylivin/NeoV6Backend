@@ -3,6 +3,7 @@
 // FIX: Uses streams for CSV parsing to prevent memory errors (OOM).
 // FIX: Correctly forwards the JWT token to the Python ML server (401 fix).
 // FIX: Corrected metrics calculation to prevent NaN database error (WinRate fix).
+// FIX: Added explicit exit logic for Pure ML mode (1=Buy, 0=Hold, -1=Sell).
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
@@ -177,19 +178,37 @@ const runSimulation = (config) => {
         }
         const historicalCandles = candles.slice(0, i + 1);
 
-        // 1. Check for Exits
+        // --- 1. Check for Exits ---
         if (position) {
             let exitPrice = null;
             let exitReason = '';
             const { slPrice, tpPrice, signal } = position;
 
-            if (signal === 'buy') {
-                if (low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
-                else if (high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
-            } else if (signal === 'sell') {
-                if (high >= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
-                else if (low <= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+            // 🛑 FIX: Check for forced ML exit signal only if not already exiting via SL/TP
+            if (mlMode === 'on' && mlPredictions && i < mlPredictions.length) {
+                const mlSignal = mlPredictions[i];
+                
+                // Exit if ML signals sell (-1) when long, or buy (1) when short
+                if (mlSignal === -1 && signal === 'buy') {
+                    exitPrice = close;
+                    exitReason = 'ML Exit Signal (Reverse)';
+                } else if (mlSignal === 1 && signal === 'sell') {
+                    exitPrice = close;
+                    exitReason = 'ML Exit Signal (Reverse)';
+                }
             }
+
+            // Check SL/TP and overwrite if triggered
+            if (exitPrice === null) {
+                if (signal === 'buy') {
+                    if (low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
+                    else if (high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+                } else if (signal === 'sell') {
+                    if (high >= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
+                    else if (low <= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+                }
+            }
+
 
             if (exitPrice !== null) {
                 const pnl = (exitPrice - position.entryPrice) * position.size * (signal === 'buy' ? 1 : -1);
@@ -244,16 +263,19 @@ const runSimulation = (config) => {
                 finalSignal = taSignal;
             }
             else if (mlMode === 'on') {
-                // Pure ML: 1=Buy, 0=Sell/Hold
-                finalSignal = (mlSignal === 1) ? 'buy' : 'hold';
+                // 🛑 FIX: PURE ML: 1=Buy, -1=Sell, 0=Hold
+                if (mlSignal === 1) {
+                    finalSignal = 'buy';
+                } else if (mlSignal === -1) {
+                    finalSignal = 'sell';
+                }
             }
             else if (mlMode === 'predictions') {
-                // Hybrid: Only trade if TA signal AND ML prediction agree
+                // 🛑 FIX: Hybrid: Only trade if TA signal AND ML prediction agree (1/-1)
                 if (taSignal === 'buy' && mlSignal === 1) {
                     finalSignal = 'buy';
                 }
-                // Example for sell-side filter:
-                else if (taSignal === 'sell' && mlSignal === 0) {
+                else if (taSignal === 'sell' && mlSignal === -1) {
                      finalSignal = 'sell';
                 }
             }

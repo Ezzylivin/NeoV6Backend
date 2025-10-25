@@ -2,6 +2,7 @@
 // UPGRADED: Full support for Pure TA, Pure ML, and Hybrid (TA+ML) backtesting.
 // FIX: Uses streams for CSV parsing to prevent memory errors (OOM).
 // FIX: Correctly forwards the JWT token to the Python ML server (401 fix).
+// FIX: Corrected metrics calculation to prevent NaN database error (WinRate fix).
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
@@ -331,13 +332,17 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
     });
     const maxDrawdownPercent = peakBalance > 0 ? (maxDrawdownValue / peakBalance) * 100 : 0;
 
+    // 🛑 FIX APPLIED HERE: Prevent NaN error when totalTrades is 0
+    const totalTrades = trades.length;
+
     return {
         initialBalance, finalBalance, totalProfit,
         totalReturn: (totalProfit / initialBalance) * 100,
-        totalTrades: trades.length,
+        totalTrades: totalTrades,
         winningTrades: winningTrades.length,
         losingTrades: losingTrades.length,
-        winRate: (winningTrades.length / trades.length) * 100,
+        // FIX: Ensure winRate is 0 if totalTrades is 0
+        winRate: totalTrades > 0 ? (winningTrades.length / totalTrades) * 100 : 0, 
         averageWin: winningTrades.length > 0 ? grossProfit / winningTrades.length : 0,
         averageLoss: losingTrades.length > 0 ? grossLoss / losingTrades.length : 0,
         profitFactor: grossLoss > 0 ? grossProfit / grossLoss : Infinity,

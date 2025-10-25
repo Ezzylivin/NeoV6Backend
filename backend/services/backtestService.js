@@ -186,60 +186,63 @@ const runSimulation = (config) => {
             const { slPrice, tpPrice, signal } = position;
 
             // 🛑 FIX: Check for forced ML exit signal only if not already exiting via SL/TP
-            if (mlMode === 'on' && mlPredictions && i < mlPredictions.length) {
-                const mlSignal = mlPredictions[i];
-                
-                // Exit if ML signals sell (-1) when long, or buy (1) when short
-                if (mlSignal === -1 && signal === 'buy') {
-                    exitPrice = close;
-                    exitReason = 'ML Exit Signal (Reverse)';
-                    console.log(`[DEBUG: Exit] ML Reverse Exit (Buy -> Sell) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
-                } else if (mlSignal === 1 && signal === 'sell') {
-                    exitPrice = close;
-                    exitReason = 'ML Exit Signal (Reverse)';
-                    console.log(`[DEBUG: Exit] ML Reverse Exit (Sell -> Buy) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
-                }
-            }
-
-            // Check SL/TP and overwrite if triggered
-            if (exitPrice === null) {
-                if (signal === 'buy') {
-                    if (low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
-                    else if (high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
-                } else if (signal === 'sell') {
-                    if (high >= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
-                    else if (low <= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
-                }
-            }
-
-
-            if (exitPrice !== null) {
-                const pnl = (exitPrice - position.entryPrice) * position.size * (signal === 'buy' ? 1 : -1);
-                currentBalance += pnl;
-
-                position.exitTime = new Date(timestamp);
-                position.exitPrice = exitPrice;
-                position.profit = pnl;
-                position.exitReason = exitReason;
-                closedTrades.push({ ...position });
-                equityCurve.push({ timestamp, balance: currentBalance });
-                
-                // DEBUG: Log a trade exit
-                console.log(`[DEBUG: Trade Exit] ${signal.toUpperCase()} closed at ${exitPrice.toFixed(2)} (${exitReason}). PnL: $${pnl.toFixed(2)}. New Balance: $${currentBalance.toFixed(2)}`);
-
-                position = null;
-
-                if (currentBalance <= 0) {
-                    console.warn('[Simulation] Account wiped out. Ending simulation.');
-                    break;
-                }
-            }
+          // VVVVVV MODIFIED CONDITION TO INCLUDE 'predictions' VVVVVV
+    if ((mlMode === 'on' || mlMode === 'predictions') && mlPredictions && i < mlPredictions.length) {
+        const mlSignal = mlPredictions[i];
+        
+        // Exit if ML signals sell (-1) when long, or buy (1) when short
+        // NOTE: If ML signal is 2 for Buy, you should also include that here (mlSignal === 2)
+        if (mlSignal === -1 && signal === 'buy') {
+            exitPrice = close;
+            exitReason = 'ML Exit Signal (Reverse)';
+            console.log(`[DEBUG: Exit] ML Reverse Exit (Buy -> Sell) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
+        } else if (mlSignal === 1 && signal === 'sell') {
+            exitPrice = close;
+            exitReason = 'ML Exit Signal (Reverse)';
+            console.log(`[DEBUG: Exit] ML Reverse Exit (Sell -> Buy) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
         }
+    }
+    // ^^^^^^ END MODIFIED CONDITION ^^^^^^
+
+    // Check SL/TP and overwrite if triggered
+    if (exitPrice === null) {
+        if (signal === 'buy') {
+            if (low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
+            else if (high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+        } else if (signal === 'sell') {
+            if (high >= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
+            else if (low <= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+        }
+    }
+
+
+    if (exitPrice !== null) {
+        const pnl = (exitPrice - position.entryPrice) * position.size * (signal === 'buy' ? 1 : -1);
+        currentBalance += pnl;
+
+        position.exitTime = new Date(timestamp);
+        position.exitPrice = exitPrice;
+        position.profit = pnl;
+        position.exitReason = exitReason;
+        closedTrades.push({ ...position });
+        equityCurve.push({ timestamp, balance: currentBalance });
+        
+        // DEBUG: Log a trade exit
+        console.log(`[DEBUG: Trade Exit] ${signal.toUpperCase()} closed at ${exitPrice.toFixed(2)} (${exitReason}). PnL: $${pnl.toFixed(2)}. New Balance: $${currentBalance.toFixed(2)}`);
+
+        position = null;
+
+        if (currentBalance <= 0) {
+            console.warn('[Simulation] Account wiped out. Ending simulation.');
+            break;
+        }
+    }
+}
 
         // 2. Check for Entries
         if (!position) {
-            let taSignal = 'hold';
-            let mlSignal = 0;
+            let taSignal = 'buy';
+            let mlSignal = 1;
 
             // A. Get TA Signal (if applicable)
             if (mlMode === 'off' || mlMode === 'predictions') {

@@ -1,5 +1,5 @@
 // File: services/backtestService.js
-// UPGRADED: Full support for Pure TA, Pure ML, and Hybrid (TA+ML) backtesting.
+// UPGRADED: runBacktest now orchestrates BOTH Single and Hybrid-Combo modes.
 // UPGRADED: ML signal 2 is now interpreted as a Buy signal in all ML modes.
 // UPGRADED: Hybrid mode now uses "TA OR ML" (permissive) logic for entries.
 // UPGRADED: Integrated ML Threshold check.
@@ -23,7 +23,6 @@ import { finished } from 'stream/promises'; // For stream handling
 
 // --- CONFIGURATION ---
 const ML_SERVER_URL = "https://74.208.28.77:8000";
-// ⚠️ FEATURE_NAMES constant is now REMOVED. It will be fetched dynamically.
 // --------------------------------------------------------
 
 // Agent to ignore SSL errors for the self-signed certificate on the ML server
@@ -33,6 +32,7 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
  * NEW: Fetches the model's configuration (like feature list) from the ML server.
  */
 const _getMLConfig = async (modelName, authToken) => {
+    // ... (This function is unchanged from the previous step)
     const config_url = `${ML_SERVER_URL}/api/ml/config/${modelName}`;
     console.log(`[ML] Fetching config for model: ${modelName}`);
     
@@ -67,17 +67,16 @@ const _getMLConfig = async (modelName, authToken) => {
 
 /**
  * Downloads and parses the feature file using streams to save memory.
- * Assumes dates are consistently formatted (e.g., UTC).
  */
 const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
+    // ... (This function is unchanged from the previous step)
     const data_filename = `${symbol}-${timeframe}-features.csv`;
     const data_url = `${ML_SERVER_URL}/data/${data_filename}`;
     console.log(`[ML] Streaming feature data from: ${data_url}`);
 
-    // Standardize boundary dates
     const start_dt = new Date(startDate);
     const end_dt = new Date(endDate);
-    end_dt.setUTCHours(23, 59, 59, 999); // Ensure end date includes the full day
+    end_dt.setUTCHours(23, 59, 59, 999); 
 
     const filteredData = [];
 
@@ -92,7 +91,6 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
         while ((record = parser.read()) !== null) {
             const row_dt = new Date(record.datetime);
             if (isNaN(row_dt.getTime())) continue;
-            // Filter using UTC timestamps for consistency
             if (row_dt.getTime() >= start_dt.getTime() && row_dt.getTime() <= end_dt.getTime()) {
                 filteredData.push(record);
             }
@@ -113,7 +111,7 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
         await finished(parser);
 
         if (filteredData.length === 0) {
-            throw new Error(`No historical feature data found for the selected date range (${startDate} to ${endDate}).`);
+            throw new Error(`No historical feature data found for the selected date range (${startDate} to ${endDate}). Check if the data file exists on the server for this range.`);
         }
         console.log(`[ML] Found ${filteredData.length} feature rows for the date range.`);
         return filteredData;
@@ -129,10 +127,10 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
 };
 
 /**
- * Gets bulk ML predictions, accepting and using the Authorization header.
- * Assumes prediction data includes a probability field if mlThreshold is needed.
+ * Gets bulk ML predictions
  */
 const _getBulkPredictions = async (modelName, features, authToken) => {
+    // ... (This function is unchanged from the previous step)
     const bulk_url = `${ML_SERVER_URL}/api/ml/predict_bulk`;
     console.log(`[ML] Getting bulk predictions for ${modelName} (${features.length} samples})...`);
 
@@ -150,12 +148,11 @@ const _getBulkPredictions = async (modelName, features, authToken) => {
             headers: headers
         });
         
-        // Structure predictions for thresholding: [{ prediction: X, probability: Y }, ...]
         const predictions = response.data.predictions.map(p => {
-            if (typeof p === 'number') { // Simple class label output
-                return { prediction: p, probability: 1.0 }; // Assume max confidence
+            if (typeof p === 'number') { 
+                return { prediction: p, probability: 1.0 }; 
             }
-            return p; // Assume { prediction: X, probability: Y } format
+            return p;
         });
 
         console.log(`[ML] Received ${predictions.length} predictions.`);
@@ -173,25 +170,24 @@ const _getBulkPredictions = async (modelName, features, authToken) => {
 
 
 /**
- * --- MODIFIED SIMULATION ENGINE ---
- * UPGRADE: Added ML Threshold filter logic.
- * UPGRADE: Added robustness checks for SL/TP price validity.
+ * --- SIMULATION ENGINE ---
  */
 const runSimulation = (config) => {
+    // ... (This function is unchanged from the previous step)
     const {
         candles,
         strategyFunction,
         strategyParams,
         riskParams,
-        initialBalance, // Guaranteed number from runBacktest
+        initialBalance, 
         mlMode,
         mlPredictions,
-        mlThreshold // Passed from orchestrator
+        mlThreshold 
     } = config;
     
-    console.log(`[Simulation] ML Threshold set to: ${mlThreshold}`); // DEBUG
+    console.log(`[Simulation] ML Threshold set to: ${mlThreshold}`); 
     console.log(`[Simulation] Starting simulation. Mode: ${mlMode}. Candles: ${candles.length}. Predictions: ${mlPredictions?.length || 0}`);
-    console.log(`[Simulation] Initial Balance: $${initialBalance.toFixed(2)}. Risk: ${riskParams.riskPercentage}%`); // DEBUG
+    console.log(`[Simulation] Initial Balance: $${initialBalance.toFixed(2)}. Risk: ${riskParams.riskPercentage}%`); 
 
     let currentBalance = initialBalance;
     let position = null;
@@ -210,20 +206,16 @@ const runSimulation = (config) => {
 
     let isInGrowthMode = (riskManagementMode === 'dynamic' && initialBalance < growthCapitalTarget);
 
-    // Helper function for ML Threshold check
     const isSignalHighConfidence = (mlPrediction) => {
-        if (!mlThreshold || mlThreshold <= 0) return true; // No threshold filtering
-        if (typeof mlPrediction !== 'object' || mlPrediction.probability === undefined) return true; // Simple prediction format
-        return mlPrediction.probability >= mlThreshold; // Check probability
+        if (!mlThreshold || mlThreshold <= 0) return true; 
+        if (typeof mlPrediction !== 'object' || mlPrediction.probability === undefined) return true; 
+        return mlPrediction.probability >= mlThreshold; 
     };
     
-    // Helper function to get the numeric prediction label
     const getMLSignalLabel = (mlPrediction) => {
         return mlPrediction?.prediction !== undefined ? mlPrediction.prediction : mlPrediction;
     };
 
-
-    // Main Simulation Loop - Start from 1 to have history for indicators
     for (let i = 1; i < candles.length; i++) {
         const [timestamp, open, high, low, close] = candles[i];
         if ([timestamp, open, high, low, close].some(v => typeof v !== 'number' || isNaN(v))) {
@@ -235,34 +227,26 @@ const runSimulation = (config) => {
         const currentMLPrediction = mlPredictions?.[i];
         const mlSignal = getMLSignalLabel(currentMLPrediction);
 
-
         // --- 1. Check for Exits ---
         if (position) {
             let exitPrice = null;
             let exitReason = '';
             const { slPrice, tpPrice, signal } = position;
 
-            // 🛑 ML Exit Logic: Check confidence *before* acting on reverse signal
             if ((mlMode === 'on' || mlMode === 'predictions') && currentMLPrediction && isSignalHighConfidence(currentMLPrediction)) {
-                
-                // Exit if ML signals sell (-1) when long
                 if (mlSignal === -1 && signal === 'buy') {
                     exitPrice = close; exitReason = 'ML Exit Signal (Reverse)';
                     console.log(`[DEBUG: Exit] ML Reverse Exit (Buy -> Sell) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`);
                 } 
-                // Exit if ML signals buy (1 or 2) when short
                 else if ((mlSignal === 1 || mlSignal === 2) && signal === 'sell') { 
                     exitPrice = close; exitReason = 'ML Exit Signal (Reverse)';
                     console.log(`[DEBUG: Exit] ML Reverse Exit (Sell -> Buy) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`);
                 }
             }
 
-            // Check SL/TP and overwrite if triggered - Robustness Check
             if (exitPrice === null) {
-                // Ensure slPrice and tpPrice are valid numbers before comparison
                 const validSlPrice = typeof slPrice === 'number' && !isNaN(slPrice) && isFinite(slPrice);
                 const validTpPrice = typeof tpPrice === 'number' && !isNaN(tpPrice) && isFinite(tpPrice);
-
                 if (signal === 'buy') {
                     if (validSlPrice && low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
                     else if (validTpPrice && high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
@@ -272,14 +256,11 @@ const runSimulation = (config) => {
                 }
             }
 
-
             if (exitPrice !== null) {
-                // Robustness: Ensure exitPrice is a valid number before PnL calc
                 if (typeof exitPrice !== 'number' || isNaN(exitPrice)) {
                     console.error(`[Simulation Error] Invalid exitPrice calculated: ${exitPrice}. Skipping trade closure.`);
-                    continue; // Skip this exit calculation
+                    continue; 
                 }
-                
                 const pnl = (exitPrice - position.entryPrice) * position.size * (signal === 'buy' ? 1 : -1);
                 currentBalance += pnl;
 
@@ -291,9 +272,7 @@ const runSimulation = (config) => {
                 equityCurve.push({ timestamp, balance: currentBalance });
                 
                 console.log(`[DEBUG: Trade Exit] ${signal.toUpperCase()} closed at ${exitPrice.toFixed(2)} (${exitReason}). PnL: $${pnl.toFixed(2)}. New Balance: $${currentBalance.toFixed(2)}`);
-
                 position = null;
-
                 if (currentBalance <= 0) {
                     console.warn('[Simulation] Account wiped out. Ending simulation.');
                     break;
@@ -305,9 +284,8 @@ const runSimulation = (config) => {
         if (!position) {
             let taSignal = 'hold';
             let finalSignal = 'hold';
-            let mlEntrySignal = 0; // Use a clean variable for threshold-filtered ML signal
+            let mlEntrySignal = 0; 
 
-            // A. Get TA Signal (if applicable)
             if (mlMode === 'off' || mlMode === 'predictions') {
                 if (!strategyFunction) { console.error("[Simulation] TA mode selected but strategyFunction is missing."); continue; }
                 try {
@@ -315,15 +293,13 @@ const runSimulation = (config) => {
                 } catch (strategyError) { console.error(`[Simulation] Strategy Crash at ${new Date(timestamp).toISOString()}:`, strategyError.message); continue; }
             }
 
-            // B. Get and Filter ML Signal (if applicable)
             if (mlMode === 'on' || mlMode === 'predictions') {
                 if (!currentMLPrediction) { continue; }
-                // 🛑 UPGRADE: Apply Threshold Filter
                 if (isSignalHighConfidence(currentMLPrediction)) { mlEntrySignal = mlSignal; }
-                 else { mlEntrySignal = 0; } // Below threshold, treat as HOLD
+                 else { mlEntrySignal = 0; } 
             }
 
-            // C. Determine Final Signal based on Mode
+            // Determine Final Signal
             if (mlMode === 'off') { finalSignal = taSignal; }
             else if (mlMode === 'on') { // PURE ML
                 if (mlEntrySignal === 1 || mlEntrySignal === 2) { finalSignal = 'buy'; }
@@ -336,19 +312,15 @@ const runSimulation = (config) => {
                 else if (taSignal === 'sell' || mlIsSell) { finalSignal = 'sell'; }
             }
             
-            // DEBUG Log
             if (mlMode === 'predictions' || mlMode === 'on') {
                 const confidence = currentMLPrediction?.probability !== undefined ? currentMLPrediction.probability.toFixed(3) : 'N/A';
                 console.log(`[DEBUG: Signal] Time: ${new Date(timestamp).toISOString()}. Mode: ${mlMode}. TA: ${taSignal}. ML: ${mlSignal} (Conf: ${confidence}). Final: ${finalSignal}`);
             }
 
             if (finalSignal === 'buy' || finalSignal === 'sell') {
-                // Use defensive defaults for SL/TP params.
                 const { SL: slPercentInput = 1.0, TP: tpPercentInput = 2.0 } = strategyParams || {};
                 const parsedSL = parseFloat(slPercentInput) || 0; 
                 const parsedTP = parseFloat(tpPercentInput) || 0;
-                
-                // Enforce minimum SL for position sizing (1%) even if user sets 0
                 const sizingSL = Math.max(1, parsedSL); 
 
                 let effectiveRiskPercent = riskPercentage;
@@ -365,7 +337,6 @@ const runSimulation = (config) => {
                 const positionSizeUnits = close > 0 ? positionSizeDollars / close : 0;
 
                  if (positionSizeUnits > 0) {
-                    // Set extremely far-out prices if SL or TP were 0/missing in input.
                     const farPriceSL = finalSignal === 'buy' ? 0 : Infinity;
                     const farPriceTP = finalSignal === 'buy' ? Infinity : 0;
                     
@@ -401,38 +372,31 @@ const runSimulation = (config) => {
  * Calculates a comprehensive set of performance metrics from trades.
  */
 const calculateMetrics = (trades, initialBalance, equityCurve) => {
-    // Basic validation
+    // ... (This function is unchanged from the previous step)
     if (!equityCurve || equityCurve.length === 0 || typeof initialBalance !== 'number' || isNaN(initialBalance)) {
-        console.warn("[Metrics] Invalid input (empty equity curve or non-numeric initial balance). Returning zeroed metrics.");
+        console.warn("[Metrics] Invalid input. Returning zeroed metrics.");
         return { initialBalance: initialBalance || 0, finalBalance: initialBalance || 0, totalProfit: 0, totalReturn: 0, totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0, averageWin: 0, averageLoss: 0, profitFactor: null, maxDrawdown: 0 };
     }
-
     const finalBalance = equityCurve[equityCurve.length - 1].balance;
-    // Robustness: ensure finalBalance is also a number
     if (typeof finalBalance !== 'number' || isNaN(finalBalance)) {
         console.error(`[Metrics Error] Final balance is not a valid number: ${finalBalance}. Using initial balance.`);
         return { initialBalance, finalBalance: initialBalance, totalProfit: 0, totalReturn: 0, totalTrades: trades.length, winningTrades: 0, losingTrades: trades.length, winRate: 0, averageWin: 0, averageLoss: 0, profitFactor: null, maxDrawdown: 0 };
     }
-
     const totalProfit = finalBalance - initialBalance;
     const winningTrades = trades.filter(t => t.profit > 0);
     const losingTrades = trades.filter(t => t.profit <= 0);
-
     const grossProfit = winningTrades.reduce((sum, t) => sum + t.profit, 0);
     const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
-
     let peakBalance = initialBalance;
     let maxDrawdownValue = 0;
     equityCurve.forEach(point => {
-        if (typeof point.balance !== 'number' || isNaN(point.balance)) return; // Skip invalid points
+        if (typeof point.balance !== 'number' || isNaN(point.balance)) return;
         if (point.balance > peakBalance) peakBalance = point.balance;
         const drawdown = peakBalance - point.balance;
         if (drawdown > maxDrawdownValue) maxDrawdownValue = drawdown;
     });
     const maxDrawdownPercent = peakBalance > 0 ? (maxDrawdownValue / peakBalance) * 100 : 0;
-
     const totalTrades = trades.length;
-
     const metrics = {
         initialBalance, finalBalance, totalProfit,
         totalReturn: initialBalance !== 0 ? (totalProfit / initialBalance) * 100 : 0,
@@ -442,67 +406,91 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
         winRate: totalTrades > 0 ? (winningTrades.length / totalTrades) * 100 : 0, 
         averageWin: winningTrades.length > 0 ? grossProfit / winningTrades.length : 0,
         averageLoss: losingTrades.length > 0 ? grossLoss / losingTrades.length : 0,
-        // Handle division by zero for profit factor
         profitFactor: grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : null), 
         maxDrawdown: maxDrawdownPercent,
     };
-    
     console.log(`[Metrics] Total Trades: ${metrics.totalTrades}, Win Rate: ${metrics.winRate.toFixed(2)}%, Final Balance: $${metrics.finalBalance.toFixed(2)}`);
     return metrics;
 };
 
 /**
- * --- HEAVILY MODIFIED ORCHESTRATOR ---
- * Orchestrates a backtest, now handling all 3 ML modes and authentication.
- * UPGRADED: Streamlined data fetching. Added parameter validation.
- * UPGRADED: Fetches feature list dynamically.
+ * NEW HELPER: Aggregates metrics from individual backtest results.
+ * This is a simplified aggregation. A true portfolio combination would 
+ * merge trades chronologically, which is much more complex.
  */
-export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
+const _aggregateMetrics = (individualResults, initialBalance) => {
+    if (!individualResults || individualResults.length === 0) {
+        return {
+            initialBalance, finalBalance: initialBalance, totalProfit: 0, totalReturn: 0,
+            totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0,
+            averageWin: 0, averageLoss: 0, profitFactor: null, maxDrawdown: 0 // Cannot calculate combined drawdown easily
+        };
+    }
+
+    // Sum up the core counting metrics
+    const totalTrades = individualResults.reduce((sum, r) => sum + r.metrics.totalTrades, 0);
+    const winningTrades = individualResults.reduce((sum, r) => sum + r.metrics.winningTrades, 0);
+    const losingTrades = individualResults.reduce((sum, r) => sum + r.metrics.losingTrades, 0);
+    
+    // Calculate combined profit/loss
+    const grossProfit = individualResults.reduce((sum, r) => sum + (r.metrics.averageWin * r.metrics.winningTrades), 0);
+    const grossLoss = individualResults.reduce((sum, r) => sum + (r.metrics.averageLoss * r.metrics.losingTrades), 0);
+
+    const totalProfit = grossProfit - grossLoss;
+    const finalBalance = initialBalance + totalProfit;
+    const totalReturn = initialBalance !== 0 ? (totalProfit / initialBalance) * 100 : 0;
+    const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : null);
+
+    // Note: MaxDrawdown cannot be accurately calculated this way. 
+    // A true combined equity curve is needed. We'll use the average as a rough estimate.
+    const avgMaxDrawdown = individualResults.reduce((sum, r) => sum + r.metrics.maxDrawdown, 0) / individualResults.length;
+
+    return {
+        initialBalance, finalBalance, totalProfit, totalReturn,
+        totalTrades, winningTrades, losingTrades, winRate,
+        averageWin: winningTrades > 0 ? grossProfit / winningTrades : 0,
+        averageLoss: losingTrades > 0 ? grossLoss / losingTrades : 0,
+        profitFactor,
+        maxDrawdown: avgMaxDrawdown
+    };
+};
+
+
+/**
+ * --- MASTER ORCHESTRATOR ---
+ * UPGRADED: Now handles BOTH single and combo backtest requests.
+ */
+export const runBacktest = async (config, authToken) => {
     console.log("[runBacktest] Starting orchestrator with config:", config);
+    
+    // 🛑 FIX: Check if this is a Combo test or Single test
+    const isComboTest = config.strategies && Array.isArray(config.strategies) && config.strategies.length > 0;
+    
+    // 🛑 FIX: Standardize initialBalance check
+    const initialBalance = parseFloat(config.initialBalance || 1000);
+    if (isNaN(initialBalance) || initialBalance <= 0) {
+        throw new Error(`Invalid Initial Balance provided: ${config.initialBalance}`);
+    }
+
     const {
-        userId, code, symbol, timeframe, startDate, endDate,
-        simulateOnly = true, mlMode = 'off', mlModel, mlThreshold, ...riskParams
+        userId, symbol, timeframe, startDate, endDate,
+        mlMode = 'off', mlModel, mlThreshold, ...riskParams
     } = config;
 
     let candles;
     let mlPredictions = null;
-    let strategyFunction = null;
-    let strategyParams = { ...(config.params || {}) };
-    let strategyName = 'N/A', strategyType = 'N/A';
-    let dynamicFeatureNames = []; // Store dynamic features here
+    let dynamicFeatureNames = [];
 
     try {
-        // --- STEP 1: Fetch Strategy (if TA or Hybrid) ---
-        if (mlMode === 'off' || mlMode === 'predictions') {
-            if (!code) throw new Error("Strategy 'code' is required for TA or Hybrid mode.");
-            const strategy = await Strategy.findOne({ userId, code }).lean();
-            if (!strategy) throw new Error(`Strategy with code '${code}' not found.`);
-
-            // 🛑 Robustness: Basic Strategy Parameter Validation
-            if (!strategy.params || !strategy.params.strategyType) {
-                 throw new Error(`Strategy '${code}' is missing required parameters (e.g., strategyType).`);
-            }
-
-            strategyFunction = getStrategy(strategy.params.strategyType);
-            if (!strategyFunction) {
-                 throw new Error(`Could not load strategy function for type: ${strategy.params.strategyType}`);
-            }
-            strategyParams = { ...strategy.params, ...(config.params || {}) };
-            strategyName = strategy.name;
-            strategyType = strategy.params.strategyType;
-            console.log(`[Orchestrator] TA Strategy loaded: ${strategyName} (Type: ${strategyType})`);
-        }
-
-        // --- STEP 2: Fetch Data & ML Predictions (Streamlined Logic) ---
+        // --- STEP 1: Fetch Shared Data (Candles / ML Data) ---
+        // In ALL modes, we need data. Fetch the richest data required.
         if (mlMode === 'on' || mlMode === 'predictions') {
             // ML or Hybrid: Fetch feature data (includes candle data) and predictions
-            if (!mlModel) throw new Error("ML Model name ('mlModel') is required for ML or Hybrid mode.");
-            console.log(`[Orchestrator] ML/Hybrid mode detected. Model: ${mlModel}.`);
-
-            // 🛑 UPGRADE: Fetch dynamic config first
+            if (!mlModel) throw new Error("ML Model name ('mlModel') is required.");
+            
             const mlConfig = await _getMLConfig(mlModel, authToken);
-            dynamicFeatureNames = mlConfig.features; // Get feature list from server
-            // You could also use mlConfig.horizon here if needed
+            dynamicFeatureNames = mlConfig.features;
 
             const fullFeatureData = await _getFeatureData(symbol, timeframe, startDate, endDate);
 
@@ -516,16 +504,14 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
             
             if (!candles || candles.length < 2) throw new Error("Not enough valid candle data in feature file.");
             
-            // Extract features using the DYNAMIC feature list
+            // Extract features
             const features = fullFeatureData
                 .filter(row => !isNaN(new Date(row.datetime).getTime()))
-                .map(row => dynamicFeatureNames.map(feature => { // Use dynamic list here
+                .map(row => dynamicFeatureNames.map(feature => {
                     const val = row[feature];
-                    return (typeof val !== 'number' || isNaN(val)) ? 0 : val; // Default missing features to 0
+                    return (typeof val !== 'number' || isNaN(val)) ? 0 : val;
                 }));
             
-             // 🛑 Robustness: Empty Feature Check
-            if (features.length === 0) throw new Error("No valid features extracted from the data.");
             if (features.length !== candles.length) throw new Error(`Data mismatch: Candles (${candles.length}), Features (${features.length}).`);
 
             // Get predictions
@@ -533,16 +519,7 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
             if (mlPredictions.length !== candles.length) throw new Error(`Prediction count mismatch: Candles (${candles.length}), Predictions (${mlPredictions.length}).`);
             
             console.log(`[Orchestrator] Fetched ${candles.length} candles/features & ${mlPredictions.length} predictions.`);
-
-            if (mlMode === 'on') {
-                strategyName = `ML: ${mlModel}`;
-                strategyType = 'ml';
-                strategyFunction = () => ({ signal: 'hold' }); // Dummy function for Pure ML
-            } else { // Hybrid mode
-                strategyName = `Hybrid: ${strategyName} + ${mlModel}`;
-                strategyType = 'hybrid';
-            }
-
+        
         } else {
             // Pure TA mode: Only fetch basic candle data
             console.log(`[Orchestrator] Pure TA mode detected. Fetching OHLCV data.`);
@@ -551,60 +528,150 @@ export const runBacktest = async (config, authToken) => { // ACCEPTS authToken
             candles = data.candles;
             console.log(`[Orchestrator] Fetched ${candles.length} candles for Pure TA.`);
         }
-        
-        // Final configuration log before simulation
-        // 🛑 FIX INTEGRATED HERE: Ensure initialBalance is a number
-        const initialBalance = parseFloat(config.initialBalance || strategyParams.initialBalance || 1000); 
-        if (isNaN(initialBalance) || initialBalance <= 0) {
-            throw new Error(`Invalid Initial Balance provided: ${config.initialBalance}`);
+
+        // --- STEP 2: Execute Simulation(s) ---
+
+        if (isComboTest) {
+            // --- COMBO MODE ---
+            console.log(`[Orchestrator] Running COMBO backtest with ${config.strategies.length} strategies. Mode: ${mlMode}`);
+            const individualResults = [];
+
+            for (const stratConfig of config.strategies) {
+                const { code, params: stratParams } = stratConfig;
+                
+                // Load the individual TA strategy
+                if (!code) throw new Error("Strategy 'code' is required for all items in a combo test.");
+                const strategy = await Strategy.findOne({ userId, code }).lean();
+                if (!strategy) throw new Error(`Strategy with code '${code}' not found.`);
+                if (!strategy.params || !strategy.params.strategyType) throw new Error(`Strategy '${code}' is missing required parameters (e.g., strategyType).`);
+
+                const strategyFunction = getStrategy(strategy.params.strategyType);
+                if (!strategyFunction) throw new Error(`Could not load strategy function for type: ${strategy.params.strategyType}`);
+
+                // Combine DB params with per-backtest params
+                const combinedParams = { ...strategy.params, ...stratParams };
+
+                console.log(`[Orchestrator] Running simulation for: ${strategy.name}`);
+                
+                // Run simulation for this specific strategy
+                const { closedTrades, equityCurve } = runSimulation({
+                    candles,
+                    strategyFunction,
+                    strategyParams: combinedParams,
+                    riskParams,
+                    initialBalance,
+                    mlMode,
+                    mlPredictions,
+                    mlThreshold
+                });
+
+                const metrics = calculateMetrics(closedTrades, initialBalance, equityCurve);
+
+                const backtestData = {
+                    strategyName: strategy.name,
+                    metrics,
+                    equityCurve: equityCurve.map(p => ({ 
+                        timestamp: typeof p.timestamp === 'number' ? new Date(p.timestamp).toISOString() : p.timestamp, 
+                        balance: p.balance 
+                    })),
+                    // tradeHistory: closedTrades.map(t => ({ ... })) // Optionally include full history
+                };
+                individualResults.push(backtestData);
+            }
+
+            // Aggregate results
+            const combinedMetrics = _aggregateMetrics(individualResults, initialBalance);
+            
+            // TODO: Generate a combined equity curve (this is complex and requires chronological merging)
+            // For now, we'll return the curve of the first strategy as a placeholder
+            const combinedEquityCurve = individualResults[0]?.equityCurve || [{ timestamp: new Date(startDate).toISOString(), balance: initialBalance }];
+
+            const comboResult = {
+                combinedResult: {
+                    metrics: combinedMetrics,
+                    equityCurve: combinedEquityCurve,
+                    strategies: individualResults.map(r => r.strategyName)
+                },
+                individualResults
+            };
+            
+            console.log(`[Orchestrator] COMBO backtest finished.`);
+            return comboResult;
+
+        } else {
+            // --- SINGLE MODE ---
+            console.log(`[Orchestrator] Running SINGLE backtest. Mode: ${mlMode}`);
+            const { code } = config;
+            let strategyFunction;
+            let strategyParams = { ...(config.params || {}) };
+            let strategyName = 'N/A', strategyType = 'N/A';
+
+            if (mlMode === 'off' || mlMode === 'predictions') {
+                if (!code) throw new Error("Strategy 'code' is required for TA or Hybrid mode.");
+                const strategy = await Strategy.findOne({ userId, code }).lean();
+                if (!strategy) throw new Error(`Strategy with code '${code}' not found.`);
+                if (!strategy.params || !strategy.params.strategyType) throw new Error(`Strategy '${code}' is missing required parameters.`);
+                
+                strategyFunction = getStrategy(strategy.params.strategyType);
+                if (!strategyFunction) throw new Error(`Could not load strategy function for type: ${strategy.params.strategyType}`);
+                
+                strategyParams = { ...strategy.params, ...(config.params || {}) };
+                strategyName = strategy.name;
+                strategyType = strategy.params.strategyType;
+            } else if (mlMode === 'on') {
+                strategyName = `ML: ${mlModel}`;
+                strategyType = 'ml';
+                strategyFunction = () => ({ signal: 'hold' }); // Dummy function
+            }
+            
+            if (mlMode === 'predictions') {
+                 strategyName = `Hybrid: ${strategyName} + ${mlModel}`;
+                 strategyType = 'hybrid';
+            }
+
+            const { closedTrades, equityCurve } = runSimulation({
+                candles,
+                strategyFunction,
+                strategyParams,
+                riskParams,
+                initialBalance,
+                mlMode,
+                mlPredictions,
+                mlThreshold
+            });
+
+            const metrics = calculateMetrics(closedTrades, initialBalance, equityCurve);
+
+            const backtestData = {
+                userId, symbol, timeframe, initialBalance,
+                finalBalance: metrics.finalBalance, profit: metrics.totalProfit, totalTrades: metrics.totalTrades,
+                startDate: new Date(startDate).toISOString(),
+                endDate: new Date(endDate).toISOString(),
+                candlesTested: candles.length,
+                strategy: { name: strategyName, type: strategyType, params: strategyParams, mlModel: mlModel },
+                metrics,
+                equityCurve: equityCurve.map(p => ({ 
+                    timestamp: typeof p.timestamp === 'number' ? new Date(p.timestamp).toISOString() : p.timestamp, 
+                    balance: p.balance 
+                })),
+                tradeHistory: closedTrades.map(t => ({ 
+                    ...t, 
+                    entryTime: t.entryTime instanceof Date ? t.entryTime.toISOString() : t.entryTime, 
+                    exitTime: t.exitTime instanceof Date ? t.exitTime.toISOString() : t.exitTime 
+                })),
+            };
+
+            if (!simulateOnly) {
+                console.log(`[Orchestrator] Saving backtest result to database.`);
+                return await Backtest.create(backtestData);
+            }
+            console.log(`[Orchestrator] Returning simulation-only result.`);
+            return backtestData;
         }
-        console.log(`[Orchestrator] Final Config: Mode: ${mlMode}, Strategy: ${strategyName}, Initial Balance: $${initialBalance}`);
 
-        // --- STEP 3: Run the Simulation ---
-        const { closedTrades, equityCurve } = runSimulation({
-            candles,
-            strategyFunction,
-            strategyParams,
-            riskParams,
-            initialBalance,
-            mlMode,
-            mlPredictions,
-            mlThreshold // Pass the threshold
-        });
-
-        // --- STEP 4: Calculate Final Metrics ---
-        const metrics = calculateMetrics(closedTrades, initialBalance, equityCurve);
-
-        // --- STEP 5: Prepare Result Object ---
-        const backtestData = {
-            userId, symbol, timeframe, initialBalance,
-            finalBalance: metrics.finalBalance, profit: metrics.totalProfit, totalTrades: metrics.totalTrades,
-            startDate: new Date(startDate).toISOString(), // Standardize dates to UTC ISO strings
-            endDate: new Date(endDate).toISOString(),
-            candlesTested: candles.length,
-            strategy: { name: strategyName, type: strategyType, params: strategyParams, mlModel: mlModel },
-            metrics,
-            equityCurve: equityCurve.map(p => ({ 
-                timestamp: typeof p.timestamp === 'number' ? new Date(p.timestamp).toISOString() : p.timestamp, 
-                balance: p.balance 
-            })),
-            tradeHistory: closedTrades.map(t => ({ 
-                ...t, 
-                entryTime: t.entryTime instanceof Date ? t.entryTime.toISOString() : t.entryTime, 
-                exitTime: t.exitTime instanceof Date ? t.exitTime.toISOString() : t.exitTime 
-            })),
-        };
-
-        // --- STEP 6: Save to DB or Return ---
-        if (!simulateOnly) {
-            console.log(`[Orchestrator] Saving backtest result to database.`); // DEBUG
-            return await Backtest.create(backtestData);
-        }
-        console.log(`[Orchestrator] Returning simulation-only result.`); // DEBUG
-        return backtestData;
     } catch (error) {
-        console.error(`[Orchestrator] Backtest failed with a critical error: ${error.message}`); // DEBUG
-        // console.error(error.stack); // Uncomment for detailed stack traces
+        console.error(`[Orchestrator] Backtest failed with a critical error: ${error.message}`);
+        console.error(error.stack); // Log the full stack trace for debugging
         throw error; // Re-throw the error to be handled by the caller
     }
 };

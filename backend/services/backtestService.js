@@ -189,64 +189,63 @@ const runSimulation = (config) => {
             let exitReason = '';
             const { slPrice, tpPrice, signal } = position;
 
-            // 🛑 FIX: Check for forced ML exit signal only if not already exiting via SL/TP
-          // VVVVVV MODIFIED CONDITION TO INCLUDE 'predictions' VVVVVV
-    if ((mlMode === 'on' || mlMode === 'predictions') && mlPredictions && i < mlPredictions.length) {
-        const mlSignal = mlPredictions[i];
-        
-        // Exit if ML signals sell (-1) when long, or buy (1) when short
-        // NOTE: If ML signal is 2 for Buy, you should also include that here (mlSignal === 2)
-        if (mlSignal === -1 && signal === 'buy') {
-            exitPrice = close;
-            exitReason = 'ML Exit Signal (Reverse)';
-            console.log(`[DEBUG: Exit] ML Reverse Exit (Buy -> Sell) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
-        } else if (mlSignal === 1 && signal === 'sell') {
-            exitPrice = close;
-            exitReason = 'ML Exit Signal (Reverse)';
-            console.log(`[DEBUG: Exit] ML Reverse Exit (Sell -> Buy) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
+            // 🛑 UPGRADE: ML Exit Logic now includes 'predictions' mode AND checks for ML signal '2' as a reverse Buy signal.
+            if ((mlMode === 'on' || mlMode === 'predictions') && mlPredictions && i < mlPredictions.length) {
+                const mlSignal = mlPredictions[i];
+                
+                // Exit if ML signals sell (-1) when long
+                if (mlSignal === -1 && signal === 'buy') {
+                    exitPrice = close;
+                    exitReason = 'ML Exit Signal (Reverse)';
+                    console.log(`[DEBUG: Exit] ML Reverse Exit (Buy -> Sell) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
+                } 
+                // Exit if ML signals buy (1 or 2) when short
+                else if ((mlSignal === 1 || mlSignal === 2) && signal === 'sell') { 
+                    exitPrice = close;
+                    exitReason = 'ML Exit Signal (Reverse)';
+                    console.log(`[DEBUG: Exit] ML Reverse Exit (Sell -> Buy) at ${new Date(timestamp).toISOString()}, Price: ${exitPrice}`); // DEBUG
+                }
+            }
+
+            // Check SL/TP and overwrite if triggered
+            if (exitPrice === null) {
+                if (signal === 'buy') {
+                    if (low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
+                    else if (high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+                } else if (signal === 'sell') {
+                    if (high >= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
+                    else if (low <= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
+                }
+            }
+
+
+            if (exitPrice !== null) {
+                const pnl = (exitPrice - position.entryPrice) * position.size * (signal === 'buy' ? 1 : -1);
+                currentBalance += pnl;
+
+                position.exitTime = new Date(timestamp);
+                position.exitPrice = exitPrice;
+                position.profit = pnl;
+                position.exitReason = exitReason;
+                closedTrades.push({ ...position });
+                equityCurve.push({ timestamp, balance: currentBalance });
+                
+                // DEBUG: Log a trade exit
+                console.log(`[DEBUG: Trade Exit] ${signal.toUpperCase()} closed at ${exitPrice.toFixed(2)} (${exitReason}). PnL: $${pnl.toFixed(2)}. New Balance: $${currentBalance.toFixed(2)}`);
+
+                position = null;
+
+                if (currentBalance <= 0) {
+                    console.warn('[Simulation] Account wiped out. Ending simulation.');
+                    break;
+                }
+            }
         }
-    }
-    // ^^^^^^ END MODIFIED CONDITION ^^^^^^
-
-    // Check SL/TP and overwrite if triggered
-    if (exitPrice === null) {
-        if (signal === 'buy') {
-            if (low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
-            else if (high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
-        } else if (signal === 'sell') {
-            if (high >= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
-            else if (low <= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
-        }
-    }
-
-
-    if (exitPrice !== null) {
-        const pnl = (exitPrice - position.entryPrice) * position.size * (signal === 'buy' ? 1 : -1);
-        currentBalance += pnl;
-
-        position.exitTime = new Date(timestamp);
-        position.exitPrice = exitPrice;
-        position.profit = pnl;
-        position.exitReason = exitReason;
-        closedTrades.push({ ...position });
-        equityCurve.push({ timestamp, balance: currentBalance });
-        
-        // DEBUG: Log a trade exit
-        console.log(`[DEBUG: Trade Exit] ${signal.toUpperCase()} closed at ${exitPrice.toFixed(2)} (${exitReason}). PnL: $${pnl.toFixed(2)}. New Balance: $${currentBalance.toFixed(2)}`);
-
-        position = null;
-
-        if (currentBalance <= 0) {
-            console.warn('[Simulation] Account wiped out. Ending simulation.');
-            break;
-        }
-    }
-}
 
         // 2. Check for Entries
         if (!position) {
-            let taSignal = 'buy';
-            let mlSignal = 1;
+            let taSignal = 'hold';
+            let mlSignal = 0;
 
             // A. Get TA Signal (if applicable)
             if (mlMode === 'off' || mlMode === 'predictions') {
@@ -265,7 +264,6 @@ const runSimulation = (config) => {
             // B. Get ML Signal (if applicable)
             if (mlMode === 'on' || mlMode === 'predictions') {
                 if (!mlPredictions || i >= mlPredictions.length) {
-                    // This warning might be too noisy if only a few at the end are missing, but good for initial debug.
                     // console.warn(`[Simulation] ML mode selected but prediction missing for candle index ${i}.`); 
                     continue;
                 }
@@ -278,16 +276,16 @@ const runSimulation = (config) => {
                 finalSignal = taSignal;
             }
             else if (mlMode === 'on') {
-                // 🛑 FIX: PURE ML: 1=Buy, -1=Sell, 0=Hold
-                if (mlSignal === 1) {
+                // 🛑 UPGRADE: PURE ML: Now accepts ML signal '2' for Buy
+                if (mlSignal === 1 || mlSignal === 2) {
                     finalSignal = 'buy';
                 } else if (mlSignal === -1) {
                     finalSignal = 'sell';
                 }
             }
             else if (mlMode === 'predictions') {
-                // 🛑 FIX: Hybrid: Only trade if TA signal AND ML prediction agree (1/-1)
-                if (taSignal === 'buy' && mlSignal === 1) {
+                // 🛑 UPGRADE: Hybrid: Now accepts ML signal '2' for agreement with TA Buy signal
+                if (taSignal === 'buy' && (mlSignal === 1 || mlSignal === 2)) {
                     finalSignal = 'buy';
                 }
                 else if (taSignal === 'sell' && mlSignal === -1) {
@@ -352,7 +350,6 @@ const runSimulation = (config) => {
     console.log(`[Simulation] Finished. Trades: ${closedTrades.length}. Final Balance: ${currentBalance.toFixed(2)}`);
     return { closedTrades, equityCurve };
 };
-
 
 /**
  * Calculates a comprehensive set of performance metrics from trades.

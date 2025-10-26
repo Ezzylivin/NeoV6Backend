@@ -68,23 +68,16 @@ const _getMLConfig = async (modelName, authToken) => {
 
 /**
  * Downloads and parses the feature file using streams to save memory.
- * UPGRADED: Robust date filtering added to prevent missing data/misaligned timestamps
- * due to time zone conversion during the streaming process.
+ * FIX: Uses robust UTC parsing for startDate/endDate and sets a long timeout
+ * for reliable transfer of the large feature file.
  */
 const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
     const data_filename = `${symbol}-${timeframe}-features.csv`;
     const data_url = `${ML_SERVER_URL}/data/${data_filename}`;
     console.log(`[ML] Streaming feature data from: ${data_url}`);
 
-    // --- 🚀 START FIX ---
-    // Create robust UTC timestamps to avoid browser/server time zone shift issues.
-    // We treat all incoming dates as UTC midnight (00:00:00).
-    
-    // 1. Convert YYYY-MM-DD strings to reliable milliseconds (UTC)
+    // --- Date Filtering Logic (Correct and Robust) ---
     const start_ms = new Date(startDate + 'T00:00:00.000Z').getTime();
-    
-    // 2. Set End Date to the very last millisecond of the day
-    // We request 2025-10-25T23:59:59.999Z to ensure the final day's data is included.
     const end_ms = new Date(endDate + 'T23:59:59.999Z').getTime();
 
     if (isNaN(start_ms) || isNaN(end_ms)) {
@@ -102,30 +95,27 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
     parser.on('readable', () => {
         let record;
         while ((record = parser.read()) !== null) {
-            // Note: row.datetime should be an ISO string (YYYY-MM-DD HH:MM:SS) from the CSV
-            // We convert the CSV datetime string directly to milliseconds.
             const row_ms = new Date(record.datetime).getTime();
             
             if (isNaN(row_ms)) continue;
             
-            // Check if the row's timestamp falls within the requested millisecond range
             if (row_ms >= start_ms && row_ms <= end_ms) {
                 filteredData.push(record);
             }
         }
     });
-    // --- END FIX ---
 
     parser.on('error', (err) => {
         throw new Error(`Failed to parse CSV data: ${err.message}`);
     });
 
     try {
+        // --- 🚀 SYNTAX FIX IS HERE ---
         const response = await axios.get(data_url, {
             responseType: 'stream',
-            httpsAgent: httpsAgent
-            // 🚀 FINAL FIX: Add a long timeout for streaming large files
-            timeout: 300000
+            httpsAgent: httpsAgent,
+            // CORRECT WAY to pass the property
+            timeout: 300000 
         });
 
         response.data.pipe(parser);

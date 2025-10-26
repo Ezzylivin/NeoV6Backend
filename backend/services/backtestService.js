@@ -124,6 +124,8 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
         const response = await axios.get(data_url, {
             responseType: 'stream',
             httpsAgent: httpsAgent
+            // 🚀 FINAL FIX: Add a long timeout for streaming large files
+            timeout: 300000
         });
 
         response.data.pipe(parser);

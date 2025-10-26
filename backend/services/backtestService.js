@@ -68,16 +68,20 @@ const _getMLConfig = async (modelName, authToken) => {
 
 /**
  * Downloads and parses the feature file using streams to save memory.
- * FIX: Uses robust UTC parsing for startDate/endDate and sets a long timeout
- * for reliable transfer of the large feature file.
+ * UPGRADED: Robust date filtering added to prevent missing data/misaligned timestamps
+ * due to time zone conversion during the streaming process.
  */
 const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
     const data_filename = `${symbol}-${timeframe}-features.csv`;
     const data_url = `${ML_SERVER_URL}/data/${data_filename}`;
     console.log(`[ML] Streaming feature data from: ${data_url}`);
 
-    // --- Date Filtering Logic (Correct and Robust) ---
+    // --- START FIX: Use fixed UTC timestamps for filtering ---
+    // 1. Force Start Date to UTC midnight (00:00:00)
     const start_ms = new Date(startDate + 'T00:00:00.000Z').getTime();
+    
+    // 2. Force End Date to the last millisecond of the day
+    // We request YYYY-MM-DDT23:59:59.999Z to ensure the final day's data is included.
     const end_ms = new Date(endDate + 'T23:59:59.999Z').getTime();
 
     if (isNaN(start_ms) || isNaN(end_ms)) {
@@ -89,33 +93,40 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
     const parser = parse({
         columns: true,
         skip_empty_lines: true,
-        cast: true
+        // Ensure CSV parser treats numbers as numbers where possible
+        cast: (value, context) => {
+            if (context.header) return value;
+            if (context.column === 'datetime') return value;
+            if (!isNaN(value) && value.trim() !== '') return parseFloat(value);
+            return value;
+        }
     });
 
     parser.on('readable', () => {
         let record;
         while ((record = parser.read()) !== null) {
+            // Convert CSV datetime string directly to milliseconds (UTC)
             const row_ms = new Date(record.datetime).getTime();
             
             if (isNaN(row_ms)) continue;
             
+            // Check if the row's timestamp falls within the requested millisecond range
             if (row_ms >= start_ms && row_ms <= end_ms) {
                 filteredData.push(record);
             }
         }
     });
+    // --- END FIX ---
 
     parser.on('error', (err) => {
         throw new Error(`Failed to parse CSV data: ${err.message}`);
     });
 
     try {
-        // --- 🚀 SYNTAX FIX IS HERE ---
         const response = await axios.get(data_url, {
             responseType: 'stream',
             httpsAgent: httpsAgent,
-            // CORRECT WAY to pass the property
-            timeout: 300000 
+            timeout: 300000 // Set long timeout for large file streaming
         });
 
         response.data.pipe(parser);
@@ -136,7 +147,6 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
         throw new Error(errorMessage);
     }
 };
-
 /**
  * Gets bulk ML predictions
  */

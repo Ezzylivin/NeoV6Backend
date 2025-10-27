@@ -1,6 +1,8 @@
 // File: services/backtestService.js
-// UPGRADED: runBacktest now fetches pre-calculated results for Pure ML mode ('on').
-// REMAINS: Runs simulations for Pure TA ('off') and Hybrid ('predictions') modes.
+// FINAL VERSION:
+// - Fetches pre-calculated results for Pure ML mode ('on').
+// - Uses original Node.js simulation for Pure TA ('off').
+// - Uses original Node.js simulation + ML server calls for Hybrid ('predictions').
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
@@ -22,7 +24,7 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 /**
  * Fetches the model's configuration (like feature list) from the ML server.
- * (Keep this function if needed for Hybrid mode or future ML features)
+ * (Needed for Hybrid mode)
  */
 const _getMLConfig = async (modelName, authToken) => {
     const config_url = `${ML_SERVER_URL}/api/ml/config/${modelName}`;
@@ -36,7 +38,7 @@ const _getMLConfig = async (modelName, authToken) => {
             throw new Error("Invalid config format received from ML server.");
         }
         console.log(`[ML] Received ${response.data.features.length} feature names for ${modelName}.`);
-        return response.data; // Expects { features: [...], horizon: X, ... }
+        return response.data;
     } catch (error) {
         let errorMessage = `Failed to fetch ML config for ${modelName}.`;
         if (error.response) { errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`; }
@@ -50,80 +52,57 @@ const _getMLConfig = async (modelName, authToken) => {
 
 /**
  * Downloads and parses the feature file using streams.
- * (Keep this function only if Hybrid mode remains using Node.js simulation)
+ * (Needed for Hybrid mode)
  */
 const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
-    const data_filename = `${symbol.replace('/', '')}-${timeframe}-features.csv`; // Ensure symbol slashes are removed
+    const data_filename = `${symbol.replace('/', '')}-${timeframe}-features.csv`;
     const data_url = `${ML_SERVER_URL}/data/${data_filename}`;
     console.log(`[ML] Streaming feature data from: ${data_url} for Hybrid Mode`);
 
-    // Force Start Date to UTC midnight (00:00:00)
     const start_ms = new Date(startDate + 'T00:00:00.000Z').getTime();
-    // Force End Date to the last millisecond of the day
     const end_ms = new Date(endDate + 'T23:59:59.999Z').getTime();
 
-    if (isNaN(start_ms) || isNaN(end_ms)) {
-        throw new Error("Invalid start or end date format received.");
-    }
+    if (isNaN(start_ms) || isNaN(end_ms)) { throw new Error("Invalid start or end date format."); }
 
     const filteredData = [];
     const parser = parse({
-        columns: true,
-        skip_empty_lines: true,
-        // Ensure CSV parser treats numbers as numbers where possible
+        columns: true, skip_empty_lines: true,
         cast: (value, context) => {
-            if (context.header) return value;
-            if (context.column === 'datetime') return value; // Keep datetime as string for now
-            // Try converting to number, handle empty strings and non-numeric safely
-            const num = Number(value);
-            if (!isNaN(num) && value !== null && String(value).trim() !== '') return num;
-            return value; // Return original string if not a clear number
-        }
+             if (context.header) return value;
+             if (context.column === 'datetime') return value;
+             const num = Number(value);
+             if (!isNaN(num) && value !== null && String(value).trim() !== '') return num;
+             return value;
+         }
     });
 
     parser.on('readable', () => {
-        let record;
-        while ((record = parser.read()) !== null) {
-            // Convert CSV datetime string directly to milliseconds (UTC)
-            const row_ms = new Date(record.datetime).getTime();
-
-            if (isNaN(row_ms)) continue; // Skip rows with invalid dates
-
-            // Check if the row's timestamp falls within the requested millisecond range
-            if (row_ms >= start_ms && row_ms <= end_ms) {
-                // Ensure numeric fields are numbers after parsing (important redundancy)
-                Object.keys(record).forEach(key => {
-                    if (key !== 'datetime' && typeof record[key] === 'string') {
-                        const num = Number(record[key]);
-                        if (!isNaN(num) && record[key].trim() !== '') {
-                            record[key] = num;
-                        }
-                    }
-                });
-                filteredData.push(record);
-            }
-        }
-    });
-    parser.on('error', (err) => {
-        throw new Error(`Failed to parse CSV data: ${err.message}`);
-    });
+         let record;
+         while ((record = parser.read()) !== null) {
+             const row_ms = new Date(record.datetime).getTime();
+             if (isNaN(row_ms)) continue;
+             if (row_ms >= start_ms && row_ms <= end_ms) {
+                 Object.keys(record).forEach(key => {
+                     if (key !== 'datetime' && typeof record[key] === 'string') {
+                         const num = Number(record[key]);
+                         if (!isNaN(num) && record[key].trim() !== '') {
+                             record[key] = num;
+                         }
+                     }
+                 });
+                 filteredData.push(record);
+             }
+         }
+     });
+    parser.on('error', (err) => { throw new Error(`Failed to parse CSV data: ${err.message}`); });
 
     try {
-        const response = await axios.get(data_url, {
-            responseType: 'stream',
-            httpsAgent: httpsAgent,
-            timeout: 300000 // 5 minutes timeout for potentially large files
-        });
-
+        const response = await axios.get(data_url, { responseType: 'stream', httpsAgent, timeout: 300000 });
         response.data.pipe(parser);
-        await finished(parser); // Wait for the stream processing to complete
-
-        if (filteredData.length === 0) {
-            throw new Error(`No historical feature data found for the selected date range (${startDate} to ${endDate}). Check if the data file exists on the server for this range.`);
-        }
+        await finished(parser);
+        if (filteredData.length === 0) { throw new Error(`No historical feature data found for the selected date range (${startDate} to ${endDate}).`); }
         console.log(`[ML] Found ${filteredData.length} feature rows for Hybrid Mode date range.`);
         return filteredData;
-
     } catch (error) {
         let errorMessage = `Failed to stream feature file from ${data_url}.`;
         if (error.response) { errorMessage += ` Status: ${error.response.status}. ${error.response.data?.detail || error.response.statusText}`; }
@@ -136,7 +115,7 @@ const _getFeatureData = async (symbol, timeframe, startDate, endDate) => {
 
 /**
  * Gets bulk ML predictions.
- * (Keep this function only if Hybrid mode remains using Node.js simulation)
+ * (Needed for Hybrid mode)
  */
 const _getBulkPredictions = async (modelName, features, authToken) => {
     const bulk_url = `${ML_SERVER_URL}/api/ml/predict_bulk`;
@@ -147,18 +126,16 @@ const _getBulkPredictions = async (modelName, features, authToken) => {
         if (authToken) { headers['Authorization'] = `Bearer ${authToken}`; }
         else { console.warn("[ML] WARNING: No auth token provided for bulk prediction call."); }
 
-        const response = await axios.post(bulk_url, payload, { httpsAgent, headers, timeout: 180000 }); // 3 min timeout for bulk predict
+        const response = await axios.post(bulk_url, payload, { httpsAgent, headers, timeout: 180000 });
 
-        // Ensure predictions format is consistent { prediction: X, probability: Y }
         const predictions = response.data.predictions.map(p => {
             if (typeof p === 'number') {
-                // Handle cases where only prediction label might be returned
-                return { prediction: p, probability: 1.0 }; // Assume 100% probability if not given
+                return { prediction: p, probability: 1.0 };
             } else if (p && p.prediction !== undefined && p.probability !== undefined) {
-                return p; // Already in correct format
+                return p;
             } else {
                 console.warn("[ML] Unexpected prediction format received:", p);
-                return { prediction: 0, probability: 0.0 }; // Default to hold/low probability on error
+                return { prediction: 0, probability: 0.0 };
             }
         });
 
@@ -186,10 +163,10 @@ const runSimulation = (config) => {
         strategyFunction,
         strategyParams,
         riskParams,
-        initialBalance, // Guaranteed number from runBacktest
+        initialBalance,
         mlMode,
         mlPredictions,
-        mlThreshold = 0.5 // Default threshold if not provided
+        mlThreshold = 0.5
     } = config;
 
     console.log(`[Simulation] Starting simulation. Mode: ${mlMode}. Candles: ${candles.length}. Predictions: ${mlPredictions?.length || 0}`);
@@ -213,7 +190,7 @@ const runSimulation = (config) => {
 
     let isInGrowthMode = (riskManagementMode === 'dynamic' && initialBalance < growthCapitalTarget);
 
-    // Load Filter Strategies (used if params are passed)
+    // Load Filter Strategies
     const trendFilterPeriod = strategyParams?.trendFilterPeriod;
     const minAtrPct = strategyParams?.minAtrPct;
 
@@ -229,26 +206,23 @@ const runSimulation = (config) => {
         if (!atrStrategy) console.warn("Warning: Volatility filter specified but 'ATR' strategy not found.");
     }
 
-    // Helper to check ML confidence
     const isSignalHighConfidence = (mlPrediction) => {
-        if (!mlThreshold || mlThreshold <= 0) return true; // No threshold means always high confidence
-        if (typeof mlPrediction !== 'object' || typeof mlPrediction.probability !== 'number' || isNaN(mlPrediction.probability)) return false; // Invalid prediction format
+        if (!mlThreshold || mlThreshold <= 0) return true;
+        if (typeof mlPrediction !== 'object' || typeof mlPrediction.probability !== 'number' || isNaN(mlPrediction.probability)) return false;
         return mlPrediction.probability >= mlThreshold;
     };
 
-    // Helper to get ML signal label (handles different formats)
+    // Correctly map ML Server prediction (0, 1, 2) to internal signal (-1, 0, 1)
     const getMLSignalLabel = (mlPrediction) => {
-        if (mlPrediction === null || mlPrediction === undefined) return 0; // Default to hold if no prediction
-        // Python script returns -1, 0, 1. ML Server might return 0, 1, 2. Adjust if needed.
-        // Assuming ML Server returns 0 (Loss), 1 (Hold), 2 (Win) mapped from Python's -1, 0, 1
-        // Convert ML server response (0, 1, 2) back to (-1, 0, 1) for consistent logic
+        if (mlPrediction === null || mlPrediction === undefined) return 0;
         const rawPrediction = mlPrediction?.prediction !== undefined ? mlPrediction.prediction : mlPrediction;
-        if (rawPrediction === 0) return -1; // Loss/Sell
+        // Assuming ML Server uses 0=Sell, 1=Hold, 2=Buy (mapped from Python's -1, 0, 1)
+        if (rawPrediction === 0) return -1; // Sell
         if (rawPrediction === 1) return 0;  // Hold
-        if (rawPrediction === 2) return 1;  // Win/Buy
-        return 0; // Default to hold for unexpected values
+        if (rawPrediction === 2) return 1;  // Buy
+        // console.warn(`[Simulation] Unexpected raw ML prediction value: ${rawPrediction}`);
+        return 0; // Default to hold
     };
-
 
     // Main Simulation Loop
     for (let i = 1; i < candles.length; i++) {
@@ -259,32 +233,25 @@ const runSimulation = (config) => {
         }
         const historicalCandles = candles.slice(0, i + 1);
 
-        const currentMLPrediction = mlPredictions?.[i]; // Get prediction for the current candle index
-        const mlSignal = getMLSignalLabel(currentMLPrediction); // Get -1, 0, or 1
+        const currentMLPrediction = mlPredictions?.[i];
+        const mlSignal = getMLSignalLabel(currentMLPrediction); // Gets -1, 0, or 1
 
         // --- 1. Check for Exits ---
         if (position) {
             let exitPrice = null;
             let exitReason = '';
-            const { slPrice, tpPrice, signal: entrySignal } = position; // entrySignal is 'buy' or 'sell'
+            const { slPrice, tpPrice, signal: entrySignal } = position;
 
-            // A. Check for ML Exit Signal (Reverse Signal)
+            // A. ML Exit Signal (Reverse)
             if ((mlMode === 'on' || mlMode === 'predictions') && currentMLPrediction && isSignalHighConfidence(currentMLPrediction)) {
-                // If we are long ('buy') and ML gives a sell (-1)
-                if (mlSignal === -1 && entrySignal === 'buy') {
-                    exitPrice = close; exitReason = 'ML Exit Signal (Reverse)';
-                }
-                // If we are short ('sell') and ML gives a buy (1)
-                else if (mlSignal === 1 && entrySignal === 'sell') {
-                    exitPrice = close; exitReason = 'ML Exit Signal (Reverse)';
-                }
+                if (mlSignal === -1 && entrySignal === 'buy') { exitPrice = close; exitReason = 'ML Exit Signal (Reverse)'; }
+                else if (mlSignal === 1 && entrySignal === 'sell') { exitPrice = close; exitReason = 'ML Exit Signal (Reverse)'; }
             }
 
-            // B. Check for SL/TP if no ML exit
+            // B. SL/TP Check
             if (exitPrice === null) {
                 const validSlPrice = typeof slPrice === 'number' && !isNaN(slPrice) && isFinite(slPrice);
                 const validTpPrice = typeof tpPrice === 'number' && !isNaN(tpPrice) && isFinite(tpPrice);
-
                 if (entrySignal === 'buy') {
                     if (validSlPrice && low <= slPrice) { exitPrice = slPrice; exitReason = 'Stop-Loss'; }
                     else if (validTpPrice && high >= tpPrice) { exitPrice = tpPrice; exitReason = 'Take-Profit'; }
@@ -294,15 +261,9 @@ const runSimulation = (config) => {
                 }
             }
 
-            // C. Process the Exit
+            // C. Process Exit
             if (exitPrice !== null) {
-                if (typeof exitPrice !== 'number' || isNaN(exitPrice)) {
-                    console.error(`[Simulation Error] Invalid exitPrice calculated: ${exitPrice}. Position:`, position);
-                    // Decide whether to close at 'close' or skip
-                    exitPrice = close; // Close at current close as fallback
-                    exitReason += ' (Fallback Close)';
-                    // continue; // Or skip closing this turn
-                }
+                exitPrice = (typeof exitPrice !== 'number' || isNaN(exitPrice)) ? close : exitPrice; // Fallback to close on invalid price
                 const pnl = (exitPrice - position.entryPrice) * position.size * (entrySignal === 'buy' ? 1 : -1);
                 currentBalance += pnl;
 
@@ -314,180 +275,117 @@ const runSimulation = (config) => {
                 equityCurve.push({ timestamp, balance: currentBalance });
                 position = null;
 
-                if (currentBalance <= 0) {
-                    console.warn('[Simulation] Account wiped out. Ending simulation.');
-                    break; // Stop simulation if balance is zero or less
-                }
+                if (currentBalance <= 0) { console.warn('[Simulation] Account wiped out.'); break; }
             }
-        } // End if (position)
+        } // End Exit Check
 
         // --- 2. Check for Entries ---
-        if (!position && currentBalance > 0) { // Ensure balance > 0 before entering
+        if (!position && currentBalance > 0) {
 
-            // A. Volatility Filter (ATR Check)
+            // A. Volatility Filter
             if (atrStrategy && minAtrPct > 0) {
                 try {
-                    const atrResult = atrStrategy(historicalCandles, { period: 14 }); // Assuming standard 14 period
+                    const atrResult = atrStrategy(historicalCandles, { period: 14 });
                     const atrValue = atrResult?.value;
                     if (typeof atrValue === 'number' && !isNaN(atrValue) && close > 0) {
                         const atrPercent = (atrValue / close) * 100;
-                        if (atrPercent < minAtrPct) {
-                            // console.log(`[DEBUG: Filter] Skipping trade ${i}. ATR ${atrPercent.toFixed(2)}% < Threshold ${minAtrPct}%`);
-                            continue; // Skip entry if market is too flat
-                        }
+                        if (atrPercent < minAtrPct) continue; // Skip entry
                     }
-                } catch (e) {
-                    console.warn(`[Simulation] ATR volatility filter failed at candle ${i}: ${e.message}`);
-                }
+                } catch (e) { console.warn(`[Simulation] ATR filter failed candle ${i}: ${e.message}`); }
             }
 
-            // B. Get Signals (TA and ML)
-            let taSignal = 'hold'; // TA signal ('buy', 'sell', 'hold')
-            let finalSignal = 'hold'; // Final decision ('buy', 'sell', 'hold')
-            let mlEntrySignal = 0; // ML signal (-1, 0, 1) after confidence check
+            // B. Get Signals
+            let taSignal = 'hold';
+            let finalSignal = 'hold';
+            let mlEntrySignal = 0; // -1, 0, 1
 
-            // Get TA Signal (if needed)
             if (mlMode === 'off' || mlMode === 'predictions') {
-                if (!strategyFunction) { console.error("[Simulation] TA/Hybrid mode selected but strategyFunction is missing."); continue; }
-                try {
-                    // Ensure strategy returns an object like { signal: 'buy' }
-                    const taResult = strategyFunction(historicalCandles, strategyParams);
-                    taSignal = taResult?.signal || 'hold';
-                } catch (strategyError) {
-                    console.error(`[Simulation] Strategy Crash at ${new Date(timestamp).toISOString()} candle ${i}:`, strategyError.message);
-                    continue; // Skip candle if strategy fails
-                }
+                if (!strategyFunction) { console.error("Strategy function missing."); continue; }
+                try { taSignal = strategyFunction(historicalCandles, strategyParams)?.signal || 'hold'; }
+                catch (e) { console.error(`Strategy Crash candle ${i}:`, e.message); continue; }
             }
 
-            // Get and Filter ML Signal (if needed)
             if (mlMode === 'on' || mlMode === 'predictions') {
-                if (!currentMLPrediction) {
-                     // console.log(`[DEBUG] No ML prediction available at index ${i}`);
-                     mlEntrySignal = 0; // Treat missing prediction as hold
-                } else if (isSignalHighConfidence(currentMLPrediction)) {
-                    mlEntrySignal = mlSignal; // Use the -1, 0, 1 signal
-                } else {
-                    mlEntrySignal = 0; // Low confidence means hold
-                }
+                mlEntrySignal = (currentMLPrediction && isSignalHighConfidence(currentMLPrediction)) ? mlSignal : 0;
             }
 
-            // C. Determine Final Signal based on Mode
-            const hybridMode = strategyParams?.hybridMode || 'AND'; // Default to AND
-            const mlIsBuy = (mlEntrySignal === 1); // Only check for explicit Buy (1)
-            const mlIsSell = (mlEntrySignal === -1); // Only check for explicit Sell (-1)
+            // C. Determine Final Signal
+            const hybridMode = strategyParams?.hybridMode || 'AND';
+            const mlIsBuy = (mlEntrySignal === 1);
+            const mlIsSell = (mlEntrySignal === -1);
 
-            if (mlMode === 'off') {
-                finalSignal = taSignal; // Pure TA
-            }
+            if (mlMode === 'off') { finalSignal = taSignal; }
             else if (mlMode === 'on') {
-                // Pure ML Mode
                 if (mlIsBuy) { finalSignal = 'buy'; }
                 else if (mlIsSell) { finalSignal = 'sell'; }
-
-                // Apply Trend Regime Filter to PURE ML
+                // Trend Filter for Pure ML
                 if (trendFilterStrategy && finalSignal !== 'hold' && trendFilterPeriod > 0) {
                     try {
-                        // Assuming SMA strategy returns { signal: 'buy'/'sell' } based on price vs SMA
-                        const taRegimeResult = trendFilterStrategy(historicalCandles, { period: trendFilterPeriod });
-                        const taRegime = taRegimeResult?.signal || 'hold';
-                        if (finalSignal === 'buy' && taRegime !== 'buy') {
-                            // console.log(`[DEBUG Filter ${i}] ML Buy blocked by TA Trend Filter (${taRegime})`);
-                            finalSignal = 'hold'; // Block buy if trend is not up
-                        } else if (finalSignal === 'sell' && taRegime !== 'sell') {
-                             // console.log(`[DEBUG Filter ${i}] ML Sell blocked by TA Trend Filter (${taRegime})`);
-                            finalSignal = 'hold'; // Block sell if trend is not down
+                        const taRegime = trendFilterStrategy(historicalCandles, { period: trendFilterPeriod })?.signal || 'hold';
+                        if ((finalSignal === 'buy' && taRegime !== 'buy') || (finalSignal === 'sell' && taRegime !== 'sell')) {
+                            finalSignal = 'hold';
                         }
-                    } catch (e) {
-                        console.warn(`[Simulation] Trend regime filter failed at candle ${i}: ${e.message}`);
-                    }
+                    } catch (e) { console.warn(`Trend filter failed candle ${i}: ${e.message}`); }
                 }
             }
-            else if (mlMode === 'predictions') {
-                // Hybrid Mode
+            else if (mlMode === 'predictions') { // Hybrid
                 if (hybridMode === 'Regime') {
-                    // TA as Regime Filter, ML as Entry Signal
-                    const taRegime = taSignal; // Main TA strategy defines the allowed direction
-                    if (mlIsBuy && taRegime === 'buy') { finalSignal = 'buy'; }
-                    else if (mlIsSell && taRegime === 'sell') { finalSignal = 'sell'; }
+                    if (mlIsBuy && taSignal === 'buy') { finalSignal = 'buy'; }
+                    else if (mlIsSell && taSignal === 'sell') { finalSignal = 'sell'; }
                 } else if (hybridMode === 'OR') {
-                    // TA OR ML (Permissive)
                     if (taSignal === 'buy' || mlIsBuy) { finalSignal = 'buy'; }
                     else if (taSignal === 'sell' || mlIsSell) { finalSignal = 'sell'; }
-                } else { // Default to AND
-                    // TA AND ML (Strict)
+                } else { // AND (Default)
                     if (taSignal === 'buy' && mlIsBuy) { finalSignal = 'buy'; }
                     else if (taSignal === 'sell' && mlIsSell) { finalSignal = 'sell'; }
                 }
             }
 
-            // D. Execute Entry if Signal is Buy or Sell
+            // D. Execute Entry
             if (finalSignal === 'buy' || finalSignal === 'sell') {
-                // --- Position Sizing Logic ---
-                // Validate SL/TP inputs (use defaults if invalid)
                 const slPercentInput = strategyParams?.SL;
                 const tpPercentInput = strategyParams?.TP;
-                const parsedSL = (typeof slPercentInput === 'number' && !isNaN(slPercentInput) && slPercentInput > 0) ? slPercentInput : 1.0; // Default SL 1% if invalid
-                const parsedTP = (typeof tpPercentInput === 'number' && !isNaN(tpPercentInput) && tpPercentInput > 0) ? tpPercentInput : 2.0; // Default TP 2% if invalid
+                const parsedSL = (typeof slPercentInput === 'number' && !isNaN(slPercentInput) && slPercentInput > 0) ? slPercentInput : 1.0;
+                const parsedTP = (typeof tpPercentInput === 'number' && !isNaN(tpPercentInput) && tpPercentInput > 0) ? tpPercentInput : 2.0;
+                const sizingSL = Math.max(0.1, parsedSL);
 
-                // Ensure SL is always positive for sizing calculation
-                const sizingSL = Math.max(0.1, parsedSL); // Min SL 0.1% for sizing
-
-                // Determine effective risk based on mode
                 let effectiveRiskPercent = riskPercentage;
                 if (isInGrowthMode) {
-                    if (currentBalance >= growthCapitalTarget) {
-                         isInGrowthMode = false; // Switch off growth mode
-                         effectiveRiskPercent = riskPercentage; // Use standard risk %
-                     } else {
-                         effectiveRiskPercent = 100; // All-in during growth mode
-                     }
+                     if (currentBalance >= growthCapitalTarget) { isInGrowthMode = false; }
+                     else { effectiveRiskPercent = 100; }
                 }
-                const riskDecimal = Math.max(0, Math.min(1, effectiveRiskPercent / 100)); // Clamp between 0 and 1
+                const riskDecimal = Math.max(0, Math.min(1, effectiveRiskPercent / 100));
                 const stopLossDecimal = sizingSL / 100;
 
-                // Calculate position size based on risk and stop loss distance
                 let positionSizeDollars = (currentBalance * riskDecimal) / stopLossDecimal;
-                positionSizeDollars = Math.min(positionSizeDollars, currentBalance); // Cannot risk more than available balance
-
+                positionSizeDollars = Math.min(positionSizeDollars, currentBalance);
                 const positionSizeUnits = close > 0 ? positionSizeDollars / close : 0;
 
                 if (positionSizeUnits > 0) {
-                    // Calculate SL/TP prices (use defaults if percents were 0)
                     const slPrice = finalSignal === 'buy' ? close * (1 - parsedSL / 100) : close * (1 + parsedSL / 100);
                     const tpPrice = finalSignal === 'buy' ? close * (1 + parsedTP / 100) : close * (1 - parsedTP / 100);
-
                     position = {
-                        entryPrice: close,
-                        entryTime: new Date(timestamp),
-                        size: positionSizeUnits,
-                        signal: finalSignal, // 'buy' or 'sell'
-                        slPrice: slPrice,
-                        tpPrice: tpPrice,
-                        // Add initial ML prediction info if relevant
+                        entryPrice: close, entryTime: new Date(timestamp), size: positionSizeUnits,
+                        signal: finalSignal, slPrice: slPrice, tpPrice: tpPrice,
                         mlEntrySignal: mlMode !== 'off' ? mlEntrySignal : null,
                         mlEntryConfidence: mlMode !== 'off' ? currentMLPrediction?.probability : null
                     };
-                    // console.log(`[DEBUG Entry ${i}] ${finalSignal} @ ${close.toFixed(2)}. Size: ${positionSizeUnits.toFixed(4)}. SL: ${slPrice.toFixed(2)}, TP: ${tpPrice.toFixed(2)}`);
-                } else {
-                    // console.log(`[DEBUG No Entry ${i}] Calculated size was 0. Balance: ${currentBalance}, Close: ${close}`);
                 }
-            } // End if finalSignal buy/sell
-        } // End if (!position)
-    } // End main loop
+            } // End Entry Execution
+        } // End Entry Check
+    } // End Main Loop
 
-    // Ensure last equity point is added
+    // Final Equity Point
     if (candles.length > 0) {
         const lastTimestamp = candles[candles.length - 1][0];
-        // Only add if it's not already the last point
         if (equityCurve.length === 0 || equityCurve[equityCurve.length - 1].timestamp !== lastTimestamp) {
-            // If still in a position, calculate equity based on last close
             const lastClose = candles[candles.length - 1][4];
             const finalEquity = position ? (position.size * lastClose) : currentBalance;
             equityCurve.push({ timestamp: lastTimestamp, balance: finalEquity });
         }
     }
 
-    console.log(`[Simulation] Finished. Trades: ${closedTrades.length}. Final Balance: ${equityCurve[equityCurve.length -1].balance.toFixed(2)}`);
+    console.log(`[Simulation] Finished. Trades: ${closedTrades.length}. Final Balance: $${equityCurve[equityCurve.length -1]?.balance?.toFixed(2) || 'N/A'}`);
     return { closedTrades, equityCurve };
 };
 
@@ -498,29 +396,32 @@ const runSimulation = (config) => {
 const calculateMetrics = (trades, initialBalance, equityCurve) => {
     if (!equityCurve || equityCurve.length === 0 || typeof initialBalance !== 'number' || isNaN(initialBalance)) {
         console.warn("[Metrics] Invalid input for calculation. Returning zeroed metrics.");
+        // Return structure consistent with expected metrics object
         return { initialBalance: initialBalance || 0, finalBalance: initialBalance || 0, totalProfit: 0, totalReturn: 0, totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0, averageWin: 0, averageLoss: 0, profitFactor: null, maxDrawdown: 0 };
     }
     const finalBalance = equityCurve[equityCurve.length - 1].balance;
+    // Check finalBalance validity
     if (typeof finalBalance !== 'number' || isNaN(finalBalance)) {
-        console.error(`[Metrics Error] Final balance is not a valid number: ${finalBalance}. Using initial balance.`);
-        // Return zeroed metrics but keep initial/final balance for context
+        console.error(`[Metrics Error] Final balance is invalid: ${finalBalance}. Using initial balance as fallback.`);
+        // Fallback: return zeroed profit metrics but keep balances for context
         return { initialBalance, finalBalance: initialBalance, totalProfit: 0, totalReturn: 0, totalTrades: trades.length, winningTrades: 0, losingTrades: trades.length, winRate: 0, averageWin: 0, averageLoss: 0, profitFactor: null, maxDrawdown: 0 };
     }
 
     const totalProfit = finalBalance - initialBalance;
     const winningTrades = trades.filter(t => t.profit > 0);
-    const losingTrades = trades.filter(t => t.profit <= 0); // Include zero-profit trades as losses
+    const losingTrades = trades.filter(t => t.profit <= 0); // Includes zero profit trades
     const grossProfit = winningTrades.reduce((sum, t) => sum + t.profit, 0);
     const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + t.profit, 0));
 
-    // Calculate Max Drawdown from equity curve
-    let peakBalance = -Infinity; // Start peak at negative infinity
-    let maxDrawdownValue = 0;
+    // Calculate Max Drawdown %
+    let peakBalance = -Infinity;
+    let maxDrawdownPercent = 0; // Initialize to 0
     equityCurve.forEach(point => {
-        if (typeof point.balance !== 'number' || isNaN(point.balance)) return; // Skip invalid points
+        if (typeof point.balance !== 'number' || isNaN(point.balance)) return;
         if (point.balance > peakBalance) peakBalance = point.balance;
-        const drawdown = peakBalance > 0 ? (peakBalance - point.balance) / peakBalance : 0; // Calculate drawdown percentage
-        if (drawdown * 100 > maxDrawdownValue) maxDrawdownValue = drawdown * 100; // Store as percentage
+        // Calculate drawdown relative to the peak only if peak is positive
+        const currentDrawdownPercent = peakBalance > 0 ? ((peakBalance - point.balance) / peakBalance) * 100 : 0;
+        if (currentDrawdownPercent > maxDrawdownPercent) maxDrawdownPercent = currentDrawdownPercent;
     });
 
     const totalTrades = trades.length;
@@ -534,33 +435,31 @@ const calculateMetrics = (trades, initialBalance, equityCurve) => {
         losingTrades: losingTrades.length,
         winRate: totalTrades > 0 ? (winningTrades.length / totalTrades) * 100 : 0,
         averageWin: winningTrades.length > 0 ? grossProfit / winningTrades.length : 0,
-        averageLoss: losingTrades.length > 0 ? grossLoss / losingTrades.length : 0, // Use grossLoss here
-        profitFactor: grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : null), // Handle zero loss, return null if no profit either
-        maxDrawdown: maxDrawdownValue, // Already calculated as percentage
+        averageLoss: losingTrades.length > 0 ? grossLoss / losingTrades.length : 0,
+        profitFactor: grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : null),
+        maxDrawdown: maxDrawdownPercent, // Use the percentage calculated
     };
 
-    // Replace Infinity with null for JSON compatibility if needed, or handle on frontend
+    // Handle Infinity PF for display/JSON
     if (metrics.profitFactor === Infinity) {
-        metrics.profitFactor = null; // Or keep Infinity and handle display on frontend
-        console.log("[Metrics] Profit Factor is Infinity (no losing trades).");
+        console.log("[Metrics] Profit Factor is Infinity (no losing trades). Setting to null for storage.");
+        metrics.profitFactor = null;
     }
 
     console.log(`[Metrics] Calculated: Trades: ${metrics.totalTrades}, Win Rate: ${metrics.winRate?.toFixed(2)}%, PF: ${metrics.profitFactor?.toFixed(2) ?? 'N/A'}, Max DD: ${metrics.maxDrawdown?.toFixed(2)}%, Final Balance: $${metrics.finalBalance?.toFixed(2)}`);
     return metrics;
 };
 
-
 /**
  * Aggregates metrics for combo tests.
  */
 const _aggregateMetrics = (individualResults, initialBalance) => {
     if (!individualResults || individualResults.length === 0) {
-        return { /* Return zeroed aggregate metrics */ };
+        return { initialBalance, finalBalance: initialBalance, totalProfit: 0, totalReturn: 0, totalTrades: 0, winningTrades: 0, losingTrades: 0, winRate: 0, averageWin: 0, averageLoss: 0, profitFactor: null, maxDrawdown: 0 };
     }
-    // Calculate aggregate metrics based on summing up individual trade counts, profits, losses
     const totalTrades = individualResults.reduce((sum, r) => sum + (r.metrics?.totalTrades || 0), 0);
     const winningTrades = individualResults.reduce((sum, r) => sum + (r.metrics?.winningTrades || 0), 0);
-    const losingTrades = totalTrades - winningTrades; // More reliable than summing individual losses
+    const losingTrades = totalTrades - winningTrades;
     const grossProfit = individualResults.reduce((sum, r) => sum + ((r.metrics?.averageWin || 0) * (r.metrics?.winningTrades || 0)), 0);
     const grossLoss = individualResults.reduce((sum, r) => sum + ((r.metrics?.averageLoss || 0) * (r.metrics?.losingTrades || 0)), 0);
 
@@ -568,14 +467,15 @@ const _aggregateMetrics = (individualResults, initialBalance) => {
     const finalBalance = initialBalance + totalProfit;
     const totalReturn = initialBalance !== 0 ? (totalProfit / initialBalance) * 100 : 0;
     const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
-    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : null);
+    let profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : null);
 
-    // Average the max drawdown percentage (simplistic approach)
     const avgMaxDrawdown = individualResults.length > 0
         ? individualResults.reduce((sum, r) => sum + (r.metrics?.maxDrawdown || 0), 0) / individualResults.length
         : 0;
 
-     const aggregatedMetrics = {
+    if (profitFactor === Infinity) profitFactor = null; // Handle Infinity
+
+    return {
         initialBalance, finalBalance, totalProfit, totalReturn,
         totalTrades, winningTrades, losingTrades, winRate,
         averageWin: winningTrades > 0 ? grossProfit / winningTrades : 0,
@@ -583,20 +483,16 @@ const _aggregateMetrics = (individualResults, initialBalance) => {
         profitFactor,
         maxDrawdown: avgMaxDrawdown
     };
-
-    if (aggregatedMetrics.profitFactor === Infinity) {
-        aggregatedMetrics.profitFactor = null; // Handle Infinity for JSON
-    }
-    return aggregatedMetrics;
 };
 
 
 /**
  * --- MASTER ORCHESTRATOR ---
- * UPGRADED: Fetches pre-calculated results for Pure ML mode ('on').
+ * Final Version: Fetches pre-calculated results for Pure ML mode ('on').
+ * Uses Node.js simulation for Pure TA ('off') and Hybrid ('predictions').
  */
 export const runBacktest = async (config, authToken, simulateOnly = false) => {
-    console.log("[runBacktest] Starting orchestrator with config:", config);
+    console.log("[runBacktest] Starting orchestrator with config:", JSON.stringify(config, null, 2)); // Log incoming config
 
     const isComboTest = config.strategies && Array.isArray(config.strategies) && config.strategies.length > 0;
 
@@ -607,111 +503,98 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 
     const {
         userId, symbol, timeframe, startDate, endDate,
-        mlMode = 'off', mlModel, mlThreshold, ...otherParams // Use otherParams for flexibility
+        mlMode = 'off', mlModel, mlThreshold, ...otherParams
     } = config;
 
-    // Combine potentially separate riskParams and general params from config root
+    // Separate risk params and global params
     const riskParams = {
         riskManagementMode: config.riskManagementMode,
         riskPercentage: config.riskPercentage,
         growthCapitalTarget: config.growthCapitalTarget
     };
-    const globalParams = config.params || {}; // Global filter params etc., directly from config.params
+    const globalParams = config.params || {}; // Global filter params etc.
 
     let candles;
-    let mlPredictions = null; // Still needed for Hybrid mode
-    let dynamicFeatureNames = []; // Still needed for Hybrid mode
+    let mlPredictions = null;
+    let dynamicFeatureNames = [];
 
     try {
         // --- STEP 1: Handle Different Modes ---
 
         if (mlMode === 'on') {
             // --- ✅ NEW: PURE ML MODE ---
-            // Fetch pre-calculated results from the internal API endpoint
             console.log(`[Orchestrator] Fetching pre-calculated ML backtest results for model: ${mlModel || 'default'}`);
             try {
-                // Determine the base URL dynamically - adjust if needed for production
-                const port = process.env.PORT || 5000; // Use environment variable or default
-                // Use 127.0.0.1 which is often more reliable than 'localhost' in server environments
+                const port = process.env.PORT || 5000;
                 const internalApiUrl = `http://127.0.0.1:${port}/api/ml/ml-backtest-results`;
-
                 console.log(`[Orchestrator] Calling internal API: ${internalApiUrl}`);
-                const response = await axios.get(internalApiUrl);
-                const mlResult = response.data; // This is the content of backtest_results.json
 
-                if (!mlResult || typeof mlResult !== 'object') {
-                    throw new Error("Invalid data received from internal ML results endpoint.");
+                const response = await axios.get(internalApiUrl);
+                const mlResult = response.data;
+
+                if (!mlResult || typeof mlResult !== 'object' || !mlResult.initial_balance) { // Basic check
+                    throw new Error("Invalid or empty data received from internal ML results endpoint.");
                 }
                 console.log("[Orchestrator] Successfully fetched pre-calculated ML results.");
 
-                // --- Format the result to match the expected structure for saving/returning ---
+                // --- Format the result ---
                 const formattedResult = {
                     userId, symbol, timeframe, initialBalance: mlResult.initial_balance,
                     finalBalance: mlResult.final_balance,
                     profit: mlResult.final_balance - mlResult.initial_balance,
                     totalTrades: mlResult.total_trades,
-                    startDate: new Date(startDate).toISOString(), // Use original config dates
-                    endDate: new Date(endDate).toISOString(),     // Use original config dates
-                    candlesTested: mlResult.equity_curve?.length || 0, // Estimate from equity curve length
-                    strategy: { // Define strategy object for consistency
-                        name: `ML: ${mlModel || 'Default'}`, // Use model name from config if available
+                    startDate: new Date(startDate).toISOString(),
+                    endDate: new Date(endDate).toISOString(),
+                    candlesTested: mlResult.equity_curve?.length || 0,
+                    strategy: {
+                        name: `ML: ${mlModel || 'Default'}`,
                         type: 'ml',
-                        params: { ...globalParams, mlThreshold: mlThreshold }, // Include global and ML params
+                        params: { ...globalParams, mlThreshold: mlThreshold },
                         mlModel: mlModel || 'Default'
                     },
-                    metrics: { // Map Python results to JS metrics structure
+                    metrics: {
                         initialBalance: mlResult.initial_balance,
                         finalBalance: mlResult.final_balance,
                         totalProfit: mlResult.final_balance - mlResult.initial_balance,
                         totalReturn: mlResult.total_profit_pct,
                         totalTrades: mlResult.total_trades,
-                        // Calculate wins/losses based on win_rate and total_trades
                         winningTrades: Math.round(mlResult.total_trades * (mlResult.win_rate / 100)),
                         losingTrades: Math.round(mlResult.total_trades * (1 - (mlResult.win_rate / 100))),
                         winRate: mlResult.win_rate,
-                        // Note: Python script doesn't calculate avgWin/avgLoss directly in summary
-                        // Need gross_profit / gross_loss from JSON or approximate
-                        // Let's pull these from the detailed trade data if available
-                        averageWin: 0, // Placeholder - Calculate below if possible
-                        averageLoss: 0, // Placeholder - Calculate below if possible
-                        profitFactor: mlResult.profit_factor === Infinity ? null : mlResult.profit_factor, // Handle Infinity
+                        averageWin: 0, // Placeholder - Calculate below
+                        averageLoss: 0, // Placeholder - Calculate below
+                        profitFactor: mlResult.profit_factor === Infinity ? null : mlResult.profit_factor,
                         maxDrawdown: mlResult.max_drawdown_pct
                     },
-                    // Convert equity curve timestamps (Python saves ISO strings)
                     equityCurve: mlResult.equity_curve.map(p => ({
-                         timestamp: p.time, // Already a string from Python
-                         balance: p.equity
+                         timestamp: p.time, balance: p.equity
                     })),
-                     // Convert trade history timestamps and structure
                     tradeHistory: mlResult.trades.map(t => ({
-                        // Map fields from Python's 'trades' structure to expected JS structure
-                        action: t.action,
+                        action: t.action, // 'buy' or 'sell'
                         price: t.price,
-                        time: t.time, // Already a string
+                        time: t.time,
                         size: t.size,
                         pnl_pct: t.pnl_pct,
-                        profit: t.profit_usd || 0, // Use profit_usd as 'profit'
-                        // These might be needed depending on frontend table structure
-                        entryTime: t.action === 'buy' ? t.time : null, // Simplification - real entry time isn't in sell record
-                        exitTime: t.action === 'sell' ? t.time : null, // Simplification
-                        // exitReason: t.exitReason || 'ML Signal', // Add if available/needed
-                        // entryPrice: t.entryPrice || null // Add if available/needed
+                        profit: t.profit_usd || 0,
+                        // Add simplified entry/exit times/reasons if needed by frontend
+                        entryTime: t.action === 'buy' ? t.time : null,
+                        exitTime: t.action === 'sell' ? t.time : null,
+                        exitReason: t.action === 'sell' ? 'ML Signal/Logic' : null, // Generic reason
                     })),
                 };
 
-                // Calculate Avg Win/Loss from detailed trades if available
-                const finalTrades = formattedResult.tradeHistory.filter(t=> t.action === 'sell'); // Only look at closing trades
+                // Calculate Avg Win/Loss from detailed trades
+                const finalTrades = formattedResult.tradeHistory.filter(t => t.action === 'sell' && typeof t.profit === 'number');
                 const finalWinning = finalTrades.filter(t => t.profit > 0);
                 const finalLosing = finalTrades.filter(t => t.profit <= 0);
                 if (finalWinning.length > 0) {
                      formattedResult.metrics.averageWin = finalWinning.reduce((sum, t) => sum + t.profit, 0) / finalWinning.length;
                 }
-                 if (finalLosing.length > 0) {
+                if (finalLosing.length > 0) {
                      formattedResult.metrics.averageLoss = Math.abs(finalLosing.reduce((sum, t) => sum + t.profit, 0)) / finalLosing.length;
-                 }
+                }
 
-
-                 // Decide whether to save or just return
+                 // Save or return
                  if (!simulateOnly) {
                      console.log(`[Orchestrator] Saving fetched ML backtest result to database.`);
                      return await Backtest.create(formattedResult);
@@ -720,100 +603,80 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
                  return formattedResult;
 
             } catch (error) {
-                console.error(`[Orchestrator] Failed to fetch or process pre-calculated ML results: ${error.message}`);
-                if (error.response) { console.error("Response Status:", error.response.status, "Data:", error.response.data); }
-                 else if (error.request) { console.error("No response received from internal API. Is the backend running on the correct port?"); }
-                 else { console.error("Error during request setup:", error.message); }
-                throw new Error(`Failed to retrieve ML backtest results. Ensure the results JSON exists and the endpoint '/api/ml/ml-backtest-results' is working correctly. Internal error: ${error.message}`);
+                console.error(`[Orchestrator] Failed to fetch/process pre-calculated ML results: ${error.message}`);
+                if (error.response) { console.error("Response:", error.response.status, error.response.data); }
+                 else if (error.request) { console.error("No response received from internal API."); }
+                 else { console.error("Error Setup:", error.message); }
+                throw new Error(`Failed to retrieve ML backtest results. Check internal API endpoint '/api/ml/ml-backtest-results'. Error: ${error.message}`);
             }
 
         } else if (mlMode === 'predictions') {
-            // --- HYBRID MODE (Keep using Node.js simulation for now) ---
+            // --- HYBRID MODE (Using Node.js simulation) ---
             console.log(`[Orchestrator] Running HYBRID backtest via Node.js simulation.`);
             if (!mlModel) throw new Error("ML Model name ('mlModel') is required for Hybrid mode.");
 
-            // Fetch ML Config (might still be needed to get feature names)
             const mlConfig = await _getMLConfig(mlModel, authToken);
             dynamicFeatureNames = mlConfig.features;
-
-            // Fetch Feature Data
             const fullFeatureData = await _getFeatureData(symbol, timeframe, startDate, endDate);
 
-            // Extract Candles from Feature Data
-            candles = fullFeatureData.map(row => {
+            candles = fullFeatureData.map(row => { /* ... extract candles ... */
                 const timestamp = new Date(row.datetime).getTime();
-                // Ensure OHLC are numbers
-                const open = Number(row.open);
-                const high = Number(row.high);
-                const low = Number(row.low);
-                const close = Number(row.close);
+                const open = Number(row.open); const high = Number(row.high);
+                const low = Number(row.low); const close = Number(row.close);
                 if ([timestamp, open, high, low, close].some(v => typeof v !== 'number' || isNaN(v))) return null;
                 return [timestamp, open, high, low, close];
-            }).filter(candle => candle !== null);
+            }).filter(Boolean);
 
-            if (!candles || candles.length < 2) throw new Error("Not enough valid candle data in feature file for Hybrid mode.");
+            if (!candles || candles.length < 2) throw new Error("Not enough valid candle data for Hybrid.");
 
-            // Prepare Features for Bulk Prediction - Align with valid candles
-             const validTimestamps = new Set(candles.map(c => c[0]));
-             const alignedFeatureData = fullFeatureData.filter(row => {
-                 const row_ms = new Date(row.datetime).getTime();
-                 return !isNaN(row_ms) && validTimestamps.has(row_ms);
-             });
+            const validTimestamps = new Set(candles.map(c => c[0]));
+            const alignedFeatureData = fullFeatureData.filter(row => validTimestamps.has(new Date(row.datetime).getTime()));
 
-             const features = alignedFeatureData.map(row =>
+            const features = alignedFeatureData.map(row =>
                  dynamicFeatureNames.map(feature => {
                      const val = row[feature];
-                     return (typeof val !== 'number' || isNaN(val)) ? 0 : val; // Default missing features to 0
+                     return (typeof val !== 'number' || isNaN(val)) ? 0 : val;
                  })
              );
 
+            if (features.length !== candles.length) { throw new Error(`Hybrid Data alignment failed: Candles (${candles.length}), Features (${features.length}).`); }
 
-            if (features.length !== candles.length) {
-                 console.error(`Hybrid Feature/Candle Count Mismatch: Candles=${candles.length}, Features=${features.length}, AlignedRows=${alignedFeatureData.length}`);
-                 // Attempt to align based on timestamp mapping if lengths differ significantly
-                 throw new Error(`Hybrid Data alignment failed: Candles (${candles.length}), Features (${features.length}). Check data integrity and date ranges.`);
-             }
-
-            // Get Bulk Predictions
             mlPredictions = await _getBulkPredictions(mlModel, features, authToken);
-            if (mlPredictions.length !== candles.length) throw new Error(`Hybrid Prediction count mismatch: Candles (${candles.length}), Predictions (${mlPredictions.length}).`);
+            if (mlPredictions.length !== candles.length) { throw new Error(`Hybrid Prediction count mismatch: Candles (${candles.length}), Predictions (${mlPredictions.length}).`); }
 
-            console.log(`[Orchestrator] Hybrid Prep: Fetched ${candles.length} candles/features & ${mlPredictions.length} predictions.`);
-            // Continue to common simulation step below...
+            console.log(`[Orchestrator] Hybrid Prep Complete.`);
+            // Continue below to common simulation step...
 
-        } else {
-             // --- PURE TA MODE --- (Keep As Is)
+        } else { // mlMode === 'off'
+             // --- ✅ ORIGINAL PURE TA MODE --- (Kept As Is)
              console.log(`[Orchestrator] Pure TA mode detected. Fetching OHLCV data.`);
              const data = await fetchOHLCVMultiSafe(symbol, timeframe, startDate, endDate);
              if (!data.candles || data.candles.length < 2) throw new Error("Not enough market data for the selected period.");
              candles = data.candles;
              console.log(`[Orchestrator] Fetched ${candles.length} candles for Pure TA.`);
-             // Continue to common simulation step below...
+             // Continue below to common simulation step...
         }
 
 
         // --- STEP 2: Execute Simulation(s) (Only for TA and Hybrid) ---
-        // This block is now skipped for mlMode === 'on'
         if (mlMode !== 'on') {
             if (isComboTest) {
                 // --- COMBO MODE (TA or Hybrid) ---
-                console.log(`[Orchestrator] Running COMBO backtest with ${config.strategies.length} strategies. Mode: ${mlMode}`);
+                console.log(`[Orchestrator] Running COMBO backtest. Mode: ${mlMode}`);
                 const individualResults = [];
-
                 for (const stratConfig of config.strategies) {
                     const { code, params: stratParams } = stratConfig;
-                    if (!code) throw new Error("Strategy 'code' is required for combo items.");
                     const strategy = await Strategy.findOne({ userId, code }).lean();
-                    if (!strategy) throw new Error(`Strategy '${code}' not found.`);
-                    if (!strategy.params?.strategyType) throw new Error(`Strategy '${code}' missing params.`);
+                    // ... (Validate strategy, get function) ...
+                     if (!code) throw new Error("Strategy 'code' required.");
+                     if (!strategy) throw new Error(`Strategy '${code}' not found.`);
+                     if (!strategy.params?.strategyType) throw new Error(`Strategy '${code}' missing params.`);
+                     const strategyFunction = getStrategy(strategy.params.strategyType);
+                     if (!strategyFunction) throw new Error(`Function for '${strategy.params.strategyType}' not found.`);
 
-                    const strategyFunction = getStrategy(strategy.params.strategyType);
-                    if (!strategyFunction) throw new Error(`Function for type '${strategy.params.strategyType}' not found.`);
+                    const combinedParams = { ...globalParams, ...strategy.params, ...stratParams }; // Ensure global params are included
 
-                    // Combine DB params, per-backtest strat params, AND global params
-                    const combinedParams = { ...strategy.params, ...stratParams, ...globalParams };
-
-                    console.log(`[Orchestrator] Running simulation for combo item: ${strategy.name}`);
+                    console.log(`[Orchestrator] Simulating combo item: ${strategy.name}`);
                     const { closedTrades, equityCurve } = runSimulation({
                         candles, strategyFunction, strategyParams: combinedParams,
                         riskParams, initialBalance, mlMode, mlPredictions, mlThreshold
@@ -832,46 +695,41 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
                     individualResults
                  };
                 console.log(`[Orchestrator] COMBO backtest (Mode: ${mlMode}) finished.`);
-                // Return combo result directly (doesn't save aggregate to DB by default)
-                return comboResult;
+                return comboResult; // Return combo result directly
 
             } else {
                 // --- SINGLE MODE (TA or Hybrid) ---
                 console.log(`[Orchestrator] Running SINGLE backtest. Mode: ${mlMode}`);
                 const { code } = config;
-                let strategyFunction = () => ({ signal: 'hold' }); // Default dummy for safety
-                let strategyParams = { ...globalParams, ...(config.params || {}) }; // Start with global, add specific from config.params
+                let strategyFunction = () => ({ signal: 'hold' });
+                // Start with global, add specific from config.params, then add from DB
+                let strategyParams = { ...globalParams, ...(config.params || {}) };
                 let strategyName = 'N/A', strategyType = 'N/A';
 
-                // Only need strategy details if not Pure ML
+                // Fetch strategy details ONLY if TA is involved
                 if (mlMode !== 'on') {
-                    if (!code) throw new Error("Strategy 'code' required for TA/Hybrid mode.");
+                    if (!code) throw new Error("Strategy 'code' required for TA/Hybrid.");
                     const strategy = await Strategy.findOne({ userId, code }).lean();
                     if (!strategy) throw new Error(`Strategy '${code}' not found.`);
                     if (!strategy.params?.strategyType) throw new Error(`Strategy '${code}' missing params.`);
 
                     strategyFunction = getStrategy(strategy.params.strategyType);
-                    if (!strategyFunction) throw new Error(`Function for type '${strategy.params.strategyType}' not found.`);
+                    if (!strategyFunction) throw new Error(`Function for '${strategy.params.strategyType}' not found.`);
 
-                    // Order matters: Global < Config < DB Strategy Params
-                    strategyParams = { ...globalParams, ...(config.params || {}), ...strategy.params };
+                    // Apply DB params last
+                    strategyParams = { ...strategyParams, ...strategy.params };
                     strategyName = strategy.name;
                     strategyType = strategy.params.strategyType;
-                } else {
-                     // Should not happen if mlMode === 'on' is handled above, but set defaults
-                     strategyName = `ML: ${mlModel || 'Default'}`;
-                     strategyType = 'ml';
                 }
 
-
                 if (mlMode === 'predictions') { // Adjust name/type for Hybrid
-                    strategyName = `Hybrid: ${strategyName || 'Unknown TA'} + ${mlModel || 'Unknown ML'}`;
+                    strategyName = `Hybrid: ${strategyName || 'TA'} + ${mlModel || 'ML'}`;
                     strategyType = 'hybrid';
                 }
 
-                 console.log(`[Orchestrator] Running simulation for single strategy: ${strategyName}`);
+                 console.log(`[Orchestrator] Running simulation for: ${strategyName}`);
                 const { closedTrades, equityCurve } = runSimulation({
-                    candles, strategyFunction, strategyParams, // Use the fully combined params
+                    candles, strategyFunction, strategyParams, // Use fully combined params
                     riskParams, initialBalance, mlMode, mlPredictions, mlThreshold
                 });
                 const metrics = calculateMetrics(closedTrades, initialBalance, equityCurve);
@@ -883,27 +741,16 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
                     startDate: new Date(startDate).toISOString(),
                     endDate: new Date(endDate).toISOString(),
                     candlesTested: candles.length,
-                    strategy: {
-                         name: strategyName,
-                         type: strategyType,
-                         // Only save relevant params actually used by the strategy/simulation
-                         params: strategyParams,
-                         mlModel: mlMode !== 'off' ? mlModel : null
-                    },
+                    strategy: { name: strategyName, type: strategyType, params: strategyParams, mlModel: mlMode !== 'off' ? mlModel : null },
                     metrics,
-                     equityCurve: equityCurve.map(p => ({ timestamp: typeof p.timestamp === 'number' ? new Date(p.timestamp).toISOString() : p.timestamp, balance: p.balance })),
-                     tradeHistory: closedTrades.map(t => ({ // Ensure trade history has necessary fields
-                        action: t.signal === 'buy' ? 'LONG' : 'SHORT', // Or keep as buy/sell
-                        entryPrice: t.entryPrice,
-                        exitPrice: t.exitPrice,
+                    equityCurve: equityCurve.map(p => ({ timestamp: typeof p.timestamp === 'number' ? new Date(p.timestamp).toISOString() : p.timestamp, balance: p.balance })),
+                    tradeHistory: closedTrades.map(t => ({ // Map to expected DB/Frontend structure
+                        action: t.signal === 'buy' ? 'LONG' : 'SHORT',
+                        entryPrice: t.entryPrice, exitPrice: t.exitPrice,
                         entryTime: t.entryTime instanceof Date ? t.entryTime.toISOString() : t.entryTime,
                         exitTime: t.exitTime instanceof Date ? t.exitTime.toISOString() : t.exitTime,
-                        profit: t.profit,
-                        size: t.size,
-                        exitReason: t.exitReason,
-                        // Add ML info if available and needed
-                        mlEntrySignal: t.mlEntrySignal,
-                        mlEntryConfidence: t.mlEntryConfidence
+                        profit: t.profit, size: t.size, exitReason: t.exitReason,
+                        mlEntrySignal: t.mlEntrySignal, mlEntryConfidence: t.mlEntryConfidence
                      })),
                 };
 
@@ -917,9 +764,9 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         } // End if (mlMode !== 'on')
 
     } catch (error) {
-        console.error(`[Orchestrator] Backtest failed with a critical error: ${error.message}`);
-        console.error(error.stack); // Log full stack trace
-        // Consider re-throwing a more specific error or returning an error object
+        console.error(`[Orchestrator] Backtest failed: ${error.message}`);
+        console.error(error.stack);
+        // Rethrow a user-friendly error or handle appropriately
         throw new Error(`Backtest Orchestration Failed: ${error.message}`);
     }
 };

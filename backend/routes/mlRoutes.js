@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // --- Configuration ---
-const ML_SERVER_URL = "http://74.208.28.77:8000"; // HTTP and Port 8001
+const ML_SERVER_URL = "http://74.208.28.77:8001"; // HTTP and Port 8001
 
 // --- Route to GET Available ML Models ---
 router.get('/available-models', async (req, res) => { // Use router AFTER initialization

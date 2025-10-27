@@ -13,6 +13,8 @@ import backtestSetupRoutes from "./routes/backtestSetupRoutes.js";
 import botRoutes from "./routes/botRoutes.js";
 import mlRoutes from "./routes/mlRoutes.js";
 
+
+
 const app = express();
 
 // --- Robust CORS Configuration ---
@@ -43,4 +45,7 @@ app.use("/api/backtest", backtestRoutes);
 app.use("/api/backtestSetups", backtestSetupRoutes);
 app.use("/api/bot", botRoutes);
 app.use("/api/ml", mlRoutes);
+
+
+
 export default app;

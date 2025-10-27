@@ -1,0 +1,8 @@
+# File: backend/.gitignore
+
+# Ignore the massive folder of installed libraries
+node_modules
+
+# Ignore the file containing all your secret keys
+.env
+

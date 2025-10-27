@@ -210,7 +210,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
             candles = fullFeatureData.map(row => { /* ... extract candles ... */ }).filter(Boolean);
             if (!candles || candles.length < 2) throw new Error("Not enough candle data for Hybrid.");
             // ... (align features) ...
-            const features = /* ... map aligned features ... */;
+            const features = /* ... map aligned features ... */
             if (features.length !== candles.length) { throw new Error(`Hybrid alignment failed`); }
             mlPredictions = await _getBulkPredictions(mlModel, features, authToken);
             if (mlPredictions.length !== candles.length) { throw new Error(`Hybrid prediction count mismatch`); }

@@ -4,6 +4,33 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url'; // Needed for __dirname in ES Modules
 
+// --- Configuration ---
+// Make sure this URL is correct (HTTP, Port 8001)
+const ML_SERVER_URL = "http://74.208.28.77:8001"; 
+
+// --- Route to GET Available ML Models --- 
+// --- ADD THIS ENTIRE BLOCK ---
+router.get('/available-models', async (req, res) => {
+    const ml_models_url = `${ML_SERVER_URL}/api/ml/models`;
+    console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
+    try {
+        // No httpsAgent needed for HTTP
+        const response = await axios.get(ml_models_url); 
+        console.log("[Node Backend] Successfully fetched models:", response.data);
+        res.status(200).json(response.data || []); // Send the list back to the controller
+    } catch (error) {
+        let errorMessage = `Failed to fetch available models from ML server.`;
+         // Add connection refused check
+         if (error.code === 'ECONNREFUSED') { errorMessage += ` Connection refused. Is the ML server running at ${ML_SERVER_URL}?`;}
+        else if (error.response) { errorMessage += ` Status: ${error.response.status}. ${error.response.data?.error || error.response.statusText}`; } 
+        else if (error.request) { errorMessage += ` No response from ML server.`; } 
+        else { errorMessage += ` Error: ${error.message}`; }
+        console.error(`[Node Backend] Error fetching models: ${errorMessage}`);
+        res.status(500).json({ error: errorMessage });
+    }
+});
+// --- END OF NEW BLOCK ---
+
 const router = express.Router();
 
 // Helper to get __dirname in ES Modules

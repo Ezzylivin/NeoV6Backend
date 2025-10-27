@@ -1,10 +1,13 @@
 // File: src/backend/controllers/backtestController.js
+// UPDATED: fetchBacktestOptionsController now fetches ML models.
+
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 import { runBacktest } from "../services/backtestService.js";
 import { runCombinedStrategyService } from "../services/strategyEngineService.js";
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 import mongoose from "mongoose";
+import axios from "axios"; // <-- Make sure axios is imported
 
 // --- A centralized error handler for controllers ---
 const handleControllerError = (res, error, context) => {
@@ -36,7 +39,7 @@ export const runBacktestController = async (req, res) => {
         if (!config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: symbol, or timeframe." });
         }
-        
+
         // PASS authToken to the service
         const result = await runBacktest(config, authToken);
         res.status(201).json(result);
@@ -78,7 +81,7 @@ export const previewStrategyController = async (req, res) => {
         if (!config.code || !config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
-        
+
         // PASS authToken to the service
         const result = await runBacktest(config, authToken);
         res.status(200).json(result);
@@ -88,38 +91,58 @@ export const previewStrategyController = async (req, res) => {
 };
 
 // --- Other Controllers (CRUD, Options) ---
+
+// --- UPDATED: fetchBacktestOptionsController ---
 export const fetchBacktestOptionsController = async (req, res) => {
     try {
         const userId = req.user._id;
-        console.log(`[OPTIONS CONTROLLER] Attempting to fetch strategies for userId: ${userId}`);
+        console.log(`[OPTIONS CONTROLLER] Attempting to fetch options for userId: ${userId}`);
 
-        const strategies = await Strategy.find({ userId }).select("name code params").lean();
-        console.log(`[OPTIONS CONTROLLER] Database query found ${strategies.length} strategies.`);
-
-        const [exchangeSymbols, exchangeParams] = await Promise.all([
+        // Fetch strategies, symbols, params, and ML models in parallel
+        const [strategies, exchangeSymbols, exchangeParams, availableModels] = await Promise.all([
+            Strategy.find({ userId }).select("name code params").lean(),
             fetchAllExchangeSymbols(),
-            fetchAllExchangeParams()
+            fetchAllExchangeParams(),
+            // --- Fetch available ML models from internal endpoint ---
+            axios.get(`http://127.0.0.1:${process.env.PORT || 5000}/api/ml/available-models`)
+                .then(response => response.data) // Extract data on success
+                .catch(err => {
+                    // Log the error but don't crash the whole options fetch
+                    console.error("[OPTIONS CONTROLLER] Failed to fetch ML models:", err.message);
+                    if (err.response) { console.error("Response:", err.response.status, err.response.data); }
+                    else if (err.request) { console.error("No response from /api/ml/available-models"); }
+                    return []; // Return an empty array if fetching models fails
+                })
+            // --- END Fetch ML models ---
         ]);
 
+        console.log(`[OPTIONS CONTROLLER] DB strategies: ${strategies.length}, Exchange Symbols: ${exchangeSymbols.length}, Models: ${availableModels.length}`);
+
+        // Combine symbols and timeframes from exchanges and strategies
         const symbolSet = new Set(exchangeSymbols);
         const timeframeSet = new Set(exchangeParams.timeframes);
         strategies.forEach(s => {
             if (s.params?.symbol) symbolSet.add(s.params.symbol);
             if (s.params?.timeframe) timeframeSet.add(s.params.timeframe);
         });
-        
+
+        // Prepare the response data including the fetched models
         const responseData = {
             strategies,
             symbols: Array.from(symbolSet).sort(),
-            timeframes: Array.from(timeframeSet)
+            timeframes: Array.from(timeframeSet),
+            models: availableModels // Include the fetched models here
         };
 
         console.log('[OPTIONS CONTROLLER] Sending successful response to frontend.');
         res.json(responseData);
     } catch (err) {
+        // Handle errors from Strategy.find, fetchAllExchangeSymbols, etc.
         handleControllerError(res, err, 'fetchBacktestOptionsController');
     }
 };
+// --- END UPDATED ---
+
 
 export const fetchPastBacktestsController = async (req, res) => {
     try {

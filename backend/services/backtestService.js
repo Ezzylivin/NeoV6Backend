@@ -31,14 +31,35 @@ const _runPythonBacktest = (config) => {
     return new Promise((resolve, reject) => {
         const scriptPath = getPythonScriptPath('backtest_service.py');
         const args = [
-            scriptPath, '--symbol', config.symbol, '--timeframe', config.timeframe,
-            '--start-date', config.startDate, '--end-date', config.endDate,
-            '--balance', config.initialBalance || 1000, '--fee', 0.001,
-            '--ml-mode', 'on', // Force 'on' for this helper
-            '--ml-model', config.mlModel, '--ml-threshold', config.mlThreshold,
-            '--sl', config.params?.SL, '--tp', config.params?.TP,
-            '--hybrid-mode', config.params?.hybridMode || 'AND' // Passed but not used by Python in 'on' mode
+            scriptPath,
+            // Core
+            '--symbol', config.symbol,
+            '--timeframe', config.timeframe,
+            '--start-date', config.startDate,
+            '--end-date', config.endDate,
+            '--balance', config.initialBalance || 1000,
+            '--fee', 0.001, // Or from config
+            // ML
+            '--ml-mode', 'on',
+            '--ml-model', config.mlModel,
+            '--ml-threshold', config.mlThreshold,
+            // Risk - 🚀 ADD THESE 🚀
+            '--risk-mode', config.riskManagementMode || 'standard',
+            '--risk-percent', config.riskPercentage || 1.0,
+            '--growth-target', config.growthCapitalTarget, // Will be null/undefined if not set
+            // Params/Filters - 🚀 ADD/UPDATE THESE 🚀
+            '--sl', config.params?.SL,
+            '--tp', config.params?.TP,
+            '--min-atr', config.params?.minAtrPct,
+            '--trend-period', config.params?.trendFilterPeriod,
+            // Other
+            '--hybrid-mode', config.params?.hybridMode || 'AND' // Still pass even if ignored by Python
         ];
+        // Filter out null/undefined args AFTER defining them all
+        const cleanArgs = args.filter(arg => arg !== undefined && arg !== null);
+
+        console.log(`[Service_PyExec] Spawning Python: python3 ${cleanArgs.map(String).join(' ')}`);
+        const pythonProcess = spawn('python3', cleanArgs.map(String));
         const cleanArgs = args.filter(arg => arg !== undefined && arg !== null);
 
         console.log(`[Service_PyExec] Spawning Python: python3 ${cleanArgs.map(String).join(' ')}`);

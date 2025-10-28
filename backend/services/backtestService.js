@@ -43,11 +43,11 @@ const _runPythonBacktest = (config) => {
             '--ml-mode', 'on',
             '--ml-model', config.mlModel,
             '--ml-threshold', config.mlThreshold,
-            // Risk - 🚀 ADD THESE 🚀
+            // Risk - Arguments added
             '--risk-mode', config.riskManagementMode || 'standard',
             '--risk-percent', config.riskPercentage || 1.0,
-            '--growth-target', config.growthCapitalTarget, // Will be null/undefined if not set
-            // Params/Filters - 🚀 ADD/UPDATE THESE 🚀
+            '--growth-target', config.growthCapitalTarget, // Pass null/undefined if not set
+            // Params/Filters - Arguments added
             '--sl', config.params?.SL,
             '--tp', config.params?.TP,
             '--min-atr', config.params?.minAtrPct,
@@ -55,14 +55,12 @@ const _runPythonBacktest = (config) => {
             // Other
             '--hybrid-mode', config.params?.hybridMode || 'AND' // Still pass even if ignored by Python
         ];
-        // Filter out null/undefined args AFTER defining them all
+
+        // ❗ FIXED: Filter null/undefined values *once* before spawning
         const cleanArgs = args.filter(arg => arg !== undefined && arg !== null);
 
         console.log(`[Service_PyExec] Spawning Python: python3 ${cleanArgs.map(String).join(' ')}`);
-        const pythonProcess = spawn('python3', cleanArgs.map(String));
-        const cleanArgs = args.filter(arg => arg !== undefined && arg !== null);
-
-        console.log(`[Service_PyExec] Spawning Python: python3 ${cleanArgs.map(String).join(' ')}`);
+        // Use cleanArgs here
         const pythonProcess = spawn('python3', cleanArgs.map(String));
 
         let resultData = ''; let errorData = '';
@@ -70,15 +68,28 @@ const _runPythonBacktest = (config) => {
         pythonProcess.stderr.on('data', (data) => { console.error(`[Python_stderr] ${data.toString()}`); errorData += data.toString(); });
         pythonProcess.on('close', (code) => {
             if (code === 0) { // Success
-                try { const results = JSON.parse(resultData); console.log("[Service_PyExec] Python script finished successfully."); resolve(results); }
-                catch (e) { console.error("[Service_PyExec] Failed to parse Python JSON:", resultData); reject(new Error(`Parse Error: ${e.message}`)); }
+                try {
+                    const results = JSON.parse(resultData);
+                    console.log("[Service_PyExec] Python script finished successfully.");
+                    resolve(results);
+                } catch (e) {
+                    console.error("[Service_PyExec] Failed to parse Python JSON:", resultData);
+                    reject(new Error(`Parse Error: ${e.message}`));
+                }
             } else { // Failure
                 console.error(`[Service_PyExec] Python script failed (code ${code}).`);
-                try { const errJson = JSON.parse(errorData); reject(new Error(errJson.message || "Python script error.")); }
-                catch (e) { reject(new Error(errorData || "Python script failed, no stderr.")); }
+                try {
+                    const errJson = JSON.parse(errorData);
+                    reject(new Error(errJson.message || "Python script error."));
+                } catch (e) {
+                    reject(new Error(errorData || "Python script failed, no stderr."));
+                }
             }
         });
-        pythonProcess.on('error', (err) => { console.error("[Service_PyExec] Spawn Error:", err); reject(new Error(`Spawn Error: ${err.message}`)); });
+        pythonProcess.on('error', (err) => {
+            console.error("[Service_PyExec] Spawn Error:", err);
+            reject(new Error(`Spawn Error: ${err.message}`));
+        });
     });
 };
 

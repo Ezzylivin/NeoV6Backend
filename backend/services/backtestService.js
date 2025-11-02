@@ -1,11 +1,3 @@
-// File: backend/services/backtestService.js
-//
-// UPGRADED:
-// - All logic for 'off' and 'predictions' has been REMOVED.
-// - This service now acts as a simple, dumb "proxy" to the Python ML server.
-// - It passes ALL requests (on, off, predictions) to the Python server,
-//   which now contains the logic for all 3 modes.
-
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import axios from "axios";
@@ -37,52 +29,8 @@ const generateCacheFilename = (config) => {
     return `${hash}.json`;
 };
 
-// --- Helper: Format API Result ---
-const formatApiResult = (apiResult, config) => {
-    // This helper formats the Python result for saving to the DB
-    const { userId, symbol, timeframe, startDate, endDate, mlMode, mlModel, code } = config;
-    const initialBalance = parseFloat(config.initialBalance);
-    
-    if (!apiResult?.metrics || !apiResult?.equityCurve) { 
-        console.error("[Service] Invalid structure from ML API:", apiResult); 
-        throw new Error("Invalid result structure from ML API."); 
-    }
-    
-    let strategyName = "Unknown";
-    if (mlMode === 'on') {
-        strategyName = `ML: ${mlModel}`;
-    } else if (mlMode === 'predictions') {
-        strategyName = `Hybrid: ${code} + ${mlModel}`;
-    } else {
-        strategyName = `TA: ${code}`;
-    }
-
-    return {
-        userId, symbol, timeframe, initialBalance,
-        finalBalance: apiResult.metrics.finalBalance,
-        profit: apiResult.metrics.finalBalance - initialBalance,
-        totalTrades: apiResult.metrics.totalTrades,
-        startDate: new Date(startDate).toISOString(),
-        endDate: new Date(endDate).toISOString(),
-        candlesTested: apiResult.equityCurve?.length || 0,
-        strategy: {
-            name: strategyName,
-            type: mlMode,
-            params: { ...config.params, mlThreshold: config.mlThreshold },
-            mlModel: mlModel || null,
-            taCode: code || null,
-        },
-        metrics: apiResult.metrics,
-        equityCurve: apiResult.equityCurve.map(p => ({ timestamp: p.timestamp, balance: p.balance })),
-        tradeHistory: (apiResult.trades || []).map(t => ({ 
-            action: t.action, price: t.price, time: t.time, size: t.size, 
-            pnl_pct: t.pnl_pct || 0, profit: t.profit_usd || 0, 
-            entryTime: (t.action === 'buy' || t.action === 'sell_short') ? t.time : null, 
-            exitTime: (t.action.startsWith('sell') || t.action === 'cover') ? t.time : null, 
-            exitReason: (t.action.startsWith('sell') || t.action === 'cover') ? t.reason || t.action : null 
-        })),
-    };
-};
+// 🚀 --- formatApiResult function has been REMOVED --- 🚀
+// The Python server is now the source of truth for formatting.
 
 /**
  * --- MASTER FUNCTION (Single Backtest) ---
@@ -103,8 +51,10 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         console.log(`[Service] Cache HIT for ${cacheFilename}.`);
         const mlResult = JSON.parse(cachedData);
         
-        // Return formatted result (don't save to DB on cache hit)
-        return formatApiResult(mlResult, config);
+        // 🚀 FIXED: Return the cached result directly.
+        // The only thing Python doesn't know is the userId.
+        console.log(`[Service] Returning CACHED simulation-only result.`);
+        return { ...mlResult, userId: config.userId };
         
     } catch (error) {
         if (error.code !== 'ENOENT') {
@@ -146,14 +96,19 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
             console.error(`[Service] WARNING: Failed to save to cache: ${saveError.message}`); 
         }
 
-        // --- 4. Format & Return/Save ---
-        const formattedResult = formatApiResult(mlResult, config);
+        // --- 4. Return/Save (True Proxy Logic) ---
+        // 🚀 FIXED: We trust the mlResult from Python completely.
+        // It must match the DB schema.
+        // The only thing Python doesn't know is the userId.
+        const resultFromPython = { ...mlResult, userId: config.userId };
+
         if (!simulateOnly) { 
             console.log(`[Service] Saving NEW backtest to DB.`); 
-            return await Backtest.create(formattedResult); 
+            // Save the Python result directly to the DB
+            return await Backtest.create(resultFromPython); 
         }
         console.log(`[Service] Returning NEW simulation-only result.`); 
-        return formattedResult;
+        return resultFromPython;
     }
 };
 
@@ -187,10 +142,9 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
         console.log("[Service] Successfully received combo results from Python Server API.");
         
         // The Python server should return the data pre-formatted
-        // But we will format it just in case
+        // We just add the userId for consistency before returning
         return {
              userId,
-             ...comboConfig,
              ...comboApiResult // This should contain combinedResult, individualResults
          };
 

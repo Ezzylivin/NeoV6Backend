@@ -1,13 +1,22 @@
 // File: src/backend/controllers/backtestController.js
 // UPDATED: fetchBacktestOptionsController now fetches ML models.
+// 🚀 UPGRADE: Fixed all imports and removed inefficient "self-call" for models.
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import { runBacktest } from "../services/backtestService.js";
-import { runCombinedStrategyService } from "../services/strategyEngineService.js";
+// 🚀 FIXED: Import both from the correct service
+import { 
+    runBacktest, 
+    runCombinedStrategyService 
+} from "../services/backtestService.js"; 
+// 🚀 FIXED: strategyEngineService.js removed
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
+// 🚀 FIXED: Import the model service directly instead of using axios self-call
+// (Assuming your function is in mlService.js, update path if needed)
+import { getAvailableModels } from "../services/mlService.js"; 
 import mongoose from "mongoose";
-import axios from "axios"; // <-- Make sure axios is imported
+// axios is no longer needed for fetchBacktestOptionsController
+// import axios from "axios"; 
 
 // --- A centralized error handler for controllers ---
 const handleControllerError = (res, error, context) => {
@@ -63,7 +72,7 @@ export const runComboBacktestController = async (req, res) => {
         }
 
         // PASS authToken to the service
-        // NOTE: You must ensure runCombinedStrategyService is updated to accept this argument
+        // 🚀 FIXED: This now correctly calls the function from backtestService.js
         const result = await runCombinedStrategyService(userId, comboPayload, authToken);
         res.status(200).json(result);
     } catch (error) {
@@ -103,14 +112,11 @@ export const fetchBacktestOptionsController = async (req, res) => {
             Strategy.find({ userId }).select("name code params").lean(),
             fetchAllExchangeSymbols(),
             fetchAllExchangeParams(),
-            // --- Fetch available ML models from internal endpoint ---
-            axios.get(`http://127.0.0.1:${process.env.PORT || 5000}/api/ml/available-models`)
-                .then(response => response.data) // Extract data on success
+            // 🚀 FIXED: Directly call the service function, no inefficient self-call
+            getAvailableModels()
                 .catch(err => {
                     // Log the error but don't crash the whole options fetch
                     console.error("[OPTIONS CONTROLLER] Failed to fetch ML models:", err.message);
-                    if (err.response) { console.error("Response:", err.response.status, err.response.data); }
-                    else if (err.request) { console.error("No response from /api/ml/available-models"); }
                     return []; // Return an empty array if fetching models fails
                 })
             // --- END Fetch ML models ---

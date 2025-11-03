@@ -51,9 +51,10 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         console.log(`[Service] Cache HIT for ${cacheFilename}.`);
         const mlResult = JSON.parse(cachedData);
         
-        // 🚀 FIXED: Return the cached result directly.
-        // The only thing Python doesn't know is the userId.
-        console.log(`[Service] Returning CACHED simulation-only result.`);
+        // 🚀 DEBUG LOG
+        console.log("✅ [Service] CACHE HIT. Returning (but not saving):", JSON.stringify(mlResult, null, 2));
+
+        // Return the cached result directly.
         return { ...mlResult, userId: config.userId };
         
     } catch (error) {
@@ -66,6 +67,9 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         console.log(`[Service] Cache MISS. Calling Python ML Server...`);
         const flaskUrl = `${ML_SERVER_URL}/api/ml/run-backtest-on`;
         let mlResult;
+
+        // 🚀 DEBUG LOG 1: What are we sending to Python?
+        console.log("➡️ [Service] 1. CONFIG SENT TO PYTHON:", JSON.stringify(config, null, 2));
         
         try {
             console.log(`[Service] Posting config to ${flaskUrl}`);
@@ -75,6 +79,10 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
                 timeout: 600000 // 10 minute timeout for long backtests
             });
             mlResult = response.data;
+
+            // 🚀 DEBUG LOG 2: What did we get back from Python?
+            console.log("⬅️ [Service] 2. RAW RESPONSE FROM PYTHON (Success):", JSON.stringify(mlResult, null, 2));
+
             if (!mlResult?.metrics || !mlResult?.equityCurve) {
                 throw new Error("Invalid data structure from Python API.");
             }
@@ -82,8 +90,11 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         
         } catch (apiError) { // Handle API call errors
             let msg = `Python Server API call failed (${flaskUrl}): ${apiError.message}`;
-            if (apiError.code === 'ECONNREFUSED' || apiError.code === 'ETIMEDOUT') msg += ` at ${ML_SERVER_URL}`;
-            else if (apiError.response) msg += ` Status: ${apiError.response.status}. Data: ${JSON.stringify(apiError.response.data)}`;
+            if (apiError.response) {
+                // 🚀 DEBUG LOG 2.5 (Error): What did Python send on failure?
+                console.error("🔥 [Service] 2. RAW RESPONSE FROM PYTHON (Failure):", JSON.stringify(apiError.response.data, null, 2));
+                msg += ` Status: ${apiError.response.status}. Data: ${JSON.stringify(apiError.response.data)}`;
+            }
             console.error(`[Service] ${msg}`); 
             throw new Error(msg);
         }
@@ -97,14 +108,14 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         }
 
         // --- 4. Return/Save (True Proxy Logic) ---
-        // 🚀 FIXED: We trust the mlResult from Python completely.
-        // It must match the DB schema.
-        // The only thing Python doesn't know is the userId.
         const resultFromPython = { ...mlResult, userId: config.userId };
+
+        // 🚀 DEBUG LOG 3: What are we trying to save to the database?
+        console.log("💾 [Service] 3. FINAL OBJECT TO BE SAVED:", JSON.stringify(resultFromPython, null, 2));
 
         if (!simulateOnly) { 
             console.log(`[Service] Saving NEW backtest to DB.`); 
-            // Save the Python result directly to the DB
+            // This is where the Mongoose validation error happens
             return await Backtest.create(resultFromPython); 
         }
         console.log(`[Service] Returning NEW simulation-only result.`); 
@@ -114,20 +125,15 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 
 /**
  * --- MASTER ORCHESTRATOR (Combo Backtest) ---
- * 🚀 This is now also a proxy. We pass the *entire* combo config
- * to a new Python endpoint that will handle the combo logic.
- *
- * NOTE: This requires adding a '/api/ml/run-combo-backtest' endpoint
- * to your ml_server_api.py file.
  */
 export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
     console.log("[Service] Starting COMBO backtest. Forwarding to Python...");
     
-    // 🚀 We will send the *entire* combo config to Python
-    // The Python server will be responsible for looping and aggregating.
-    
-    const flaskUrl = `${ML_SERVER_URL}/api/ml/run-combo-backtest`; // 🚀 NEW ENDPOINT
+    const flaskUrl = `${ML_SERVER_URL}/api/ml/run-combo-backtest`;
     let comboApiResult;
+
+    // 🚀 DEBUG LOG (COMBO)
+    console.log("➡️ [Service] 1. COMBO CONFIG SENT TO PYTHON:", JSON.stringify({ ...comboConfig, userId }, null, 2));
 
     try {
         console.log(`[Service] Posting combo config to ${flaskUrl}`);
@@ -136,13 +142,15 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
             timeout: 1800000 // 30 min timeout for complex combos
         });
         comboApiResult = response.data;
+
+        // 🚀 DEBUG LOG (COMBO)
+        console.log("⬅️ [Service] 2. RAW COMBO RESPONSE FROM PYTHON (Success):", JSON.stringify(comboApiResult, null, 2));
+
         if (!comboApiResult?.combinedResult || !comboApiResult?.individualResults) {
             throw new Error("Invalid combo data structure from Python API.");
         }
         console.log("[Service] Successfully received combo results from Python Server API.");
         
-        // The Python server should return the data pre-formatted
-        // We just add the userId for consistency before returning
         return {
              userId,
              ...comboApiResult // This should contain combinedResult, individualResults
@@ -150,8 +158,11 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
 
     } catch (apiError) {
         let msg = `Python Server COMBO API call failed (${flaskUrl}): ${apiError.message}`;
-        if (apiError.code === 'ECONNREFUSED' || apiError.code === 'ETIMEDOUT') msg += ` at ${ML_SERVER_URL}`;
-        else if (apiError.response) msg += ` Status: ${apiError.response.status}. Data: ${JSON.stringify(apiError.response.data)}`;
+        if (apiError.response) {
+            // 🚀 DEBUG LOG (COMBO)
+            console.error("🔥 [Service] 2. RAW COMBO RESPONSE FROM PYTHON (Failure):", JSON.stringify(apiError.response.data, null, 2));
+            msg += ` Status: ${apiError.response.status}. Data: ${JSON.stringify(apiError.response.data)}`;
+        }
         console.error(`[Service] ${msg}`); 
         throw new Error(msg);
     }

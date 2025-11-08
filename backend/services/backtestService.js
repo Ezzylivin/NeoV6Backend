@@ -114,9 +114,10 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         
         // --- 💡 START OF BSON 16MB LIMIT FIX ---
         // Create a separate object to save to the database
-        // This object *excludes* the massive candleData array
+        // This object *excludes* the massive arrays
         const dataToSave = { ...resultFromPython };
         delete dataToSave.candleData; 
+        delete dataToSave.mlPredictions; // 👈 THIS IS THE NEW LINE
         // --- 💡 END OF BSON 16MB LIMIT FIX ---
 
 
@@ -131,7 +132,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         }
         
         console.log(`[Service] Returning NEW full result (with candleData) to frontend.`); 
-        // Return the FULL original object (with candleData) to the frontend
+        // Return the FULL original object (with candleData and mlPredictions) to the frontend
         return resultFromPython;
     }
 };

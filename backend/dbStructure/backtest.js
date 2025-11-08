@@ -159,7 +159,7 @@ const backtestSchema = new Schema({
   executionTime: { type: Number }, // milliseconds
   positionSide: {
     type: String,
-  .enum: ["long", "short", "both"],
+    enum: ["long", "short", "both"],
     default: "both"
   },
   tradeConfig: { type: Schema.Types.Mixed },

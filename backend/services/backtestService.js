@@ -1,3 +1,5 @@
+// File: /path/to/your/backtest.js
+
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import axios from "axios";
@@ -109,16 +111,27 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 
         // --- 4. Return/Save (True Proxy Logic) ---
         const resultFromPython = { ...mlResult, userId: config.userId };
+        
+        // --- 💡 START OF BSON 16MB LIMIT FIX ---
+        // Create a separate object to save to the database
+        // This object *excludes* the massive candleData array
+        const dataToSave = { ...resultFromPython };
+        delete dataToSave.candleData; 
+        // --- 💡 END OF BSON 16MB LIMIT FIX ---
+
 
         // 🚀 DEBUG LOG 3: What are we trying to save to the database?
-        console.log("💾 [Service] 3. FINAL OBJECT TO BE SAVED:", JSON.stringify(resultFromPython, null, 2));
+        console.log("💾 [Service] 3. FINAL OBJECT TO BE SAVED (small):", JSON.stringify(dataToSave, null, 2));
 
         if (!simulateOnly) { 
             console.log(`[Service] Saving NEW backtest to DB.`); 
-            // This is where the Mongoose validation error happens
-            return await Backtest.create(resultFromPython); 
+            // Save the small object to the database
+            await Backtest.create(dataToSave);
+            // NOTE: We do NOT return the result of create()
         }
-        console.log(`[Service] Returning NEW simulation-only result.`); 
+        
+        console.log(`[Service] Returning NEW full result (with candleData) to frontend.`); 
+        // Return the FULL original object (with candleData) to the frontend
         return resultFromPython;
     }
 };

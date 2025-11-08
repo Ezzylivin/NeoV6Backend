@@ -122,20 +122,17 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 
 
         // 🚀 DEBUG LOG 3: What are we trying to save to the database?
-        console.log("💾 [Service] 3. FINAL OBJECT TO BE SAVED (small):", JSON.stringify(dataToSave, null, 2));
+console.log("💾 [Service] 3. FINAL OBJECT TO BE SAVED (small):", JSON.stringify(dataToSave, null, 2));
 
-        if (!simulateOnly) { 
-            console.log(`[Service] Saving NEW backtest to DB.`); 
-            // Save the small object to the database
-            await Backtest.create(dataToSave);
-            // NOTE: We do NOT return the result of create()
-        }
-        
-        console.log(`[Service] Returning NEW full result (with candleData) to frontend.`); 
-        // Return the FULL original object (with candleData and mlPredictions) to the frontend
-        return resultFromPython;
-    }
-};
+if (!simulateOnly) { 
+    console.log(`[Service] Saving NEW backtest to DB.`); 
+    // Save the *small* object to the database
+    await Backtest.create(dataToSave); 
+}
+
+console.log(`[Service] Returning NEW full result (with candleData) to frontend.`); 
+// Return the *FULL* original object to the frontend
+return resultFromPython;
 
 /**
  * --- MASTER ORCHESTRATOR (Combo Backtest) ---

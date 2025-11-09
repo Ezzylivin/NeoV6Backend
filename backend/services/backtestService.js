@@ -1,4 +1,8 @@
 // File: /path/to/your/backtestService.js
+//
+// 💡 STRATEGY UPGRADE:
+// - Added 'minAdxLevel' and 'tslAtrMult' to the cache key
+//   to ensure new strategy params trigger a fresh run.
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
@@ -25,7 +29,12 @@ const generateCacheFilename = (config) => {
         sl: config.params?.SL ?? 'none', tp: config.params?.TP ?? 'none',
         rm: config.riskManagementMode, rp: config.riskPercentage, gt: config.growthCapitalTarget,
         matr: config.params?.minAtrPct, tper: config.params?.trendFilterPeriod,
-        hybrid: config.params?.hybridMode
+        hybrid: config.params?.hybridMode,
+
+        // --- 💡 START OF STRATEGY FIX (Cache Key) ---
+        adx: config.params?.minAdxLevel ?? 'none',
+        tsl: config.params?.tslAtrMult ?? 'none'
+        // --- 💡 END OF STRATEGY FIX (Cache Key) ---
     });
     const hash = crypto.createHash('sha256').update(paramsKey).digest('hex');
     return `${hash}.json`;
@@ -135,7 +144,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         // Return the FULL original object (with candleData and mlPredictions) to the frontend
         return resultFromPython;
     }
-}; // 👈 💡 THIS IS THE MISSING CLOSING BRACE
+};
 
 /**
  * --- MASTER ORCHESTRATOR (Combo Backtest) ---

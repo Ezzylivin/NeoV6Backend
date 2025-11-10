@@ -20,7 +20,7 @@ const __dirname = path.dirname(__filename);
 const ML_SERVER_URL = "https://74.208.28.77:8000";
 
 // ✅ 3. ADDED: Agent to handle self-signed certificates for HTTPS calls
-//const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 // --- Route to GET Available ML Models ---
 router.get('/available-models', async (req, res) => {

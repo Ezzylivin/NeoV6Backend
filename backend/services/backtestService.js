@@ -7,15 +7,15 @@
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import axios from "axios";
-import https from 'https';
+//import https from 'https';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import crypto from 'crypto';
 
 // --- Configuration ---
-const ML_SERVER_URL = "https://74.208.28.77:8001"; // URL for your Python server
-const httpsAgent = new https.Agent({ rejectUnauthorized: false }); // Allow self-signed cert
+const ML_SERVER_URL = "http://74.208.28.77:8001"; // URL for your Python server
+//const httpsAgent = new https.Agent({ rejectUnauthorized: false }); // Allow self-signed cert
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -86,7 +86,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
             console.log(`[Service] Posting config to ${flaskUrl}`);
             // Pass the *entire* config, Python will figure out the mode
             const response = await axios.post(flaskUrl, config, { 
-                httpsAgent: httpsAgent, 
+                //httpsAgent: httpsAgent, 
                 timeout: 600000 // 10 minute timeout for long backtests
             });
             mlResult = response.data;

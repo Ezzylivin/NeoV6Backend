@@ -1,51 +1,50 @@
 // File: backend/routes/mlRoutes.js
 // 💡 UPGRADE:
-// 1. Commented out all HTTPS logic.
-// 2. Switched to plain HTTP to match the Python server.
-// This fixes the 'Bad request version' SSL error.
+// 1. Re-enabled HTTPS logic.
+// 2. The server now calls the `https://` URL
+// 3. It uses `httpsAgent` to accept the self-signed cert.
 
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
-// import https from 'https'; // <-- 💡 FIX 1: Commented out, not needed for HTTP
+import https from 'https'; // <-- 1. UN-COMMENTED (or added)
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // --- Configuration ---
-// 💡 FIX 2: Change URL to HTTP
-const ML_SERVER_URL = "http://74.208.28.77:8001";
-// const ML_SERVER_URL = "https://74.208.28.77:8001"; // <-- 💡 OLD BUGGY URL
+// ✅ 2. FIXED: Use HTTPS
+const ML_SERVER_URL = "https://74.208.28.77:8001";
 
-// 💡 FIX 3: Commented out, not needed for HTTP
-// const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+// ✅ 3. ADDED: Agent to handle self-signed certificates for HTTPS calls
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 // --- Route to GET Available ML Models ---
 router.get('/available-models', async (req, res) => {
-    const ml_models_url = `${ML_SERVER_URL}/api/ml/models`;
-    console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
-    try {
-        // 💡 FIX 4: Removed httpsAgent from the call
-        const response = await axios.get(ml_models_url);
-        // const response = await axios.get(ml_models_url, { httpsAgent: httpsAgent }); // <-- 💡 OLD BUGGY CALL
-        
-        console.log("[Node Backend] Successfully fetched models:", response.data);
-        res.status(200).json(response.data || []); // Send the list back
-    } catch (error) {
-        let errorMessage = `Failed to fetch available models from ML server.`;
-         // Add connection refused check
-         if (error.code === 'ECONNREFUSED') { errorMessage += ` Connection refused. Is the ML server API running at ${ML_SERVER_URL} and accessible?`;}
-         // Handle SSL errors specifically if needed
-         else if (error.message.includes('SSL') || error.message.includes('certificate')) { errorMessage += ` SSL Certificate issue. Ensure the ML server is running with valid certificates or try allowing self-signed certificates. Error: ${error.message}`;}
-         else if (error.response) { errorMessage += ` Status: ${error.response.status}. ${error.response.data?.error || error.response.statusText}`; }
-         else if (error.request) { errorMessage += ` No response from ML server API.`; }
-         else { errorMessage += ` Error: ${error.message}`; }
-         console.error(`[Node Backend] Error fetching models: ${errorMessage}`);
-         res.status(500).json({ error: errorMessage });
-    }
+    // This will now correctly call: https://.../api/ml/models
+    const ml_models_url = `${ML_SERVER_URL}/api/ml/models`;
+    console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
+    try {
+        // ✅ 4. FIXED: Added httpsAgent to the axios call
+        const response = await axios.get(ml_models_url, { httpsAgent: httpsAgent });
+        
+        console.log("[Node Backend] Successfully fetched models:", response.data);
+        res.status(200).json(response.data || []); // Send the list back
+    } catch (error) {
+        let errorMessage = `Failed to fetch available models from ML server.`;
+          // Add connection refused check
+          if (error.code === 'ECONNREFUSED') { errorMessage += ` Connection refused. Is the ML server API running at ${ML_SERVER_URL} and accessible?`;}
+          // Handle SSL errors specifically if needed
+          else if (error.message.includes('SSL') || error.message.includes('certificate')) { errorMessage += ` SSL Certificate issue. Ensure the ML server is running with valid certificates or try allowing self-signed certificates. Error: ${error.message}`;}
+         else if (error.response) { errorMessage += ` Status: ${error.response.status}. ${error.response.data?.error || error.response.statusText}`; }
+         else if (error.request) { errorMessage += ` No response from ML server API.`; }
+         else { errorMessage += ` Error: ${error.message}`; }
+         console.error(`[Node Backend] Error fetching models: ${errorMessage}`);
+         res.status(500).json({ error: errorMessage });
+    }
 });
 
 // --- Route to serve PRE-CALCULATED ML Backtest Results ---

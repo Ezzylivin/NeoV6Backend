@@ -17,10 +17,10 @@ const __dirname = path.dirname(__filename);
 
 // --- Configuration ---
 // ✅ 2. FIXED: Use HTTPS
-const ML_SERVER_URL = "https://74.208.28.77:8001";
+const ML_SERVER_URL = "http://74.208.28.77:8001";
 
 // ✅ 3. ADDED: Agent to handle self-signed certificates for HTTPS calls
-const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+//const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 // --- Route to GET Available ML Models ---
 router.get('/available-models', async (req, res) => {
@@ -29,7 +29,7 @@ router.get('/available-models', async (req, res) => {
     console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
     try {
         // ✅ 4. FIXED: Added httpsAgent to the axios call
-        const response = await axios.get(ml_models_url, { httpsAgent: httpsAgent });
+        const response = await axios.get(ml_models_url);
         
         console.log("[Node Backend] Successfully fetched models:", response.data);
         res.status(200).json(response.data || []); // Send the list back

@@ -7,7 +7,7 @@
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import axios from "axios";
-//import https from 'https';
+import https from 'https';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';

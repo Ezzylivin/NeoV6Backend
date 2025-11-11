@@ -7,7 +7,7 @@
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import axios from "axios";
-// import https from 'https'; // <-- 1. REMOVED
+import https from 'https'; // <-- 1. REMOVED
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
@@ -16,7 +16,7 @@ import crypto from 'crypto';
 // --- Configuration ---
 // ✅ 2. FIXED: Use HTTP and port 8000
 const ML_SERVER_URL = "http://74.208.28.77:8000"; 
-// const httpsAgent = ... // <-- 3. REMOVED
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +90,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
             
             // ✅ 4. FIXED: Removed httpsAgent
             const response = await axios.post(flaskUrl, config, { 
+                httpsAgent: httpsAgent,
                 timeout: 600000 // 10 minute timeout for long backtests
             });
             mlResult = response.data;

@@ -29,7 +29,7 @@ router.get('/available-models', async (req, res) => {
     console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
     try {
         // ✅ 4. FIXED: Added httpsAgent to the axios call
-        const response = await axios.get(ml_models_url);
+        const response = await axios.get(ml_models_url, { httpsAgent: httpsAgent });
         
         console.log("[Node Backend] Successfully fetched models:", response.data);
         res.status(200).json(response.data || []); // Send the list back

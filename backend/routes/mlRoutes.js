@@ -1,17 +1,15 @@
 // File: backend/routes/mlRoutes.js
 // 💡 UPGRADE:
-// 1. Switched to plain HTTP to match the Python server.
-// 2. Changed port to 8000.
-// 3. Removed all 'https' and 'httpsAgent' logic.
-// This fixes the 'Bad request version' SSL error.
+// 1. Configured to use HTTPS to match the Python server.
+// 2. Pointed to port 8001.
+// 3. Added `httpsAgent` to fix SSL errors.
 
-// File: backend/routes/mlRoutes.js
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
-import https from 'https'; // <-- 1. REQUIRED
+import https from 'https'; // <-- 1. This is correct
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);

@@ -15,7 +15,7 @@ import crypto from 'crypto';
 
 // --- Configuration ---
 // ✅ 2. This is correct
-const ML_SERVER_URL = "https://74.208.28.77"; // Port 443 is default for HTTPS
+const ML_SERVER_URL = "https://74.208.28.77:8443"; // Port 443 is default for HTTPS
 // ✅ 3. This is correct
 const httpsAgent = new https.Agent({ rejectUnauthorized: false }); // Allow self-signed cert
 

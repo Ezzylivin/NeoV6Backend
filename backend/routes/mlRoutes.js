@@ -28,7 +28,7 @@ router.get('/available-models', async (req, res) => {
     // ✅ 4. FIXED: Correct path
     const ml_models_url = `${ML_SERVER_URL}/api/ml/models`;
     console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
-   G  try {
+     try {
         // ✅ 5. FIXED: Added httpsAgent
         const response = await axios.get(ml_models_url, { httpsAgent: httpsAgent });
         

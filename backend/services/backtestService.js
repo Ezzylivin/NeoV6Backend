@@ -76,7 +76,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         
         try {
             console.log(`[Service] Posting config to ${flaskUrl}`);
-            // ✅ 4. This is correct
+            // ✅ 4. FIXED: Added httpsAgent
             const response = await axios.post(flaskUrl, config, { 
                 httpsAgent: httpsAgent, 
                 timeout: 600000 // 10 minute timeout for long backtests
@@ -96,7 +96,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
                 console.error("🔥 [Service] 2. RAW RESPONSE FROM PYTHON (Failure):", JSON.stringify(apiError.response.data, null, 2));
                 msg += ` Status: ${apiError.response.status}. Data: ${JSON.stringify(apiError.response.data)}`;
             }
-            console.error(`[Service] ${msg}`); 
+   M        console.error(`[Service] ${msg}`); 
             throw new Error(msg);
         }
 
@@ -143,18 +143,18 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
     try {
         console.log(`[Service] Posting combo config to ${flaskUrl}`);
         
-        // ✅ 5. This is correct
+        // ✅ 5. FIXED: Added httpsAgent here as well
         const response = await axios.post(flaskUrl, { ...comboConfig, userId }, { // Add userId
             httpsAgent: httpsAgent, 
             timeout: 1800000 // 30 min timeout for complex combos
-        });
+        });
         comboApiResult = response.data;
 
         console.log("⬅️ [Service] 2. RAW COMBO RESPONSE FROM PYTHON (Success):", JSON.stringify(comboApiResult, null, 2));
 
         if (!comboApiResult?.combinedResult || !comboApiResult?.individualResults) {
             throw new Error("Invalid combo data structure from Python API.");
-         }
+        }
         console.log("[Service] Successfully received combo results from Python Server API.");
 
         return {

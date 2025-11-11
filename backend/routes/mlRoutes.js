@@ -28,7 +28,7 @@ router.get('/available-models', async (req, res) => {
     // ✅ 4. FIXED: Correct path
     const ml_models_url = `${ML_SERVER_URL}/api/ml/models`;
     console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
-    try {
+   G  try {
         // ✅ 5. FIXED: Added httpsAgent
         const response = await axios.get(ml_models_url, { httpsAgent: httpsAgent });
         
@@ -54,7 +54,7 @@ router.get('/ml-backtest-results', (req, res) => {
     console.log(`[Node Backend] Attempting to read PRE-CALCULATED results: ${filePath}`);
 
     if (!fs.existsSync(filePath)) {
-        console.error(`Error: ${filePath} not found.`);
+         console.error(`Error: ${filePath} not found.`);
         return res.status(404).json({ error: 'Pre-calculated backtest results file not found.' });
     }
     fs.readFile(filePath, 'utf8', (err, data) => {

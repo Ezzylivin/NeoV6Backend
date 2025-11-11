@@ -2,7 +2,8 @@
 // 💡 UPGRADE:
 // 1. Configured to use HTTPS to match the Python server.
 // 2. Pointed to port 8001.
-// 3. Added `httpsAgent` to fix SSL errors.
+// 3. Pointed to the correct /api/ml/models route.
+// 4. Added `httpsAgent` to fix SSL errors.
 
 import express from 'express';
 import fs from 'fs';
@@ -25,14 +26,14 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 // --- Route to GET Available ML Models ---
 router.get('/available-models', async (req, res) => {
     // ✅ 4. FIXED: Correct path
-    const ml_models_url = `${ML_SERVER_URL}/api/ml/app/models`;
+    const ml_models_url = `${ML_SERVER_URL}/api/ml/models`;
     console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
     try {
         // ✅ 5. FIXED: Added httpsAgent
         const response = await axios.get(ml_models_url, { httpsAgent: httpsAgent });
         
         console.log("[Node Backend] Successfully fetched models:", response.data);
-        res.status(200).json(response.data || []); 
+        res.status(200).json(response.data || []); // Send the list back
     } catch (error) {
         let errorMessage = `Failed to fetch available models from ML server.`;
         if (error.code === 'ECONNREFUSED') { errorMessage += ` Connection refused. Is the ML server API running at ${ML_SERVER_URL} and accessible?`;}

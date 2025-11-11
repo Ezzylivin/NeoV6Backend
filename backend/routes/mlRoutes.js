@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 
 // --- Configuration ---
 // ✅ 2. FIXED: Use HTTP and port 8000
-const ML_SERVER_URL = "http://74.208.28.77":8000;
+const ML_SERVER_URL = "http://74.208.28.77:8000";
 
 // ✅ 3. REMOVED: Agent is not needed for HTTP
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });

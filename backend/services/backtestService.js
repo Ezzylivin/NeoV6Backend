@@ -1,21 +1,23 @@
 // File: /path/to/your/backtestService.js
 //
-// 💡 STRATEGY UPGRADE:
-// - Added 'minAdxLevel' and 'tslAtrMult' to the cache key
-//   to ensure new strategy params trigger a fresh run.
+// 💡 UPGRADE:
+// 1. Switched to plain HTTP and port 8000.
+// 2. REMOVED all 'https' and 'httpsAgent' logic to match.
 
 import Backtest from "../dbStructure/backtest.js";
 import Strategy from "../dbStructure/strategy.js";
 import axios from "axios";
-import https from 'https';
+// import https from 'https'; // <-- 1. REMOVED
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import crypto from 'crypto';
 
 // --- Configuration ---
-const ML_SERVER_URL = "http://74.208.28.77:8000"; // URL for your Python server
-const httpsAgent = new https.Agent({ rejectUnauthorized: false }); // Allow self-signed cert
+// ✅ 2. FIXED: Use HTTP and port 8000
+const ML_SERVER_URL = "http://74.208.28.77:8000"; 
+// const httpsAgent = ... // <-- 3. REMOVED
+
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -85,8 +87,9 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         try {
             console.log(`[Service] Posting config to ${flaskUrl}`);
             // Pass the *entire* config, Python will figure out the mode
+            
+            // ✅ 4. FIXED: Removed httpsAgent
             const response = await axios.post(flaskUrl, config, { 
-                httpsAgent: httpsAgent, 
                 timeout: 600000 // 10 minute timeout for long backtests
             });
             mlResult = response.data;
@@ -160,8 +163,9 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
 
     try {
         console.log(`[Service] Posting combo config to ${flaskUrl}`);
+        
+        // ✅ 5. FIXED: Removed httpsAgent
         const response = await axios.post(flaskUrl, { ...comboConfig, userId }, { // Add userId
-            httpsAgent: httpsAgent, 
             timeout: 1800000 // 30 min timeout for complex combos
         });
         comboApiResult = response.data;

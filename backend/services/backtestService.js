@@ -15,7 +15,7 @@ import crypto from 'crypto';
 
 // --- Configuration ---
 // ✅ 2. FIXED: Use HTTP and port 8000
-const ML_SERVER_URL = "http://74.208.28.77:8000"; 
+const ML_SERVER_URL = "https://74.208.28.77"; 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');

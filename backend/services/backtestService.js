@@ -96,7 +96,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
                 console.error("🔥 [Service] 2. RAW RESPONSE FROM PYTHON (Failure):", JSON.stringify(apiError.response.data, null, 2));
                 msg += ` Status: ${apiError.response.status}. Data: ${JSON.stringify(apiError.response.data)}`;
             }
-   M        console.error(`[Service] ${msg}`); 
+            console.error(`[Service] ${msg}`); 
             throw new Error(msg);
         }
 

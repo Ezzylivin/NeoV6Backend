@@ -14,7 +14,7 @@ const __dirname = path.dirname(__filename);
 
 // --- Configuration ---
 // ✅ UPDATED: Use HTTPS and port 8001
-const ML_SERVER_URL = "https://74.208.28.77:8001";
+const ML_SERVER_URL = "https://74.208.28.77";
 
 // ✅ ADDED: Agent to handle self-signed certificates for HTTPS calls
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });

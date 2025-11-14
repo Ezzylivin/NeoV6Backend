@@ -21,7 +21,7 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 // --- Route to GET Available ML Models ---
 router.get('/available-models', async (req, res) => {
-    const ml_models_url = `${ML_SERVER_URL}/api/ml/available-models`;
+    const ml_models_url = `${ML_SERVER_URL}/ml/models`;
     console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
     try {
         // ✅ ADDED httpsAgent to the axios call

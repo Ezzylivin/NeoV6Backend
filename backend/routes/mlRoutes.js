@@ -56,4 +56,4 @@ router.get('/ml-backtest-results', (req, res) => {
     if (!fs.existsSync(filePath)) {
         console.error(`Error: ${filePath} not found.`);
         return res.status(404).json({ error: 'Pre-calculated backtest results file not found.' });
-   .
+   

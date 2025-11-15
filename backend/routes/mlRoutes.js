@@ -48,9 +48,9 @@ router.get('/ml-backtest-results', (req, res) => {
     console.log(`[Node Backend] Attempting to read PRE-CALCULATED results: ${filePath}`);
 
     if (!fs.existsSync(filePath)) {
- g       console.error(`Error: ${filePath} not found.`);
+        console.error(`Error: ${filePath} not found.`);
         return res.status(404).json({ error: 'Pre-calculated backtest results file not found.' });
- .  } 
+   } 
     
     fs.readFile(filePath, 'utf8', (err, data) => {
         if (err) {
@@ -59,7 +59,7 @@ router.get('/ml-backtest-results', (req, res) => {
         }
         try {
             const jsonData = JSON.parse(data);
- V           res.status(200).json(jsonData);
+            res.status(200).json(jsonData);
         } catch (parseError) {
             console.error('Error parsing pre-calculated results JSON:', parseError);
             return res.status(500).json({ error: 'Failed to parse pre-calculated results JSON.' });

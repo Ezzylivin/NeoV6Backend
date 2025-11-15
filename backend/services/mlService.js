@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 
 // --- Configuration (Copied from backtestService.js for consistency) ---
-const ML_SERVER_URL = "https://74.208.28.77"; // URL for your Python server
+const ML_SERVER_URL = "http://74.208.28.77:8000"; // URL for your Python server
 const httpsAgent = new https.Agent({ rejectUnauthorized: false }); // Allow self-signed cert
 
 // --- Cache Configuration ---

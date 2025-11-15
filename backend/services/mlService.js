@@ -37,8 +37,7 @@ export const getAvailableModels = async () => {
             const cachedData = await fs.readFile(MODEL_CACHE_FILE, 'utf-8');
             return JSON.parse(cachedData);
         }
-        
-        console.log(`[mlService] Cache STALE (Age: ${ageInMinutes.toFixed(0)} mins). Fetching new models.`);
+        console.log(`[mlService] Cache STALE(Age: ${ageInMinutes.toFixed(0)} mins). Fetching new models.`);
 
     } catch (error) {
         if (error.code !== 'ENOENT') {

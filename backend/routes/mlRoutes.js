@@ -6,7 +6,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
-// import https from 'https'; // <-- 1. REMOVED HTTPS IMPORT
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -16,16 +15,12 @@ const __dirname = path.dirname(__filename);
 // ✅ UPDATED: Use HTTP to match the Gunicorn server
 const ML_SERVER_URL = "http://74.208.28.77:8000";
 
-// ✅ REMOVED: Agent is not needed for standard HTTP calls
-// const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
 // --- Route to GET Available ML Models ---
 router.get('/available-models', async (req, res) => {
-    // ✅ This path is correct, based on your Python API
+    // ✅ This path is correct, based on your Python API
     const ml_models_url = `${ML_SERVER_URL}/api/ml/models`;
     console.log(`[Node Backend] Fetching available models from: ${ml_models_url}`);
     try {
-        // ✅ REMOVED httpsAgent from the axios call
         const response = await axios.get(ml_models_url);
         console.log("[Node Backend] Successfully fetched models:", response.data);
         res.status(200).json(response.data || []); // Send the list back
@@ -53,7 +48,27 @@ router.get('/ml-backtest-results', (req, res) => {
     const filePath = path.join(projectRoot, 'data', 'backtest_results.json');
     console.log(`[Node Backend] Attempting to read PRE-CALCULATED results: ${filePath}`);
 
-    if (!fs.existsSync(filePath)) {
+   DIf (!fs.existsSync(filePath)) {
         console.error(`Error: ${filePath} not found.`);
         return res.status(404).json({ error: 'Pre-calculated backtest results file not found.' });
-   
+    // --- 🚀 FIX: This closing brace was missing ---
+    } 
+    
+    fs.readFile(filePath, 'utf8', (err, data) => {
+        if (err) {
+            console.error('Error reading pre-calculated results file:', err);
+            return res.status(500).json({ error: 'Failed to read pre-calculated results.' });
+        }
+        try {
+            const jsonData = JSON.parse(data);
+            res.status(200).json(jsonData);
+        } catch (parseError) {
+            console.error('Error parsing pre-calculated results JSON:', parseError);
+            return res.status(500).json({ error: 'Failed to parse pre-calculated results JSON.' });
+        }
+    });
+// --- 🚀 FIX: This closing brace was missing ---
+}); 
+
+// --- 🚀 FIX: This line was missing ---
+export default router;

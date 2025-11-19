@@ -14,7 +14,7 @@ import fs from 'fs/promises';
 import crypto from 'crypto';
 
 // --- Configuration ---
-const ML_SERVER_URL = "https://74.208.28.77"; // URL for your Python server
+const ML_SERVER_URL = "http://74.208.28.77:8000"; // URL for your Python server
 const httpsAgent = new https.Agent({ rejectUnauthorized: false }); // Allow self-signed cert
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

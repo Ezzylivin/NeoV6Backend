@@ -1,156 +1,198 @@
-// File: src/backend/services/backtestService.js
+// File: src/backend/controllers/backtestController.js
 
+import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
-import axios from "axios";
-import https from 'https';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs/promises';
-import crypto from 'crypto';
+import { 
+    runBacktest, 
+    runCombinedStrategyService 
+} from "../services/backtestService.js"; 
+import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
+import { getAvailableModels } from "../services/mlService.js"; 
+import mongoose from "mongoose";
 
-// --- Configuration ---
-// ✅ Ensure this points to your VPS Public IP
-const ML_SERVER_URL = "http://74.208.28.77:8000"; 
-const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
-
-// --- HELPER: Generate Cache Filename ---
-const generateCacheFilename = (config) => {
-    const paramsKey = JSON.stringify({
-        sym: config.symbol, tf: config.timeframe, sd: config.startDate, ed: config.endDate,
-        mlMode: config.mlMode, mlm: config.mlModel, mlt: config.mlThreshold,
-        code: config.code, 
-        sl: config.params?.SL ?? 'none', tp: config.params?.TP ?? 'none',
-        rm: config.riskManagementMode, rp: config.riskPercentage, gt: config.growthCapitalTarget,
-        matr: config.params?.minAtrPct, tper: config.params?.trendFilterPeriod,
-        hybrid: config.params?.hybridMode,
-        adx: config.params?.minAdxLevel ?? 'none',
-        tsl: config.params?.tslAtrMult ?? 'none'
-    });
-    const hash = crypto.createHash('sha256').update(paramsKey).digest('hex');
-    return `${hash}.json`;
+// --- A centralized error handler for controllers ---
+const handleControllerError = (res, error, context) => {
+    console.error(`Error in ${context}:`, error);
+    // Check for specific status codes thrown by services
+    if (error.message && error.message.includes("Not found")) {
+        return res.status(404).json({ message: error.message });
+    }
+    // Return a specific error if possible, otherwise generic 500
+    res.status(500).json({ message: `Backtest failed: ${error.message}` });
 };
 
-/**
- * --- MASTER FUNCTION (Single Backtest) ---
- */
-export const runBacktest = async (config, authToken, simulateOnly = false) => {
-    console.log(`[Service] Starting runBacktest. Mode: ${config.mlMode}. Forwarding to Python...`);
-    
-    // --- 1. Caching Logic ---
-    const cacheFilename = generateCacheFilename(config);
-    const cacheFilePath = path.join(RESULTS_CACHE_DIR, cacheFilename);
-    
+// --- Helper to extract JWT Token ---
+const extractAuthToken = (req) => {
+    // Note: Express headers are lowercased by default
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        return authHeader.split(' ')[1];
+    }
+    return null;
+};
+
+// --- Run single strategy backtest ---
+export const runBacktestController = async (req, res) => {
     try {
-        await fs.mkdir(RESULTS_CACHE_DIR, { recursive: true });
-        try {
-            const cachedData = await fs.readFile(cacheFilePath, 'utf-8');
-            console.log(`[Service] Cache HIT for ${cacheFilename}.`);
-            const mlResult = JSON.parse(cachedData);
-            
-            // Merge cached result with config to ensure UI has all data
-            return { ...config, ...mlResult, userId: config.userId };
-        } catch (e) { /* Cache miss, ignore */ }
+        const userId = req.user._id;
+        // 1. Prepare config
+        // We set simulateOnly to false because we WANT to save this run
+        const config = { ...req.body, userId, simulateOnly: false };
+        const authToken = extractAuthToken(req); 
+
+        if (!config.symbol || !config.timeframe) {
+            return res.status(400).json({ message: "Missing required fields: symbol, or timeframe." });
+        }
+
+        console.log("[Controller] Forwarding single backtest request to Service...");
         
-        // --- 2. CACHE MISS: Call Python Server ---
-        console.log(`[Service] Cache MISS. Calling Python ML Server...`);
-        const flaskUrl = `${ML_SERVER_URL}/api/ml/run-backtest-on`;
-        let mlResult;
-
-        try {
-            // Forward the config to Python
-            const response = await axios.post(flaskUrl, config, { 
-                httpsAgent: httpsAgent, 
-                timeout: 600000 // 10 minutes
-            });
-            mlResult = response.data;
-
-            if (!mlResult?.metrics || !mlResult?.equityCurve) {
-                throw new Error("Invalid data structure from Python API.");
-            }
-        } catch (apiError) {
-            let msg = `Python Server API call failed (${flaskUrl}): ${apiError.message}`;
-            if (apiError.response) {
-                console.error("🔥 [Service] Python Error Response:", JSON.stringify(apiError.response.data, null, 2));
-                msg += ` Status: ${apiError.response.status}. Data: ${JSON.stringify(apiError.response.data)}`;
-            }
-            throw new Error(msg);
-        }
-
-        // --- 3. Save to Cache ---
-        try { 
-            await fs.writeFile(cacheFilePath, JSON.stringify(mlResult, null, 2), 'utf-8'); 
-        } catch (saveError) { 
-            console.error(`[Service] Warning: Cache save failed: ${saveError.message}`); 
-        }
-
-        // --- 4. PREPARE DATA FOR DB SAVE (CRITICAL FIX) ---
-        // We must merge the original 'config' with the 'mlResult'
-        // so that fields like 'symbol', 'startDate', etc. are present.
-        const fullResult = {
-            ...config,        // Inject: symbol, timeframe, startDate, endDate, initialBalance
-            ...mlResult,      // Inject: metrics, equityCurve, candleData
-            userId: config.userId,
-            
-            // 💡 MAP FIELDS FOR MONGOOSE SCHEMA VALIDATION
-            strategy: config.code, // Schema expects 'strategy', config has 'code'
-            candlesTested: mlResult.candleData ? mlResult.candleData.length : 0 // Schema expects 'candlesTested'
-        };
-
-        // Create a lighter version for DB saving (exclude massive arrays to prevent 16MB error)
-        const dataToSave = { ...fullResult };
-        delete dataToSave.candleData; 
-        delete dataToSave.mlPredictions; 
-
-        if (!simulateOnly) { 
-            console.log(`[Service] Saving NEW backtest to DB.`); 
-            // Now dataToSave has 'symbol', 'strategy', 'startDate', etc.
-            await Backtest.create(dataToSave);
-        }
+        // 2. Call Service
+        // The service will: Call Python -> Get Results -> Save to DB -> Return Full Result
+        const result = await runBacktest(config, authToken); 
         
-        // Return the FULL result (with candleData) to the frontend
-        return fullResult;
+        // 3. Return result to Frontend
+        res.status(201).json(result);
 
-    } catch (error) {
-        console.error(`[Service] Critical Error: ${error.message}`);
-        throw error;
+    } catch (err) {
+        handleControllerError(res, err, 'runBacktestController');
     }
 };
 
-/**
- * --- MASTER ORCHESTRATOR (Combo Backtest) ---
- */
-export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
-    console.log("[Service] Starting COMBO backtest...");
-    
-    const flaskUrl = `${ML_SERVER_URL}/api/ml/run-combo-backtest`;
-    let comboApiResult;
-
+// --- Run combo backtest ---
+export const runComboBacktestController = async (req, res) => {
     try {
-        const response = await axios.post(flaskUrl, { ...comboConfig, userId }, {
-            httpsAgent: httpsAgent, 
-            timeout: 1800000 // 30 min
-        });
-        comboApiResult = response.data;
+        const userId = req.user._id;
+        const comboPayload = { ...req.body, userId };
+        const authToken = extractAuthToken(req); 
 
-        if (!comboApiResult?.combinedResult) {
-            throw new Error("Invalid combo data structure from Python API.");
+        if (!comboPayload.strategies || !Array.isArray(comboPayload.strategies) || comboPayload.strategies.length === 0) {
+            return res.status(400).json({ message: "The 'strategies' array is required." });
         }
+        if (!comboPayload.symbol || !comboPayload.timeframe) {
+            return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
+        }
+
+        console.log("[Controller] Forwarding combo backtest request to Service...");
+
+        // Call Service
+        const result = await runCombinedStrategyService(userId, comboPayload, authToken);
         
-        // Return the raw result. Combo results usually aren't saved to DB in the same way
-        // or are handled differently by the frontend.
-        return {
-             userId,
-             ...comboConfig,
-             ...comboApiResult
-         };
+        res.status(200).json(result);
+    } catch (error) {
+        handleControllerError(res, error, 'runComboBacktestController');
+    }
+};
 
-    } catch (apiError) {
-        let msg = `Python Server COMBO API call failed: ${apiError.message}`;
-        if (apiError.response) {
-             console.error("🔥 [Service] Python Combo Error:", JSON.stringify(apiError.response.data, null, 2));
-             msg += ` Status: ${apiError.response.status}`;
+// --- Preview a strategy ---
+export const previewStrategyController = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        // simulateOnly: true means DO NOT SAVE to database
+        const config = { ...req.body, userId, simulateOnly: true };
+        const authToken = extractAuthToken(req); 
+
+        if (!config.code || !config.symbol || !config.timeframe) {
+            return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
-        throw new Error(msg);
+
+        const result = await runBacktest(config, authToken);
+        res.status(200).json(result);
+    } catch (err) {
+        handleControllerError(res, err, 'previewStrategyController');
+    }
+};
+
+// --- Other Controllers (CRUD, Options) ---
+
+export const fetchBacktestOptionsController = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        console.log(`[OPTIONS CONTROLLER] Fetching options for userId: ${userId}`);
+
+        // Fetch strategies, symbols, params, and ML models in parallel
+        const [strategies, exchangeSymbols, exchangeParams, availableModels] = await Promise.all([
+            Strategy.find({ userId }).select("name code params").lean(),
+            fetchAllExchangeSymbols(),
+            fetchAllExchangeParams(),
+            getAvailableModels().catch(err => {
+                console.error("[OPTIONS CONTROLLER] Failed to fetch ML models:", err.message);
+                return []; 
+            })
+        ]);
+
+        // Combine symbols and timeframes
+        const symbolSet = new Set(exchangeSymbols);
+        const timeframeSet = new Set(exchangeParams.timeframes);
+        strategies.forEach(s => {
+            if (s.params?.symbol) symbolSet.add(s.params.symbol);
+            if (s.params?.timeframe) timeframeSet.add(s.params.timeframe);
+        });
+
+        const responseData = {
+            strategies,
+            symbols: Array.from(symbolSet).sort(),
+            timeframes: Array.from(timeframeSet),
+            models: availableModels 
+        };
+
+        res.json(responseData);
+    } catch (err) {
+        handleControllerError(res, err, 'fetchBacktestOptionsController');
+    }
+};
+
+
+export const fetchPastBacktestsController = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = 20;
+        const skip = (page - 1) * limit;
+
+        const [backtests, total] = await Promise.all([
+            Backtest.find({ userId }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+            Backtest.countDocuments({ userId }),
+        ]);
+        res.json({ backtests, total, page, limit });
+    } catch (err) {
+        handleControllerError(res, err, 'fetchPastBacktestsController');
+    }
+};
+
+export const getBacktestByIdController = async (req, res) => {
+    try {
+        const { backtestId } = req.params;
+        const userId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(backtestId)) {
+            return res.status(400).json({ message: "Invalid backtest ID format." });
+        }
+
+        const backtest = await Backtest.findOne({ _id: backtestId, userId }).lean();
+        if (!backtest) {
+            return res.status(404).json({ message: "Backtest not found." });
+        }
+        res.json(backtest);
+    } catch (err) {
+        handleControllerError(res, err, 'getBacktestByIdController');
+    }
+};
+
+export const deleteBacktestController = async (req, res) => {
+    try {
+        const { backtestId } = req.params;
+        const userId = req.user._id;
+
+        if (!mongoose.Types.ObjectId.isValid(backtestId)) {
+            return res.status(400).json({ message: "Invalid backtest ID format." });
+        }
+
+        const deleted = await Backtest.findOneAndDelete({ _id: backtestId, userId });
+        if (!deleted) {
+            return res.status(404).json({ message: "Backtest not found." });
+        }
+        res.status(200).json({ success: true, message: "Backtest deleted successfully." });
+    } catch (err) {
+        handleControllerError(res, err, 'deleteBacktestController');
     }
 };

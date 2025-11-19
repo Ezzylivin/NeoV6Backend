@@ -47,8 +47,6 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
             const cachedData = await fs.readFile(cacheFilePath, 'utf-8');
             console.log(`[Service] Cache HIT for ${cacheFilename}.`);
             const mlResult = JSON.parse(cachedData);
-            
-            // Merge cached result with config to ensure UI has all data
             return { ...config, ...mlResult, userId: config.userId };
         } catch (e) { /* Cache miss, ignore */ }
         
@@ -58,7 +56,6 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         let mlResult;
 
         try {
-            // Forward the config to Python
             const response = await axios.post(flaskUrl, config, { 
                 httpsAgent: httpsAgent, 
                 timeout: 600000 // 10 minutes
@@ -86,21 +83,22 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 
         // --- 4. PREPARE DATA FOR DB SAVE (CRITICAL FIX) ---
         const fullResult = {
-            ...config,        // Inject: symbol, timeframe, startDate, endDate, initialBalance
-            ...mlResult,      // Inject: metrics, equityCurve, candleData
+            ...config,
+            ...mlResult,
             userId: config.userId,
             
-            // 💡 FIXED: Send an Object, not a String to satisfy Mongoose Schema
+            // 💡 FIXED: Added 'type' to satisfy Mongoose Validation
             strategy: { 
                 code: config.code, 
-                name: config.code, // Fallback name
+                name: config.params?.strategyType || config.code, 
+                type: config.params?.strategyType || "Unknown", // <-- THIS WAS MISSING
                 params: config.params || {} 
             },
             
-            candlesTested: mlResult.candleData ? mlResult.candleData.length : 0 
+            candlesTested: mlResult.candleData ? mlResult.candleData.length : 0
         };
 
-        // Create a lighter version for DB saving (exclude massive arrays)
+        // Create a lighter version for DB saving
         const dataToSave = { ...fullResult };
         delete dataToSave.candleData; 
         delete dataToSave.mlPredictions; 
@@ -110,7 +108,6 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
             await Backtest.create(dataToSave);
         }
         
-        // Return the FULL result (with candleData) to the frontend
         return fullResult;
 
     } catch (error) {
@@ -139,7 +136,6 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
             throw new Error("Invalid combo data structure from Python API.");
         }
         
-        // Return the raw result. Combo results usually aren't saved to DB in the same way
         return {
              userId,
              ...comboConfig,

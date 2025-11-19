@@ -1,6 +1,4 @@
 // File: src/backend/controllers/backtestController.js
-// UPDATED: fetchBacktestOptionsController now fetches ML models.
-// 🚀 UPGRADE: Fixed all imports and removed inefficient "self-call" for models.
 
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
@@ -12,16 +10,13 @@ import {
 // 🚀 FIXED: strategyEngineService.js removed
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
 // 🚀 FIXED: Import the model service directly instead of using axios self-call
-// (Assuming your function is in mlService.js, update path if needed)
 import { getAvailableModels } from "../services/mlService.js"; 
 import mongoose from "mongoose";
-// axios is no longer needed for fetchBacktestOptionsController
-// import axios from "axios"; 
 
 // --- A centralized error handler for controllers ---
 const handleControllerError = (res, error, context) => {
     console.error(`Error in ${context}:`, error);
-    if (error.message.includes("Not found")) {
+    if (error.message && error.message.includes("Not found")) {
         return res.status(404).json({ message: error.message });
     }
     // Return a specific error if possible, otherwise generic 500
@@ -42,6 +37,8 @@ const extractAuthToken = (req) => {
 export const runBacktestController = async (req, res) => {
     try {
         const userId = req.user._id;
+        // 1. Prepare config for Python
+        // simulateOnly: false means we intend to save it if successful
         const config = { ...req.body, userId, simulateOnly: false };
         const authToken = extractAuthToken(req); // Extract the token
 
@@ -49,10 +46,17 @@ export const runBacktestController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: symbol, or timeframe." });
         }
 
-        // PASS authToken to the service
-        const result = await runBacktest(config, authToken);
+        // 2. CALL PYTHON SERVICE FIRST (Do not save to DB yet!)
+        console.log("[Controller] Forwarding request to Python Service...");
+        
+        // The service handles calling Python AND saving to the DB internally.
+        const result = await runBacktest(config, authToken); 
+        
+        // 3. Return the result
         res.status(201).json(result);
+
     } catch (err) {
+        console.error("[Controller] Error:", err.message);
         handleControllerError(res, err, 'runBacktestController');
     }
 };

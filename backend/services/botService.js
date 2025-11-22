@@ -6,7 +6,7 @@ import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
 // Configuration
-const ML_SERVER_URL = "http://localhost:8000"; // Adjust if your Python server is elsewhere
+const ML_SERVER_URL = "http://74.208.28.77:8000"; // Adjust if your Python server is elsewhere
 
 // --- API Helper ---
 async function callPythonApi(endpoint, method = 'GET', data = {}) {

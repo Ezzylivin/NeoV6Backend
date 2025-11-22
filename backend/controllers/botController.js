@@ -87,3 +87,12 @@ export const getBotLogsController = async (req, res) => {
         handleControllerError(res, err, 'getBotLogsController');
     }
 };
+
+export const getWinnersListController = async (req, res) => {
+    try {
+        const winners = await botService.getWinnersList();
+        res.json(winners);
+    } catch (err) {
+        res.status(500).json([]);
+    }
+};

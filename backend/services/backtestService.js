@@ -9,8 +9,8 @@ import fs from 'fs/promises';
 import crypto from 'crypto';
 
 // --- Configuration ---
-// ✅ Ensure this points to your VPS Public IP
-const ML_SERVER_URL = "http://74.208.28.77:8000"; 
+// 🚀 FIX: Use Dynamic URL (Best Practice) + Fallback to VPS
+const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000";
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
 
@@ -52,6 +52,8 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         
         // --- 2. CACHE MISS: Call Python Server ---
         console.log(`[Service] Cache MISS. Calling Python ML Server...`);
+        
+        // 🚀 FIX: Correct Endpoint for Single Backtests
         const flaskUrl = `${ML_SERVER_URL}/api/ml/run-backtest-on`;
         let mlResult;
 
@@ -81,17 +83,16 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
             console.error(`[Service] Warning: Cache save failed: ${saveError.message}`); 
         }
 
-        // --- 4. PREPARE DATA FOR DB SAVE (CRITICAL FIX) ---
+        // --- 4. PREPARE DATA FOR DB SAVE ---
         const fullResult = {
             ...config,
             ...mlResult,
             userId: config.userId,
             
-            // 💡 FIXED: Added 'type' to satisfy Mongoose Validation
             strategy: { 
                 code: config.code, 
                 name: config.params?.strategyType || config.code, 
-                type: config.params?.strategyType || "Unknown", // <-- THIS WAS MISSING
+                type: config.params?.strategyType || "Unknown", 
                 params: config.params || {} 
             },
             
@@ -122,6 +123,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
     console.log("[Service] Starting COMBO backtest...");
     
+    // 🚀 FIX: Correct Endpoint for Combo Backtests
     const flaskUrl = `${ML_SERVER_URL}/api/ml/run-combo-backtest`;
     let comboApiResult;
 

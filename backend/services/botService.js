@@ -22,17 +22,15 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
 }
 
 /**
- * Fetches the latest winning strategy config from the Python Optimizer.
+ * Fetches the list of all winning strategies.
  */
-export async function getLatestWinner() {
+export async function getWinnersList() {
     try {
-        console.log("[BotService] Fetching latest winner from Python...");
-        const winner = await callPythonApi('/api/ml/latest-winner', 'GET');
-        if (!winner || Object.keys(winner).length === 0) return null;
-        return winner;
+        const list = await callPythonApi('/api/ml/winners', 'GET');
+        return list || [];
     } catch (e) {
-        console.error("Failed to fetch winner:", e);
-        return null;
+        console.error("Failed to fetch winners list:", e);
+        return [];
     }
 }
 

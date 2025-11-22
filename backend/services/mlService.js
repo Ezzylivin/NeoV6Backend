@@ -4,8 +4,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 
-// --- Configuration (Copied from backtestService.js for consistency) ---
-const ML_SERVER_URL = "http://74.208.28.77:8000,8001"; // URL for your Python server
+// --- Configuration ---
+// 🚀 FIX: Removed the extra ",8001" which breaks the URL
+const ML_SERVER_URL = "http://74.208.28.77:8000"; 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false }); // Allow self-signed cert
 
 // --- Cache Configuration ---
@@ -37,7 +38,7 @@ export const getAvailableModels = async () => {
             const cachedData = await fs.readFile(MODEL_CACHE_FILE, 'utf-8');
             return JSON.parse(cachedData);
         }
-        console.log(`[mlService] Cache STALE(Age: ${ageInMinutes.toFixed(0)} mins). Fetching new models.`);
+        console.log(`[mlService] Cache STALE (Age: ${ageInMinutes.toFixed(0)} mins). Fetching new models.`);
 
     } catch (error) {
         if (error.code !== 'ENOENT') {
@@ -48,7 +49,7 @@ export const getAvailableModels = async () => {
     }
         
     // --- 2. CACHE MISS: Call Python Server ---
-    // We assume the Python endpoint for models is '/api/ml/available-models'
+    // Correct endpoint matching your Python script
     const flaskUrl = `${ML_SERVER_URL}/api/ml/available-models`;
     let models = [];
     

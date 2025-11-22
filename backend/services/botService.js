@@ -1,22 +1,36 @@
-// File: services/botService.js
+// File: src/backend/services/botService.js
 // 🚀 UPGRADE: Integrates with Python ML Server for Live Paper Trading & Optimization Results.
 
 import axios from 'axios';
+import https from 'https';
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
-// Configuration
-const ML_SERVER_URL = "http://74.208.28.77:8000"; // Adjust if your Python server is elsewhere
+// --- Configuration ---
+// 🚀 FIX: Dynamic URL support for Render + HTTPS Agent for robustness
+const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000"; 
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 // --- API Helper ---
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
     try {
         const url = `${ML_SERVER_URL}${endpoint}`;
-        const config = { method, url, data };
+        
+        const config = { 
+            method, 
+            url, 
+            data,
+            httpsAgent: httpsAgent,
+            timeout: 10000 // 10s timeout to prevent hanging
+        };
+
         const response = await axios(config);
         return response.data;
     } catch (error) {
         console.error(`[Python API Error] ${endpoint}:`, error.message);
+        if (error.response) {
+            console.error("Details:", JSON.stringify(error.response.data));
+        }
         throw new Error(`ML Server unavailable: ${error.message}`);
     }
 }
@@ -26,10 +40,11 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
  */
 export async function getWinnersList() {
     try {
+        // Matches @app.get("/api/ml/winners") in Python
         const list = await callPythonApi('/api/ml/winners', 'GET');
         return list || [];
     } catch (e) {
-        console.error("Failed to fetch winners list:", e);
+        console.error("Failed to fetch winners list:", e.message);
         return [];
     }
 }
@@ -93,6 +108,7 @@ export async function startTradingBot(userId, config = {}) {
     };
 
     // 3. Call Python API to Start Bot
+    // Matches @app.post('/api/bot/start')
     console.log(`[BotService] Starting Python Bot for ${userId}...`);
     const response = await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
@@ -119,10 +135,11 @@ export async function stopTradingBot(userId) {
     console.log(`[BotService] Stopping Bot for ${userId}...`);
     
     // 1. Call Python API
+    // Matches @app.post('/api/bot/stop')
     try {
         await callPythonApi('/api/bot/stop', 'POST');
     } catch (e) {
-        console.warn("Python stop failed, but updating DB anyway.");
+        console.warn("Python stop failed (bot might already be stopped), updating DB anyway.");
     }
 
     // 2. Update Mongo
@@ -147,10 +164,10 @@ export async function getBotStatus(userId) {
     // 2. Get Python State (Live) if supposed to be running
     if (bot.status === 'running') {
         try {
+            // Matches @app.get('/api/bot/status')
             const liveStatus = await callPythonApi('/api/bot/status', 'GET');
             
-            // Sync essential data back to Mongo occasionally? 
-            // For now, we just return the live data merged with Mongo ID
+            // Return the live data merged with Mongo ID
             return {
                 ...bot,
                 currentBalance: liveStatus.currentBalance,
@@ -163,7 +180,8 @@ export async function getBotStatus(userId) {
             };
         } catch (e) {
             // If Python is down, return Mongo state with warning
-            return { ...bot, isConfigured: true, error: "Live connection lost" };
+            console.error(`[BotService] Failed to fetch live status: ${e.message}`);
+            return { ...bot, isConfigured: true, error: "Live connection lost - showing last known state" };
         }
     }
 

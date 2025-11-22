@@ -1,12 +1,12 @@
 // File: services/botService.js
-// 🚀 UPGRADE: Integrates with Python ML Server for Live Paper Trading.
+// 🚀 UPGRADE: Integrates with Python ML Server for Live Paper Trading & Optimization Results.
 
 import axios from 'axios';
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
 // Configuration
-const ML_SERVER_URL = "http://74.208.28.77:8000"; // Adjust if your Python server is elsewhere
+const ML_SERVER_URL = "http://localhost:8000"; // Adjust if your Python server is elsewhere
 
 // --- API Helper ---
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
@@ -18,6 +18,21 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
     } catch (error) {
         console.error(`[Python API Error] ${endpoint}:`, error.message);
         throw new Error(`ML Server unavailable: ${error.message}`);
+    }
+}
+
+/**
+ * Fetches the latest winning strategy config from the Python Optimizer.
+ */
+export async function getLatestWinner() {
+    try {
+        console.log("[BotService] Fetching latest winner from Python...");
+        const winner = await callPythonApi('/api/ml/latest-winner', 'GET');
+        if (!winner || Object.keys(winner).length === 0) return null;
+        return winner;
+    } catch (e) {
+        console.error("Failed to fetch winner:", e);
+        return null;
     }
 }
 
@@ -52,7 +67,7 @@ export async function startTradingBot(userId, config = {}) {
         // Apply Combo Rules
         if (comboConfig.combinationRule === 'REGIME') {
             paramsPayload.hybridMode = 'REGIME';
-            paramsPayload.regime_threshold = 25; // Default or from config
+            paramsPayload.regime_threshold = config.params?.regime_threshold || 25; 
         }
 
     } else if (strategyId) {
@@ -144,6 +159,8 @@ export async function getBotStatus(userId) {
                 position: liveStatus.position,
                 performanceMetrics: liveStatus.performanceMetrics,
                 logs: liveStatus.logs, // Python logs are fresher
+                candles: liveStatus.candles, // 🚀 NEW: For Live Chart
+                trades: liveStatus.trades,   // 🚀 NEW: For Live Chart
                 isConfigured: true
             };
         } catch (e) {

@@ -8,7 +8,7 @@ import Strategy from "../dbStructure/strategy.js";
 
 // --- Configuration ---
 // 🚀 FIX: Dynamic URL support for Render + HTTPS Agent for robustness
-const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://127.0.0.1:8000"; 
+const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000"; 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 // --- API Helper ---

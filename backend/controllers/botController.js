@@ -1,8 +1,9 @@
 // File: backend/controllers/botController.js
-// 🚀 UPGRADE: Fully integrated with Python Bot Service. 
+// 🚀 UPGRADE: Fully integrated with Python Bot Service & Winners Proxy.
 // Includes validation guards and crash-proof status checks.
 
 import * as botService from "../services/botService.js";
+import axios from "axios"; // 🚀 ADDED: Required for talking to Python Server
 
 // Helper for consistent API responses
 const sendResponse = (res, data, status = 200) => {
@@ -30,8 +31,9 @@ export const startBotController = async (req, res) => {
         // 2. Strategy Validation (Prevent starting a bot with no logic)
         const hasSingle = !!config.strategyId;
         const hasCombo = config.comboConfig && config.comboConfig.strategyCodes && config.comboConfig.strategyCodes.length > 0;
+        const hasParams = config.params && Object.keys(config.params).length > 0; // Check for ML params
 
-        if (!hasSingle && !hasCombo) {
+        if (!hasSingle && !hasCombo && !hasParams) {
             return sendResponse(res, { message: "You must select a Strategy or a Combo Setup to start the bot." }, 400);
         }
 
@@ -88,11 +90,25 @@ export const getBotLogsController = async (req, res) => {
     }
 };
 
-export const getWinnersListController = async (req, res) => {
+// --- 🚀 NEW: Get Certified Winners from Python ---
+export const getBotWinnersController = async (req, res) => {
     try {
-        const winners = await botService.getWinnersList();
-        res.json(winners);
+        // 1. Define Python URL (Default to localhost if env not set)
+        const pythonUrl = process.env.ML_SERVER_URL || "http://127.0.0.1:8000";
+        
+        // 2. Call the Python endpoint directly
+        const response = await axios.get(`${pythonUrl}/api/bot/winners`);
+
+        // 3. Send data back to React
+        sendResponse(res, response.data);
     } catch (err) {
-        res.status(500).json([]);
+        console.error("❌ Error fetching winners from Python:", err.message);
+
+        // Graceful failure: If Python is offline, return empty list (don't crash UI)
+        if (err.code === 'ECONNREFUSED') {
+            return sendResponse(res, []);
+        }
+        
+        handleControllerError(res, err, 'getBotWinnersController');
     }
 };

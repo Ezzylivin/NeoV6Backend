@@ -40,16 +40,22 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
     }
 }
 
-/**
- * Fetches the list of all winning strategies.
- */
 export async function getWinnersList() {
     try {
-        // Matches @app.get("/api/bot/winners") in Python (Fixed endpoint path)
+        console.log("🔎 [Node.js] Requesting winners from Python...");
+        // Ensure this path matches your ml.py endpoint EXACTLY
         const list = await callPythonApi('/api/bot/winners', 'GET');
+        
+        console.log(`✅ [Node.js] Python returned ${list ? list.length : 0} winners.`);
         return list || [];
     } catch (e) {
-        console.error("Failed to fetch winners list:", e.message);
+        // 🚨 THIS IS WHERE WE CATCH THE ERROR
+        console.error("🔥 [Node.js] Failed to fetch winners from Python:");
+        console.error("   Error Message:", e.message);
+        if (e.response) {
+             console.error("   Status Code:", e.response.status);
+             console.error("   Response Data:", e.response.data);
+        }
         return [];
     }
 }

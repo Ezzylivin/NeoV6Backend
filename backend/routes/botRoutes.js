@@ -1,12 +1,13 @@
 // File: backend/routes/botRoutes.js
-// UPGRADED: This router is now fully synchronized with the botController.
+// UPGRADED: Includes the new /winners endpoint for the dropdown
 
 import express from "express";
 import {
   startBotController,
   stopBotController,
   getBotStatusController,
-  getBotLogsController // ✅ FIXED: Imported the correct controller for logs
+  getBotLogsController,
+  getBotWinnersController // 🚀 ADDED: Import the new controller
 } from "../controllers/botController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -27,6 +28,10 @@ router.post("/stop", protect, stopBotController);
 router.get("/status", protect, getBotStatusController);
 
 // GET /api/bot/logs -> Gets the latest activity logs for the bot
-router.get("/logs", protect, getBotLogsController); // ✅ FIXED: Corrected the route and controller
+router.get("/logs", protect, getBotLogsController);
+
+// GET /api/bot/winners -> Fetches "Golden" strategies from Python ML Server
+// 🚀 ADDED: This connects your React Dropdown to the Python JSON files
+router.get("/winners", protect, getBotWinnersController);
 
 export default router;

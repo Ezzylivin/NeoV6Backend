@@ -14,7 +14,7 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
         const response = await axios(config);
         return response.data;
     } catch (error) {
-        console.error(`[Python API Error] ${endpoint}:`, error.message);
+        // console.error(`[Python API Error] ${endpoint}:`, error.message);
         return null; 
     }
 }
@@ -77,7 +77,7 @@ export async function startTradingBot(userId, config = {}) {
     bot.timeframe = pythonConfig.timeframe;
     bot.currentBalance = pythonConfig.capitalAllocation;
     bot.startedAt = new Date();
-    bot.logs.push({ timestamp: new Date(), message: `Bot Started. Strategies: ${strategiesPayload.length}`, type: 'status' });
+    bot.logs.push({ timestamp: new Date(), message: `Bot Started via Web UI`, type: 'status' });
     
     await bot.save();
     return bot;
@@ -116,17 +116,15 @@ export async function getBotStatus(userId) {
     return { ...bot, isConfigured: true };
 }
 
-// 🚀 CRITICAL FIX: Ensure this function is exported!
+// 🚀 CRITICAL FIX: EXPORT THIS FUNCTION
 export async function getBotLogs(userId) {
     const bot = await Bot.findOne({ userId });
     if (!bot) return [];
     
     // If running, try to get live logs, otherwise return DB logs
     if (bot.status === 'running') {
-        try {
-            const liveStatus = await callPythonApi('/api/bot/logs', 'GET');
-            if (liveStatus && Array.isArray(liveStatus)) return liveStatus;
-        } catch (e) {}
+        const liveStatus = await callPythonApi('/api/bot/logs', 'GET');
+        if (liveStatus && Array.isArray(liveStatus)) return liveStatus;
     }
     return bot.logs;
 }

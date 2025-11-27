@@ -1,5 +1,5 @@
-// File: backend/services/botService.js
-// 🚀 UPGRADE: Integrates with Python ML Server for Live Paper Trading & Optimization Results.
+// File: src/backend/services/botService.js
+// 🚀 UPGRADE: Supports "Golden Strategies" by allowing raw codes (no DB requirement).
 
 import axios from 'axios';
 import https from 'https';
@@ -7,7 +7,7 @@ import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
 // --- Configuration ---
-// 🚀 FIX: Dynamic URL support for Render + HTTPS Agent for robustness
+// Ensure this points to your Python Server
 const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000"; 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
@@ -21,17 +21,13 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
             url, 
             data,
             httpsAgent: httpsAgent,
-            timeout: 10000 // 10s timeout to prevent hanging
+            timeout: 15000 // Increased timeout for ML ops
         };
 
         const response = await axios(config);
         return response.data;
     } catch (error) {
         console.error(`[Python API Error] ${endpoint}:`, error.message);
-        if (error.response) {
-            console.error("Details:", JSON.stringify(error.response.data));
-        }
-        // Pass the actual error code (like 404 or 500) up the chain
         const status = error.response ? error.response.status : 500;
         const msg = error.response?.data?.detail || error.message;
         const customError = new Error(`ML Server Error: ${msg}`);
@@ -40,22 +36,15 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
     }
 }
 
+/**
+ * Fetches the list of all winning strategies.
+ */
 export async function getWinnersList() {
     try {
-        console.log("🔎 [Node.js] Requesting winners from Python...");
-        // Ensure this path matches your ml.py endpoint EXACTLY
         const list = await callPythonApi('/api/bot/winners', 'GET');
-        
-        console.log(`✅ [Node.js] Python returned ${list ? list.length : 0} winners.`);
         return list || [];
     } catch (e) {
-        // 🚨 THIS IS WHERE WE CATCH THE ERROR
-        console.error("🔥 [Node.js] Failed to fetch winners from Python:");
-        console.error("   Error Message:", e.message);
-        if (e.response) {
-             console.error("   Status Code:", e.response.status);
-             console.error("   Response Data:", e.response.data);
-        }
+        console.error("Failed to fetch winners list:", e.message);
         return [];
     }
 }
@@ -67,50 +56,53 @@ export async function startTradingBot(userId, config = {}) {
     if (!userId) throw new Error("Missing userId");
     const { strategyId, symbol, timeframe, capitalAllocation, comboConfig, mlMode, mlModel, mlThreshold, params } = config;
 
-    // 1. Retrieve Full Strategy Details from DB or Payload
+    // 1. Prepare Payloads
     let strategiesPayload = [];
     let paramsPayload = {
         hybridMode: 'AND', // Default
-        ...params // Merge any overrides (like from optimized strategies)
+        ...params // Merge optimized params (e.g. atr_period, rsi_length)
     };
 
-    // Case A: Combo Config (From Saved Setups)
+    // --- CASE A: Combo Config (Saved or Golden) ---
     if (comboConfig && comboConfig.strategyCodes?.length > 0) {
+        
+        // Step 1: Try to find strategies in the DB (User Saved Setups)
         const dbStrategies = await Strategy.find({ 
             userId: userId, 
             code: { $in: comboConfig.strategyCodes } 
         }).lean();
 
-        if (dbStrategies.length === 0) throw new Error("Combo strategies not found in DB.");
-
-        strategiesPayload = dbStrategies.map(s => ({
-            code: s.code,
-            params: s.params
-        }));
+        if (dbStrategies.length > 0) {
+            // ✅ FOUND IN DB: Use the user's saved definitions
+            console.log(`[BotService] Found ${dbStrategies.length} strategies in DB.`);
+            strategiesPayload = dbStrategies.map(s => ({
+                code: s.code,
+                params: s.params
+            }));
+        } else {
+            // 🚀 FALLBACK: GOLDEN STRATEGY (Not in DB)
+            // If not found in DB, assume they are "Base" strategies (atr_breakout, etc.)
+            // and rely on 'paramsPayload' to provide the settings.
+            console.log(`[BotService] Strategies [${comboConfig.strategyCodes}] not in DB. Using Optimized/Base codes.`);
+            
+            strategiesPayload = comboConfig.strategyCodes.map(code => ({
+                code: code,
+                params: {} // Python will use the global 'paramsPayload' to fill gaps
+            }));
+        }
         
-        if (comboConfig.combinationRule === 'REGIME') {
-            paramsPayload.hybridMode = 'REGIME';
+        // Apply Logic Rule
+        if (comboConfig.combinationRule) {
+            paramsPayload.hybridMode = comboConfig.combinationRule;
+        }
+        if (paramsPayload.hybridMode === 'REGIME') {
             paramsPayload.regime_threshold = params?.regime_threshold || 25; 
         }
 
-    // Case B: Optimized Strategy (From Winners Dropdown)
-    } else if (params && params.strategies) {
-        // Winner files often contain the strategies list directly. Use it.
-        // This handles the "Optimized Strategies" flow
-        if (Array.isArray(params.strategies)) {
-             strategiesPayload = params.strategies;
-        } else {
-             // Legacy format fallback
-             // If params has flat keys like "atr_period", we need to map them manually? 
-             // No, the ML server handles normalized params now.
-             // Just ensure we send something.
-             strategiesPayload = []; // Server will use config.params
-        }
-
-    // Case C: Single Strategy (From Saved Setups)
+    // --- CASE B: Single Strategy (Saved in DB) ---
     } else if (strategyId) {
         const strategy = await Strategy.findById(strategyId).lean();
-        if (!strategy) throw new Error("Strategy not found.");
+        if (!strategy) throw new Error("Strategy not found in DB.");
         
         strategiesPayload = [{
             code: strategy.code,
@@ -125,7 +117,7 @@ export async function startTradingBot(userId, config = {}) {
         capitalAllocation: capitalAllocation || 1000,
         mlMode: mlMode || "off",
         mlModel: mlModel || "",
-        mlThreshold: mlThreshold || 0.65,
+        mlThreshold: mlThreshold || 0.5,
         isCombo: !!(comboConfig),
         strategies: strategiesPayload,
         params: paramsPayload
@@ -133,6 +125,8 @@ export async function startTradingBot(userId, config = {}) {
 
     // 3. Call Python API to Start Bot
     console.log(`[BotService] Starting Python Bot for ${userId}...`);
+    console.log(`[BotService] Mode: ${pythonConfig.mlMode}, Strategies: ${pythonConfig.strategies.length}`);
+    
     const response = await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
     // 4. Update/Create Bot Record in Mongo
@@ -145,7 +139,11 @@ export async function startTradingBot(userId, config = {}) {
     bot.currentBalance = pythonConfig.capitalAllocation;
     bot.startedAt = new Date();
     bot.stoppedAt = null;
-    bot.logs.push({ timestamp: new Date(), message: `Bot Started via Python Engine. Response: ${response.message}`, type: 'status' });
+    bot.logs.push({ 
+        timestamp: new Date(), 
+        message: `Bot Started. Strategy: ${pythonConfig.strategies.map(s=>s.code).join('+')} | ML: ${pythonConfig.mlMode}`, 
+        type: 'status' 
+    });
     
     await bot.save();
     return bot;
@@ -188,7 +186,6 @@ export async function getBotStatus(userId) {
         try {
             const liveStatus = await callPythonApi('/api/bot/status', 'GET');
             
-            // Return the live data merged with Mongo ID
             return {
                 ...bot,
                 currentBalance: liveStatus.currentBalance || bot.currentBalance,
@@ -199,7 +196,6 @@ export async function getBotStatus(userId) {
                 isConfigured: true
             };
         } catch (e) {
-            // If Python is down, return Mongo state with warning
             console.error(`[BotService] Failed to fetch live status: ${e.message}`);
             return { ...bot, isConfigured: true, error: "Live connection lost - showing last known state" };
         }

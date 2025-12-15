@@ -4,7 +4,9 @@ import {
     registerUser as registerSvc, 
     loginUser as loginSvc, 
     getMe as getMeSvc,
-    updateUserApiKeys as updateKeysSvc
+    updateUserApiKeys as updateKeysSvc,
+    getUserApiKeys as getKeysSvc,      // 👈 New Import
+    deleteUserApiKey as deleteKeySvc   // 👈 New Import
 } from "../services/userService.js";
 
 /**
@@ -39,7 +41,7 @@ export const loginUser = async (req, res) => {
     const { token, ...userData } = await loginSvc(identifier, password);
     res.status(200).json({ token, user: userData });
   } catch (err) {
-    res.status(401).json({ message: err.message }); // 401 for unauthorized
+    res.status(401).json({ message: err.message });
   }
 };
 
@@ -49,7 +51,6 @@ export const loginUser = async (req, res) => {
  */
 export const getMe = async (req, res) => {
   try {
-    // req.user.id is attached by the 'protect' middleware
     const user = await getMeSvc(req.user.id);
     res.status(200).json({ user });
   } catch (err) {
@@ -63,7 +64,7 @@ export const getMe = async (req, res) => {
  */
 export const updateApiKeys = async (req, res) => {
     try {
-        const userId = req.user.id; // Get user ID securely from the token
+        const userId = req.user.id;
         const { exchange, apiKey, apiSecret } = req.body;
 
         if (!exchange || !apiKey || !apiSecret) {
@@ -75,5 +76,32 @@ export const updateApiKeys = async (req, res) => {
     } catch (err) {
         console.error('[UserController] UpdateKeys error:', err.message);
         res.status(500).json({ message: "Failed to update API keys", error: err.message });
+    }
+};
+
+/**
+ * Handles request to fetch masked API keys.
+ * GET /api/users/keys
+ */
+export const getApiKeys = async (req, res) => {
+    try {
+        const keys = await getKeysSvc(req.user.id);
+        res.status(200).json(keys);
+    } catch (err) {
+        res.status(500).json({ message: "Failed to fetch keys", error: err.message });
+    }
+};
+
+/**
+ * Handles request to delete a specific exchange key.
+ * DELETE /api/users/keys/:exchange
+ */
+export const deleteApiKey = async (req, res) => {
+    try {
+        const { exchange } = req.params;
+        await deleteKeySvc(req.user.id, exchange);
+        res.status(200).json({ message: `Key for ${exchange} deleted` });
+    } catch (err) {
+        res.status(500).json({ message: "Failed to delete key", error: err.message });
     }
 };

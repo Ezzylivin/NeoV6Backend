@@ -1,15 +1,40 @@
 // File: backend/services/userService.js
 
 import bcrypt from 'bcryptjs';
-import User from '../dbStructure/user.js'; // Ensure this path is correct
-import { generateToken } from '../utils/token.js'; // Assuming you have a token utility
+import crypto from 'crypto'; // 👈 Needed for encryption
+import User from '../models/User.js'; // Ensure this matches your filename (User.js vs user.js)
+import { generateToken } from '../utils/token.js';
+
+// 🔐 Encryption Configuration
+const ALGORITHM = 'aes-256-cbc';
+// Use the ENCRYPTION_KEY from .env, or fallback (only for dev)
+const SECRET_KEY = process.env.ENCRYPTION_KEY || 'default_secret_key_must_be_32_bytes'; 
+// Create a 32-byte key buffer from the string
+const key = crypto.scryptSync(SECRET_KEY, 'salt', 32);
+
+// --- Encryption Helpers ---
+const encrypt = (text) => {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  let encrypted = cipher.update(text);
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
+};
+
+const decrypt = (text) => {
+  const textParts = text.split(':');
+  const iv = Buffer.from(textParts.shift(), 'hex');
+  const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  let decrypted = decipher.update(encryptedText);
+  decrypted = Buffer.concat([decrypted, decipher.final()]);
+  return decrypted.toString();
+};
+
+// --- Services ---
 
 /**
  * Registers a new user.
- * @param {string} username - The user's chosen username.
- * @param {string} email - The user's email address.
- * @param {string} password - The user's raw password.
- * @returns {Promise<object>} An object containing the new user and a JWT.
  */
 export const registerUser = async (username, email, password) => {
   const existingUser = await User.findOne({ $or: [{ email }, { username }] });
@@ -17,12 +42,10 @@ export const registerUser = async (username, email, password) => {
     throw new Error('User with this email or username already exists');
   }
 
-  // The password hashing is handled by the pre-save hook in the User model
+  // Password hashing is handled by the User model's pre-save hook
   const newUser = await User.create({ username, email, password });
-
   const token = generateToken(newUser._id);
   
-  // Return a clean user object along with the token
   return {
     _id: newUser._id,
     username: newUser.username,
@@ -33,9 +56,6 @@ export const registerUser = async (username, email, password) => {
 
 /**
  * Logs in an existing user.
- * @param {string} identifier - The user's email or username.
- * @param {string} password - The user's raw password.
- * @returns {Promise<object>} An object containing the user and a JWT.
  */
 export const loginUser = async (identifier, password) => {
   const user = await User.findOne({ $or: [{ email: identifier }, { username: identifier }] });
@@ -60,11 +80,8 @@ export const loginUser = async (identifier, password) => {
 
 /**
  * Fetches a user's profile by their ID.
- * @param {string} userId - The MongoDB ObjectId of the user.
- * @returns {Promise<object>} The user's profile information.
  */
 export const getMe = async (userId) => {
-  // The .lean() method provides a plain JavaScript object for performance
   const user = await User.findById(userId).select('-password').lean();
   if (!user) {
     throw new Error('User not found');
@@ -73,28 +90,57 @@ export const getMe = async (userId) => {
 };
 
 /**
- * Updates or adds API keys for a specific exchange for a user.
- * @param {string} userId - The ID of the user.
- * @param {string} exchange - The name of the exchange (e.g., 'binance').
- * @param {string} apiKey - The API key.
- * @param {string} apiSecret - The API secret.
- * @returns {Promise<Array>} The updated array of exchange keys.
+ * 🚀 UPDATED: Updates or adds Encrypted API keys
  */
 export const updateUserApiKeys = async (userId, exchange, apiKey, apiSecret) => {
     const user = await User.findById(userId);
     if (!user) throw new Error('User not found');
 
-    const keyIndex = user.exchangeKeys.findIndex(k => k.exchange === exchange);
+    // Remove existing key for this exchange if it exists (so we don't have duplicates)
+    user.apiKeys = user.apiKeys.filter(k => k.exchange !== exchange);
 
-    if (keyIndex > -1) {
-        // Update existing key if found
-        user.exchangeKeys[keyIndex].apiKey = apiKey;
-        user.exchangeKeys[keyIndex].apiSecret = apiSecret;
-    } else {
-        // Add a new key object to the array if not found
-        user.exchangeKeys.push({ exchange, apiKey, apiSecret });
-    }
+    // Add new key with ENCRYPTED secret
+    user.apiKeys.push({ 
+        exchange, 
+        key: apiKey, 
+        secret: encrypt(apiSecret) // 🔒 Encrypt here!
+    });
 
     await user.save();
-    return user.exchangeKeys;
+    
+    // Return masked version for frontend
+    return user.apiKeys.map(k => ({ exchange: k.exchange, last4: k.key.slice(-4) }));
 };
+
+/**
+ * 🚀 NEW: Get Masked API Keys (Safe for Frontend)
+ */
+export const getUserApiKeys = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) throw new Error('User not found');
+
+    // Map to safe objects (no secret, only last 4 of public key)
+    return user.apiKeys.map(k => ({
+        exchange: k.exchange,
+        apiKey: k.key,
+        last4: k.key.slice(-4),
+        addedAt: k.addedAt
+    }));
+};
+
+/**
+ * 🚀 NEW: Delete an API Key
+ */
+export const deleteUserApiKey = async (userId, exchange) => {
+    const user = await User.findById(userId);
+    if (!user) throw new Error('User not found');
+
+    // Filter out the key with the matching exchange name
+    user.apiKeys = user.apiKeys.filter(k => k.exchange !== exchange);
+
+    await user.save();
+    return true;
+};
+
+// Internal Helper (Not exported normally, but useful if you need to decrypt internally)
+export const internalDecrypt = decrypt;

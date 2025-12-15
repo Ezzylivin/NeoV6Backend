@@ -3,7 +3,9 @@ import {
   registerUser,
   loginUser,
   getMe,
-  updateApiKeys
+  updateApiKeys,
+  getApiKeys,    // 👈 New Import
+  deleteApiKey   // 👈 New Import
 } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -15,6 +17,12 @@ router.post("/login", loginUser);
 
 // --- Protected routes ---
 router.get("/me", protect, getMe);
-router.post("/keys", protect, updateApiKeys);
+
+// 🚀 API Key Management
+router.route("/keys")
+  .post(protect, updateApiKeys)  // Save/Update Keys
+  .get(protect, getApiKeys);     // Fetch Masked Keys List
+
+router.delete("/keys/:exchange", protect, deleteApiKey); // Delete Key
 
 export default router;

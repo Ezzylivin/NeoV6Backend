@@ -2,7 +2,7 @@
 
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto'; // 👈 Needed for encryption
-import User from '../models/User.js'; // Ensure this matches your filename (User.js vs user.js)
+import User from '../dbStructure/User.js'; // Ensure this matches your filename (User.js vs user.js)
 import { generateToken } from '../utils/token.js';
 
 // 🔐 Encryption Configuration

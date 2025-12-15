@@ -1,12 +1,12 @@
-// File: backend/models/User.js
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
-// Optional: per-user exchange credentials
-const exchangeKeySchema = new mongoose.Schema({
-  exchange: { type: String, required: true },  // e.g., 'binance', 'coinbase'
-  apiKey: { type: String, required: true },
-  apiSecret: { type: String, required: true },
+// 🔐 Sub-Schema for Encrypted API Keys
+const apiKeySchema = new mongoose.Schema({
+  exchange: { type: String, required: true }, // e.g., 'coinbase', 'binance'
+  key: { type: String, required: true },      // Public API Key (Safe to show last 4)
+  secret: { type: String, required: true },   // ⚠️ ENCRYPTED Secret Key (Never plain text)
+  addedAt: { type: Date, default: Date.now }
 }, { _id: false });
 
 const userSchema = new mongoose.Schema({
@@ -35,8 +35,18 @@ const userSchema = new mongoose.Schema({
     enum: ["user", "admin"],
     default: "user"
   },
-  walletBalance: { type: Number, default: 0 }, // combined field
-  exchangeKeys: [exchangeKeySchema] // optional per-user exchange credentials
+  
+  // 🚀 NEW: Web3 Wallet Address (Linked to RainbowKit)
+  walletAddress: { 
+    type: String, 
+    lowercase: true,
+    trim: true
+  },
+
+  // 🚀 UPDATED: Encrypted Keys Array
+  // We renamed this from 'exchangeKeys' to 'apiKeys' to match the controller logic
+  apiKeys: [apiKeySchema]
+
 }, { timestamps: true });
 
 // Hash password before save
@@ -56,6 +66,8 @@ userSchema.set("toJSON", {
   transform: (doc, ret) => {
     delete ret.password;
     delete ret.__v;
+    // Optional: Don't send full API keys array in default JSON, only when requested
+    // delete ret.apiKeys; 
     return ret;
   }
 });

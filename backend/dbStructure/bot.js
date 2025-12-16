@@ -1,5 +1,5 @@
 // File: backend/dbStructure/bot.js
-// 🚀 UPGRADE: v29.0 - "Full State Persistence" (Matches Python Bot Payload)
+// 🚀 UPGRADE: v29.1 - Fixed userId for Web3 Wallet Support
 
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
@@ -20,12 +20,13 @@ const positionSchema = new Schema({
 // Sub-schema for individual strategy config
 const strategyConfigSchema = new Schema({
     code: { type: String, required: true },
-    params: { type: Schema.Types.Mixed, default: {} } // Stores { period: 14, etc }
+    params: { type: Schema.Types.Mixed, default: {} } 
 }, { _id: false });
 
 const botSchema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    // 🚀 FIXED: Changed from ObjectId to String to support "0x..." Wallet Addresses
+    userId: { type: String, required: true, index: true },
     
     // --- 1. Core Identity ---
     symbol: { type: String, required: true, trim: true, uppercase: true },
@@ -36,7 +37,6 @@ const botSchema = new Schema(
     isCombo: { type: Boolean, default: false },
     
     // Stores the FULL strategy list (Code + Params)
-    // Matches Python: strategies=[{"code": "sma", "params": {...}}]
     strategies: [strategyConfigSchema], 
 
     // Global Params (Risk, Pyramiding, TSL)

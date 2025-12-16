@@ -1,9 +1,9 @@
 // File: backend/controllers/botController.js
-// 🚀 UPGRADE: Fully integrated with Python Bot Service & Winners Proxy.
-// Includes validation guards and crash-proof status checks.
+// 🚀 UPGRADE: v67.2 - Fully integrated with Python Bot Service & Winners Proxy.
+// Changes: Prioritizes Wallet Address (userId) over Auth Token for Web3 support.
 
 import * as botService from "../services/botService.js";
-import axios from "axios"; // 🚀 ADDED: Required for talking to Python Server
+import axios from "axios"; 
 
 // Helper for consistent API responses
 const sendResponse = (res, data, status = 200) => {
@@ -20,7 +20,14 @@ const handleControllerError = (res, err, context) => {
 // --- Start the trading bot ---
 export const startBotController = async (req, res) => {
     try {
-        const userId = req.user._id;
+        // 🚀 CRITICAL UPGRADE: Prefer Wallet Address from body, fallback to req.user
+        // This allows "Real Paper Trades" to be tied to your specific Wallet Address.
+        const userId = req.body.userId || req.user?._id; 
+        
+        if (!userId) {
+            return sendResponse(res, { message: "User Identity (Wallet or Login) missing." }, 401);
+        }
+
         const config = req.body;
         
         // 1. Basic Validation
@@ -38,6 +45,7 @@ export const startBotController = async (req, res) => {
         }
 
         // 3. Launch via Service (which talks to Python)
+        // Note: The 'mode' (paper/live) is inside 'config' and handled by the service.
         const bot = await botService.startTradingBot(userId, config);
         sendResponse(res, bot, 201); 
 
@@ -49,7 +57,11 @@ export const startBotController = async (req, res) => {
 // --- Stop the trading bot ---
 export const stopBotController = async (req, res) => {
     try {
-        const userId = req.user._id;
+        // 🚀 UPGRADE: Check body/query for userId first (in case using Wallet Address)
+        const userId = req.body.userId || req.query.userId || req.user?._id;
+        
+        if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
+
         const bot = await botService.stopTradingBot(userId);
         sendResponse(res, bot);
     } catch (err) {
@@ -60,7 +72,11 @@ export const stopBotController = async (req, res) => {
 // --- Get the bot's current status ---
 export const getBotStatusController = async (req, res) => {
     try {
-        const userId = req.user._id;
+        // 🚀 UPGRADE: Check query for userId first
+        const userId = req.query.userId || req.user?._id;
+
+        if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
+
         const status = await botService.getBotStatus(userId);
 
         // ✅ CRASH PROOF: Handle case where no bot exists yet
@@ -81,7 +97,11 @@ export const getBotStatusController = async (req, res) => {
 // --- Get the bot's activity logs ---
 export const getBotLogsController = async (req, res) => {
     try {
-        const userId = req.user._id;
+        // 🚀 UPGRADE: Check query for userId first
+        const userId = req.query.userId || req.user?._id;
+        
+        if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
+
         const limit = parseInt(req.query.limit) || 100;
         const logs = await botService.getBotLogs(userId, limit);
         sendResponse(res, logs);

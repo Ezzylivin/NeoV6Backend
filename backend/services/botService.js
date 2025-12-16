@@ -28,7 +28,9 @@ export async function getWinnersList() {
 
 export async function startTradingBot(userId, config = {}) {
     if (!userId) throw new Error("Missing userId");
-    const { strategyId, symbol, timeframe, capitalAllocation, comboConfig, mlMode, mlModel, mlThreshold, params } = config;
+
+    // 🚀 UPDATED: Destructure 'mode' from the config
+    const { strategyId, symbol, timeframe, capitalAllocation, comboConfig, mlMode, mlModel, mlThreshold, params, mode } = config;
 
     let strategiesPayload = [];
     let paramsPayload = { hybridMode: 'AND', ...params };
@@ -56,6 +58,8 @@ export async function startTradingBot(userId, config = {}) {
     if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
     const pythonConfig = {
+        userId: userId, // 🚀 Pass userId to Python for logging/tracking
+        mode: mode || 'paper', // 🚀 CRITICAL: Defaults to 'paper' if missing
         symbol: symbol || "BTC-USD",
         timeframe: timeframe || "1h",
         capitalAllocation: capitalAllocation || 1000,
@@ -67,17 +71,26 @@ export async function startTradingBot(userId, config = {}) {
         params: paramsPayload
     };
 
+    // Send command to Python Engine
     await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
+    // Update Database Status
     let bot = await Bot.findOne({ userId });
     if (!bot) bot = new Bot({ userId });
 
     bot.status = 'running';
+    bot.mode = pythonConfig.mode; // 🚀 Save the mode to DB
     bot.symbol = pythonConfig.symbol;
     bot.timeframe = pythonConfig.timeframe;
     bot.currentBalance = pythonConfig.capitalAllocation;
     bot.startedAt = new Date();
-    bot.logs.push({ timestamp: new Date(), message: `Bot Started via Web UI`, type: 'status' });
+    
+    // Log the startup with the specific mode
+    bot.logs.push({ 
+        timestamp: new Date(), 
+        message: `Bot Started in ${pythonConfig.mode.toUpperCase()} MODE via Web UI`, 
+        type: 'status' 
+    });
     
     await bot.save();
     return bot;
@@ -116,7 +129,6 @@ export async function getBotStatus(userId) {
     return { ...bot, isConfigured: true };
 }
 
-// 🚀 CRITICAL FIX: EXPORT THIS FUNCTION
 export async function getBotLogs(userId) {
     const bot = await Bot.findOne({ userId });
     if (!bot) return [];

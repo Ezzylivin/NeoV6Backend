@@ -1,4 +1,7 @@
 // File: src/backend/services/botService.js
+// 🚀 UPGRADE: v3.0 - SaaS Compatibility Layer
+// 🛠 Fixes: Payload Mapping (Balance), Stop Logic, User ID Propagation
+
 import axios from 'axios';
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -14,8 +17,8 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
         const response = await axios(config);
         return response.data;
     } catch (error) {
-        // console.error(`[Python API Error] ${endpoint}:`, error.message);
-        return null; 
+        console.error(`[Python API Error] ${endpoint}:`, error.response?.data || error.message);
+        throw error; // Rethrow to let the Controller handle the UI response
     }
 }
 
@@ -29,27 +32,28 @@ export async function getWinnersList() {
 export async function startTradingBot(userId, config = {}) {
     if (!userId) throw new Error("Missing userId");
 
-    // 🚀 UPDATED: Destructure 'mode' from the config
-    const { strategyId, symbol, timeframe, capitalAllocation, comboConfig, mlMode, mlModel, mlThreshold, params, mode } = config;
+    // 1. Destructure Config
+    const { 
+        strategyId, symbol, timeframe, capitalAllocation, 
+        comboConfig, mlMode, mlModel, mlThreshold, params, mode,
+        riskManagementMode, riskPercentage, maxPyramiding, slippageBps // Capture new params
+    } = config;
 
     let strategiesPayload = [];
-    let paramsPayload = { hybridMode: 'AND', ...params };
-
-    // 1. Use Explicit Strategies (From Golden/Traffic Cop)
+    
+    // 2. Resolve Strategies (Traffic Cop / Combo / Single)
     if (config.strategies && Array.isArray(config.strategies) && config.strategies.length > 0) {
         strategiesPayload = config.strategies.map(s => ({ code: s.code, params: s.params || {} }));
     } 
-    // 2. Use Combo Config (DB Lookup)
     else if (comboConfig && comboConfig.strategyCodes?.length > 0) {
+        // Attempt DB lookup for saved strategies, fallback to codes
         const dbStrategies = await Strategy.find({ userId: userId, code: { $in: comboConfig.strategyCodes } }).lean();
         if (dbStrategies.length > 0) {
             strategiesPayload = dbStrategies.map(s => ({ code: s.code, params: s.params }));
         } else {
             strategiesPayload = comboConfig.strategyCodes.map(code => ({ code: code, params: {} }));
         }
-        if (comboConfig.combinationRule) paramsPayload.hybridMode = comboConfig.combinationRule;
     } 
-    // 3. Single Strategy
     else if (strategyId) {
         const strategy = await Strategy.findById(strategyId).lean();
         if (strategy) strategiesPayload = [{ code: strategy.code, params: strategy.params }];
@@ -57,52 +61,75 @@ export async function startTradingBot(userId, config = {}) {
 
     if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
+    // 3. Construct Python Payload (The "Translation" Step)
     const pythonConfig = {
-        userId: userId, // 🚀 Pass userId to Python for logging/tracking
-        mode: mode || 'paper', // 🚀 CRITICAL: Defaults to 'paper' if missing
+        userId: userId,           // 🔑 Critical for Multi-User isolation
+        mode: mode || 'paper',
         symbol: symbol || "BTC-USD",
         timeframe: timeframe || "1h",
-        capitalAllocation: capitalAllocation || 1000,
+        
+        // 🛠 FIX: Map 'capitalAllocation' -> 'initialBalance' for Python
+        initialBalance: capitalAllocation || 1000, 
+        
         mlMode: mlMode || "off",
         mlModel: mlModel || "",
         mlThreshold: mlThreshold || 0.5,
+        
+        // Strategy Config
         isCombo: strategiesPayload.length > 1,
         strategies: strategiesPayload,
-        params: paramsPayload
+        comboConfig: comboConfig || {},
+        
+        // Risk & Execution Params (Pass explicit top-level args)
+        riskManagementMode: riskManagementMode || 'static',
+        riskPercentage: riskPercentage || 1,
+        maxPyramiding: maxPyramiding || 1,
+        slippageBps: slippageBps || 2.0, // Default 2 BPS
+        
+        // Legacy params support
+        params: { hybridMode: 'AND', ...params }
     };
 
-    // Send command to Python Engine
+    // 4. Send Command to Python Engine
     await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
-    // Update Database Status
+    // 5. Update MongoDB State (So UI knows it's running)
     let bot = await Bot.findOne({ userId });
     if (!bot) bot = new Bot({ userId });
 
     bot.status = 'running';
-    bot.mode = pythonConfig.mode; // 🚀 Save the mode to DB
+    bot.mode = pythonConfig.mode;
     bot.symbol = pythonConfig.symbol;
     bot.timeframe = pythonConfig.timeframe;
-    bot.currentBalance = pythonConfig.capitalAllocation;
+    bot.currentBalance = pythonConfig.initialBalance; // Sync balance
     bot.startedAt = new Date();
     
-    // Log the startup with the specific mode
-    bot.logs.push({ 
+    // Reset/Init Logs
+    bot.logs = [{ 
         timestamp: new Date(), 
-        message: `Bot Started in ${pythonConfig.mode.toUpperCase()} MODE via Web UI`, 
+        message: `🚀 Bot Started: ${pythonConfig.symbol} (${pythonConfig.mode.toUpperCase()})`, 
         type: 'status' 
-    });
+    }];
     
     await bot.save();
     return bot;
 }
 
 export async function stopTradingBot(userId) {
-    await callPythonApi('/api/bot/stop', 'POST');
+    if (!userId) throw new Error("Missing userId");
+
+    // 🛠 FIX: Pass userId in body so Python knows WHO to stop
+    try {
+        await callPythonApi('/api/bot/stop', 'POST', { userId: userId });
+    } catch (err) {
+        console.warn("Python stop signal failed (Bot might be already stopped):", err.message);
+    }
+
     const bot = await Bot.findOne({ userId });
     if (bot) {
         bot.status = 'stopped';
         bot.stoppedAt = new Date();
-        bot.logs.push({ timestamp: new Date(), message: "Bot Stopped.", type: 'status' });
+        bot.logs.push({ timestamp: new Date(), message: "🛑 Bot Stopped by User.", type: 'status' });
         await bot.save();
     }
     return bot;
@@ -112,31 +139,19 @@ export async function getBotStatus(userId) {
     const bot = await Bot.findOne({ userId }).lean();
     if (!bot) return { status: 'stopped', isConfigured: false };
 
-    if (bot.status === 'running') {
-        const liveStatus = await callPythonApi('/api/bot/status', 'GET');
-        if (liveStatus) {
-            return {
-                ...bot,
-                currentBalance: liveStatus.currentBalance || bot.currentBalance,
-                trades: liveStatus.trades || [],
-                logs: (liveStatus.logs && liveStatus.logs.length > 0) ? liveStatus.logs : bot.logs,
-                candles: liveStatus.candles || [],
-                performanceMetrics: liveStatus.performanceMetrics || {},
-                isConfigured: true
-            };
-        }
-    }
-    return { ...bot, isConfigured: true };
+    // Note: Python v79.1 doesn't have a polling endpoint yet. 
+    // We return the MongoDB state which is updated by start/stop.
+    // In v80, we can add a Python polling sync here.
+    return { 
+        ...bot, 
+        isConfigured: true,
+        // Ensure logs array exists
+        logs: bot.logs || [] 
+    };
 }
 
 export async function getBotLogs(userId) {
     const bot = await Bot.findOne({ userId });
     if (!bot) return [];
-    
-    // If running, try to get live logs, otherwise return DB logs
-    if (bot.status === 'running') {
-        const liveStatus = await callPythonApi('/api/bot/logs', 'GET');
-        if (liveStatus && Array.isArray(liveStatus)) return liveStatus;
-    }
-    return bot.logs;
+    return bot.logs || [];
 }

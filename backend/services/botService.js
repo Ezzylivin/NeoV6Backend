@@ -1,6 +1,6 @@
 // File: src/backend/services/botService.js
-// 🚀 UPGRADE: v3.6 - The Final Connector
-// 🛠 Fixes: MongoDB Validation Crash, Real-Time Status Sync
+// 🚀 UPGRADE: v5.0 - Identity & Scope Fix
+// 🛠 Fixes: Multi-Bot Collisions, Mongo Overwrites, Python API Scope
 
 import axios from 'axios';
 import https from 'https';
@@ -13,13 +13,21 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
     try {
         let url = `${ML_SERVER_URL}${endpoint}`;
-        if (method === 'GET' && data.userId) url += `?userId=${data.userId}`;
+        // 🚀 UPGRADE: Pass botId in query for GET requests
+        const queryParams = new URLSearchParams();
+        if (method === 'GET') {
+            if (data.userId) queryParams.append("userId", data.userId);
+            if (data.botId) queryParams.append("botId", data.botId);
+            if (queryParams.toString()) url += `?${queryParams.toString()}`;
+        }
 
-        const config = { method, url, data: method !== 'GET' ? data : undefined, httpsAgent, timeout: 5000 };
+        const config = { method, url, data: method !== 'GET' ? data : undefined, httpsAgent, timeout: 15000 }; // Increased timeout
         const response = await axios(config);
         return response.data;
     } catch (error) {
-        console.warn(`[Python API Warning] ${endpoint}: ${error.message}`);
+        if (error.code !== 'ECONNREFUSED') {
+            console.warn(`[Python API Warning] ${endpoint}: ${error.message}`);
+        }
         return null;
     }
 }
@@ -63,9 +71,17 @@ export async function startTradingBot(userId, config = {}) {
     const strategiesPayload = await resolveStrategies(userId, config);
     if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
+    // 🚀 CRITICAL: Generate Unique Bot ID (Deterministically)
+    const cleanSymbol = (symbol || "BTC-USD").replace('/', '-');
+    const botId = `${userId}_${cleanSymbol}_${timeframe || "1h"}`;
+
     // 2. Construct Python Payload
     const pythonConfig = {
-        userId, mode: mode || 'paper', symbol: symbol || "BTC-USD", timeframe: timeframe || "1h",
+        userId, 
+        botId, // 🚀 Pass explicit ID to Python
+        mode: mode || 'paper', 
+        symbol: symbol || "BTC-USD", 
+        timeframe: timeframe || "1h",
         initialBalance: Number(capitalAllocation) || 1000, 
         mlMode: mlMode || "off", mlModel: mlModel || "", mlThreshold: mlThreshold || 0.5,
         isCombo: strategiesPayload.length > 1, strategies: strategiesPayload, comboConfig: comboConfig || { combinationRule: 'AND' },
@@ -77,82 +93,110 @@ export async function startTradingBot(userId, config = {}) {
     // 3. Send to Python
     await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
-    // 4. Update MongoDB (With CRITICAL FIX)
-    await Bot.deleteMany({ userId }); 
-    const bot = new Bot({
-        userId, 
-        botId: `${userId}_${pythonConfig.symbol}_${pythonConfig.timeframe}`,
-        symbol: pythonConfig.symbol, 
-        timeframe: pythonConfig.timeframe, 
-        status: 'running', 
+    // 4. UPSERT MongoDB State (Scoped by botId, NOT userId)
+    const updateData = {
+        userId, // Keep owner reference
+        symbol: pythonConfig.symbol,
+        timeframe: pythonConfig.timeframe,
+        status: 'running',
         mode: pythonConfig.mode,
-        
-        // 🚀 FIX: Must set capitalAllocation to pass Schema validation
-        capitalAllocation: pythonConfig.initialBalance, 
-        currentBalance: pythonConfig.initialBalance,
-        
-        isCombo: pythonConfig.isCombo, 
-        strategies: strategiesPayload, 
-        comboConfig: pythonConfig.comboConfig, 
+        capitalAllocation: pythonConfig.initialBalance,
+        isCombo: pythonConfig.isCombo,
+        strategies: strategiesPayload,
+        comboConfig: pythonConfig.comboConfig,
         mlMode: pythonConfig.mlMode,
-        riskPercentage: pythonConfig.riskPercentage, 
+        riskPercentage: pythonConfig.riskPercentage,
         maxPyramiding: pythonConfig.maxPyramiding,
-        startedAt: new Date(),
-        logs: [{ timestamp: new Date(), message: `🚀 Bot Started: ${pythonConfig.symbol}`, type: 'status' }]
-    });
+        startedAt: new Date()
+    };
 
-    try { 
-        await bot.save(); 
-        return bot; 
-    } catch (e) { 
-        console.error("Mongo Save Error:", e.message);
-        // Stop python if DB save fails to keep state synced
-        await callPythonApi('/api/bot/stop', 'POST', { userId }); 
-        throw new Error(`Database Error: ${e.message}`); 
-    }
+    // 🚀 FIX: Find by botId (Unique per bot), allowing multiple bots per user
+    let bot = await Bot.findOneAndUpdate(
+        { botId }, 
+        { 
+            $set: updateData,
+            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${pythonConfig.symbol}`, type: 'status' } }
+        },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    return bot;
 }
 
-export async function stopTradingBot(userId) {
+export async function stopTradingBot(userId, symbol, timeframe) {
     if (!userId) throw new Error("Missing userId");
-    await callPythonApi('/api/bot/stop', 'POST', { userId });
+    
+    // Construct ID to stop specific bot
+    // If symbol/tf missing, this might fail or we need logic to find active bots
+    // For now, assuming UI passes them or we default to a "current" bot logic
+    // (To be fully robust, the controller should pass symbol/timeframe)
+    
+    let query = { userId, status: 'running' };
+    if (symbol && timeframe) {
+        const cleanSymbol = symbol.replace('/', '-');
+        query.botId = `${userId}_${cleanSymbol}_${timeframe}`;
+    }
 
-    const bot = await Bot.findOne({ userId });
+    const bot = await Bot.findOne(query);
+    
     if (bot) {
+        await callPythonApi('/api/bot/stop', 'POST', { botId: bot.botId });
         bot.status = 'stopped';
         bot.stoppedAt = new Date();
         bot.logs.unshift({ timestamp: new Date(), message: "🛑 Bot Stopped.", type: 'status' });
         await bot.save();
+        return bot;
     }
-    return bot;
+    
+    throw new Error("No running bot found to stop.");
 }
 
-// 🚀 UPGRADE: Real-Time Polling
-export async function getBotStatus(userId) {
-    // 1. Ask Python directly: "Are you running?"
-    const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId });
-    let bot = await Bot.findOne({ userId });
+export async function getBotStatus(userId, symbol, timeframe) {
+    // 🚀 Construct ID to query specific bot status
+    // If frontend doesn't pass symbol/tf yet, we fallback to finding *any* running bot for user
+    let botId;
+    if (symbol && timeframe) {
+        botId = `${userId}_${symbol.replace('/', '-')}_${timeframe}`;
+    } else {
+        const active = await Bot.findOne({ userId, status: 'running' }).select('botId');
+        if (active) botId = active.botId;
+    }
+
+    if (!botId) return { status: 'stopped', isConfigured: false, logs: [] };
+
+    // 1. Ask Python directly using botId
+    const liveStatus = await callPythonApi('/api/bot/status', 'GET', { botId });
+    let bot = await Bot.findOne({ botId });
 
     if (liveStatus && liveStatus.status === 'running') {
-        // If Python is running, ensure Mongo matches
-        if (!bot) bot = new Bot({ userId, symbol: liveStatus.symbol, timeframe: liveStatus.timeframe, capitalAllocation: 1000 });
-        
-        bot.status = 'running';
-        bot.currentBalance = liveStatus.currentBalance;
-        
-        // 🚀 UPGRADE: Get Live Logs
-        const logs = await callPythonApi('/api/bot/logs', 'GET', { userId });
+        if (bot) {
+            bot.status = 'running';
+            bot.currentBalance = liveStatus.currentBalance; 
+            if (liveStatus.performanceMetrics) bot.performanceMetrics = liveStatus.performanceMetrics;
+            
+            // Map Positions for UI
+            const activePos = liveStatus.positions && liveStatus.positions.length > 0 
+                ? { ...liveStatus.positions[0], side: 'long' } 
+                : null;
+            bot.currentPosition = activePos;
+            
+            await bot.save(); 
+        }
+
+        const logs = await callPythonApi('/api/bot/logs', 'GET', { botId });
         
         return { 
             ...bot.toObject(), 
             logs: logs || bot.logs, 
             trades: liveStatus.trades || [],
-            positions: liveStatus.positions || []
+            positions: liveStatus.positions || [] 
         };
     } 
     else if (bot && bot.status === 'running') {
-        // Self-Correction: If Python died, mark Mongo as stopped
+        // Self-Correction
         bot.status = 'stopped';
         bot.stoppedAt = new Date();
+        bot.currentPosition = null; 
         await bot.save();
     }
 
@@ -160,10 +204,21 @@ export async function getBotStatus(userId) {
     return { ...bot.toObject(), isConfigured: true };
 }
 
-export async function getBotLogs(userId) {
-    const liveLogs = await callPythonApi('/api/bot/logs', 'GET', { userId });
+export async function getBotLogs(userId, symbol, timeframe) {
+    // Similar ID construction logic
+    let botId;
+    if (symbol && timeframe) {
+        botId = `${userId}_${symbol.replace('/', '-')}_${timeframe}`;
+    } else {
+        const active = await Bot.findOne({ userId, status: 'running' }).select('botId');
+        if (active) botId = active.botId;
+    }
+    
+    if (!botId) return [];
+
+    const liveLogs = await callPythonApi('/api/bot/logs', 'GET', { botId });
     if (liveLogs && liveLogs.length > 0) return liveLogs;
 
-    const bot = await Bot.findOne({ userId });
+    const bot = await Bot.findOne({ botId });
     return bot ? bot.logs : [];
 }

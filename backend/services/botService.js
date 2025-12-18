@@ -21,7 +21,7 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
             if (queryParams.toString()) url += `?${queryParams.toString()}`;
         }
 
-        const config = { method, url, data: method !== 'GET' ? data : undefined, httpsAgent, timeout: 15000 }; // Increased timeout
+        const config = { method, url, data: method !== 'GET' ? data : undefined, httpsAgent, timeout: 15000 };
         const response = await axios(config);
         return response.data;
     } catch (error) {
@@ -78,24 +78,30 @@ export async function startTradingBot(userId, config = {}) {
     // 2. Construct Python Payload
     const pythonConfig = {
         userId, 
-        botId, // 🚀 Pass explicit ID to Python
+        botId,
         mode: mode || 'paper', 
         symbol: symbol || "BTC-USD", 
         timeframe: timeframe || "1h",
         initialBalance: Number(capitalAllocation) || 1000, 
-        mlMode: mlMode || "off", mlModel: mlModel || "", mlThreshold: mlThreshold || 0.5,
-        isCombo: strategiesPayload.length > 1, strategies: strategiesPayload, comboConfig: comboConfig || { combinationRule: 'AND' },
-        riskManagementMode: riskManagementMode || 'static', riskPercentage: Number(riskPercentage) || 1,
-        maxPyramiding: Number(maxPyramiding) || 1, slippageBps: Number(slippageBps) || 2.0,
+        mlMode: mlMode || "off",
+        mlModel: mlModel || "",
+        mlThreshold: mlThreshold || 0.5,
+        isCombo: strategiesPayload.length > 1,
+        strategies: strategiesPayload,
+        comboConfig: comboConfig || { combinationRule: 'AND' },
+        riskManagementMode: riskManagementMode || 'static',
+        riskPercentage: Number(riskPercentage) || 1,
+        maxPyramiding: Number(maxPyramiding) || 1,
+        slippageBps: Number(slippageBps) || 2.0,
         params: { hybridMode: 'AND', ...params }
     };
 
     // 3. Send to Python
     await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
-    // 4. UPSERT MongoDB State (Scoped by botId, NOT userId)
+    // 4. UPSERT MongoDB State (Scoped by botId)
     const updateData = {
-        userId, // Keep owner reference
+        userId,
         symbol: pythonConfig.symbol,
         timeframe: pythonConfig.timeframe,
         status: 'running',
@@ -110,7 +116,6 @@ export async function startTradingBot(userId, config = {}) {
         startedAt: new Date()
     };
 
-    // 🚀 FIX: Find by botId (Unique per bot), allowing multiple bots per user
     let bot = await Bot.findOneAndUpdate(
         { botId }, 
         { 
@@ -125,11 +130,6 @@ export async function startTradingBot(userId, config = {}) {
 
 export async function stopTradingBot(userId, symbol, timeframe) {
     if (!userId) throw new Error("Missing userId");
-    
-    // Construct ID to stop specific bot
-    // If symbol/tf missing, this might fail or we need logic to find active bots
-    // For now, assuming UI passes them or we default to a "current" bot logic
-    // (To be fully robust, the controller should pass symbol/timeframe)
     
     let query = { userId, status: 'running' };
     if (symbol && timeframe) {
@@ -152,8 +152,6 @@ export async function stopTradingBot(userId, symbol, timeframe) {
 }
 
 export async function getBotStatus(userId, symbol, timeframe) {
-    // 🚀 Construct ID to query specific bot status
-    // If frontend doesn't pass symbol/tf yet, we fallback to finding *any* running bot for user
     let botId;
     if (symbol && timeframe) {
         botId = `${userId}_${symbol.replace('/', '-')}_${timeframe}`;
@@ -164,23 +162,39 @@ export async function getBotStatus(userId, symbol, timeframe) {
 
     if (!botId) return { status: 'stopped', isConfigured: false, logs: [] };
 
-    // 1. Ask Python directly using botId
     const liveStatus = await callPythonApi('/api/bot/status', 'GET', { botId });
     let bot = await Bot.findOne({ botId });
 
     if (liveStatus && liveStatus.status === 'running') {
         if (bot) {
             bot.status = 'running';
-            bot.currentBalance = liveStatus.currentBalance; 
-            if (liveStatus.performanceMetrics) bot.performanceMetrics = liveStatus.performanceMetrics;
-            
-            // Map Positions for UI
-            const activePos = liveStatus.positions && liveStatus.positions.length > 0 
-                ? { ...liveStatus.positions[0], side: 'long' } 
-                : null;
-            bot.currentPosition = activePos;
-            
-            await bot.save(); 
+            bot.currentBalance = liveStatus.currentBalance;
+
+            if (liveStatus.performanceMetrics) {
+                bot.performanceMetrics = liveStatus.performanceMetrics;
+            }
+
+            // ✅ FIXED: Aggregate multi-position state safely
+            if (liveStatus.positions && liveStatus.positions.length > 0) {
+                const totalSize = liveStatus.positions.reduce((s, p) => s + p.size, 0);
+                const weightedEntry = liveStatus.positions.reduce(
+                    (s, p) => s + p.entryPrice * p.size, 0
+                ) / totalSize;
+
+                const totalPnl = liveStatus.positions.reduce((s, p) => s + (p.pnl || 0), 0);
+
+                bot.currentPosition = {
+                    entryPrice: weightedEntry,
+                    size: totalSize,
+                    side: 'long',
+                    entryTime: liveStatus.positions[0].entryTime,
+                    pnl: totalPnl
+                };
+            } else {
+                bot.currentPosition = null;
+            }
+
+            await bot.save();
         }
 
         const logs = await callPythonApi('/api/bot/logs', 'GET', { botId });
@@ -189,14 +203,13 @@ export async function getBotStatus(userId, symbol, timeframe) {
             ...bot.toObject(), 
             logs: logs || bot.logs, 
             trades: liveStatus.trades || [],
-            positions: liveStatus.positions || [] 
+            positions: liveStatus.positions || []
         };
     } 
     else if (bot && bot.status === 'running') {
-        // Self-Correction
         bot.status = 'stopped';
         bot.stoppedAt = new Date();
-        bot.currentPosition = null; 
+        bot.currentPosition = null;
         await bot.save();
     }
 
@@ -205,7 +218,6 @@ export async function getBotStatus(userId, symbol, timeframe) {
 }
 
 export async function getBotLogs(userId, symbol, timeframe) {
-    // Similar ID construction logic
     let botId;
     if (symbol && timeframe) {
         botId = `${userId}_${symbol.replace('/', '-')}_${timeframe}`;

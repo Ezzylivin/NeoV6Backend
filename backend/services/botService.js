@@ -1,6 +1,6 @@
 // File: src/backend/services/botService.js
-// 🚀 UPGRADE: v5.1 - Fixes Data Loss & "Zombie Bot" Parameters
-// 🛠 Fixes: Strict Strategy Resolution, Deep Param Copying, Input Validation
+// 🚀 UPGRADE: v5.0 - Identity & Scope Fix
+// 🛠 Fixes: Multi-Bot Collisions, Mongo Overwrites, Python API Scope
 
 import axios from 'axios';
 import https from 'https';
@@ -34,47 +34,24 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
 
 // --- HELPER: Universal Strategy Resolver ---
 async function resolveStrategies(userId, config) {
-    // 1. Priority: Explicit strategies passed from Frontend (Custom/Optimization results)
-    if (config.strategies && config.strategies.length > 0) {
-        console.log(`[BotStart] Using explicit strategies from payload: ${config.strategies.length}`);
-        return config.strategies.map(s => ({ 
-            code: s.code, 
-            // FIX: Ensure params object is copied, default to empty only if strictly undefined
-            params: s.params || {} 
-        }));
+    if (config.strategies?.length > 0) {
+        return config.strategies.map(s => ({ code: s.code, params: s.params || {} }));
     } 
-
-    // 2. Fallback: Look up in DB (Saved Strategy from Library)
     if (config.comboConfig?.strategyCodes?.length > 0) {
-        console.log(`[BotStart] Attempting to hydrate strategies from DB: ${config.comboConfig.strategyCodes}`);
-        
         try {
             const dbStrategies = await Strategy.find({ userId: userId, code: { $in: config.comboConfig.strategyCodes } }).lean();
-            
             return config.comboConfig.strategyCodes.map(code => {
                 const found = dbStrategies.find(s => s.code === code);
-                
-                // 🛑 CRITICAL FIX: Do not allow empty params for a Combo Strategy!
-                if (!found) {
-                    throw new Error(`Missing configuration for strategy '${code}'. Please Save the strategy to your Library before running.`);
-                }
-                
-                return { code: code, params: found.params };
+                return { code: code, params: found ? found.params : {} };
             });
         } catch (err) {
-            // Rethrow specific errors, otherwise log generic
-            if (err.message.includes("Missing configuration")) throw err;
-            console.error("Strategy Resolution Error:", err);
-            throw new Error("Failed to resolve strategy configurations from Database.");
+            return config.comboConfig.strategyCodes.map(code => ({ code: code, params: {} }));
         }
     } 
-
-    // 3. Single Strategy ID lookup
     if (config.strategyId) {
         const strategy = await Strategy.findById(config.strategyId).lean();
         if (strategy) return [{ code: strategy.code, params: strategy.params }];
     }
-    
     return [];
 }
 
@@ -88,19 +65,11 @@ export async function getWinnersList() {
 export async function startTradingBot(userId, config = {}) {
     if (!userId) throw new Error("Missing userId");
 
-    // 🔍 DEBUG: Log incoming config to catch Frontend dropping data
-    console.log(`[BotStart] Received Config for ${config.symbol}:`, {
-        strategiesCount: config.strategies?.length,
-        hasCombo: !!config.comboConfig,
-        risk: config.riskPercentage,
-        mlMode: config.mlMode
-    });
-
     const { symbol, timeframe, capitalAllocation, comboConfig, mlMode, mlModel, mlThreshold, params, mode, riskManagementMode, riskPercentage, maxPyramiding, slippageBps } = config;
 
-    // 1. Resolve Strategies (Now throws error if params are missing)
+    // 1. Resolve Strategies
     const strategiesPayload = await resolveStrategies(userId, config);
-    if (strategiesPayload.length === 0) throw new Error("No valid strategies found. Please select a Strategy or Combo.");
+    if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
     // 🚀 CRITICAL: Generate Unique Bot ID (Deterministically)
     const cleanSymbol = (symbol || "BTC-USD").replace('/', '-');
@@ -142,7 +111,6 @@ export async function startTradingBot(userId, config = {}) {
         strategies: strategiesPayload,
         comboConfig: pythonConfig.comboConfig,
         mlMode: pythonConfig.mlMode,
-        mlModel: pythonConfig.mlModel, // ✅ Persist Model Name
         riskPercentage: pythonConfig.riskPercentage,
         maxPyramiding: pythonConfig.maxPyramiding,
         startedAt: new Date()
@@ -152,7 +120,7 @@ export async function startTradingBot(userId, config = {}) {
         { botId }, 
         { 
             $set: updateData,
-            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${pythonConfig.symbol} [Risk: ${pythonConfig.riskPercentage}%]`, type: 'status' } }
+            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${pythonConfig.symbol}`, type: 'status' } }
         },
         { new: true, upsert: true, setDefaultsOnInsert: true }
     );

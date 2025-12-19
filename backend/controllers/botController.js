@@ -1,6 +1,6 @@
 // File: backend/controllers/botController.js
-// 🚀 UPGRADE: v67.2 - Fully integrated with Python Bot Service & Winners Proxy.
-// Changes: Prioritizes Wallet Address (userId) over Auth Token for Web3 support.
+// 🚀 UPGRADE: v67.3 - "Reset Ready"
+// Changes: Added resetBotController to wipe bot history via Python service.
 
 import * as botService from "../services/botService.js";
 import axios from "axios"; 
@@ -21,7 +21,6 @@ const handleControllerError = (res, err, context) => {
 export const startBotController = async (req, res) => {
     try {
         // 🚀 CRITICAL UPGRADE: Prefer Wallet Address from body, fallback to req.user
-        // This allows "Real Paper Trades" to be tied to your specific Wallet Address.
         const userId = req.body.userId || req.user?._id; 
         
         if (!userId) {
@@ -45,7 +44,6 @@ export const startBotController = async (req, res) => {
         }
 
         // 3. Launch via Service (which talks to Python)
-        // Note: The 'mode' (paper/live) is inside 'config' and handled by the service.
         const bot = await botService.startTradingBot(userId, config);
         sendResponse(res, bot, 201); 
 
@@ -57,7 +55,7 @@ export const startBotController = async (req, res) => {
 // --- Stop the trading bot ---
 export const stopBotController = async (req, res) => {
     try {
-        // 🚀 UPGRADE: Check body/query for userId first (in case using Wallet Address)
+        // 🚀 UPGRADE: Check body/query for userId first
         const userId = req.body.userId || req.query.userId || req.user?._id;
         
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
@@ -69,10 +67,28 @@ export const stopBotController = async (req, res) => {
     }
 };
 
+// --- 🆕 RESET BOT (Wipe History) ---
+export const resetBotController = async (req, res) => {
+    try {
+        // Forward the reset request directly to the Python Service
+        const pythonUrl = process.env.ML_SERVER_URL || "http://127.0.0.1:8000";
+        
+        // Pass the entire body (userId, botId, capitalAllocation)
+        const response = await axios.post(`${pythonUrl}/api/bot/reset`, req.body);
+        
+        sendResponse(res, response.data);
+    } catch (err) {
+        // Handle specific Python errors gracefully
+        if (err.response) {
+            return res.status(err.response.status).json(err.response.data);
+        }
+        handleControllerError(res, err, 'resetBotController');
+    }
+};
+
 // --- Get the bot's current status ---
 export const getBotStatusController = async (req, res) => {
     try {
-        // 🚀 UPGRADE: Check query for userId first
         const userId = req.query.userId || req.user?._id;
 
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
@@ -97,7 +113,6 @@ export const getBotStatusController = async (req, res) => {
 // --- Get the bot's activity logs ---
 export const getBotLogsController = async (req, res) => {
     try {
-        // 🚀 UPGRADE: Check query for userId first
         const userId = req.query.userId || req.user?._id;
         
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
@@ -110,25 +125,17 @@ export const getBotLogsController = async (req, res) => {
     }
 };
 
-// --- 🚀 NEW: Get Certified Winners from Python ---
+// --- Get Certified Winners from Python ---
 export const getBotWinnersController = async (req, res) => {
     try {
-        // 1. Define Python URL (Default to localhost if env not set)
         const pythonUrl = process.env.ML_SERVER_URL || "http://127.0.0.1:8000";
-        
-        // 2. Call the Python endpoint directly
         const response = await axios.get(`${pythonUrl}/api/bot/winners`);
-
-        // 3. Send data back to React
         sendResponse(res, response.data);
     } catch (err) {
         console.error("❌ Error fetching winners from Python:", err.message);
-
-        // Graceful failure: If Python is offline, return empty list (don't crash UI)
         if (err.code === 'ECONNREFUSED') {
             return sendResponse(res, []);
         }
-        
         handleControllerError(res, err, 'getBotWinnersController');
     }
 };

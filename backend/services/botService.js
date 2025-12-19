@@ -1,19 +1,20 @@
 // File: src/backend/services/botService.js
-// 🚀 UPGRADE: v5.0 - Identity & Scope Fix
-// 🛠 Fixes: Multi-Bot Collisions, Mongo Overwrites, Python API Scope
+// 🚀 UPGRADE: v5.1 - Identity, Scope & Reset
+// 🛠 Fixes: Adds Reset Logic, Fixes IP addressing, Syncs MongoDB.
 
 import axios from 'axios';
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
-const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000"; 
+// Use Env Var for flexibility, default to Localhost for Render internal comms
+const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://127.0.0.1:8000"; 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
     try {
         let url = `${ML_SERVER_URL}${endpoint}`;
-        // 🚀 UPGRADE: Pass botId in query for GET requests
+        // Pass botId in query for GET requests
         const queryParams = new URLSearchParams();
         if (method === 'GET') {
             if (data.userId) queryParams.append("userId", data.userId);
@@ -71,7 +72,7 @@ export async function startTradingBot(userId, config = {}) {
     const strategiesPayload = await resolveStrategies(userId, config);
     if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
-    // 🚀 CRITICAL: Generate Unique Bot ID (Deterministically)
+    // Generate Unique Bot ID
     const cleanSymbol = (symbol || "BTC-USD").replace('/', '-');
     const botId = `${userId}_${cleanSymbol}_${timeframe || "1h"}`;
 
@@ -151,6 +152,21 @@ export async function stopTradingBot(userId, symbol, timeframe) {
     throw new Error("No running bot found to stop.");
 }
 
+// 🚀 NEW: RESET FUNCTION
+export async function resetTradingBot(userId, config) {
+    const { symbol, timeframe, capitalAllocation } = config;
+    const cleanSymbol = (symbol || "BTC-USD").replace('/', '-');
+    const botId = `${userId}_${cleanSymbol}_${timeframe || "1h"}`;
+
+    // 1. Tell Python to wipe the slate
+    await callPythonApi('/api/bot/reset', 'POST', { botId, capitalAllocation });
+
+    // 2. Wipe Node.js Database Record to match
+    await Bot.deleteOne({ botId });
+
+    return { status: "reset", message: "Bot history wiped." };
+}
+
 export async function getBotStatus(userId, symbol, timeframe) {
     let botId;
     if (symbol && timeframe) {
@@ -174,26 +190,23 @@ export async function getBotStatus(userId, symbol, timeframe) {
                 bot.performanceMetrics = liveStatus.performanceMetrics;
             }
 
-            // ✅ FIXED: Aggregate multi-position state safely
             if (liveStatus.positions && liveStatus.positions.length > 0) {
-                const totalSize = liveStatus.positions.reduce((s, p) => s + p.size, 0);
+                const totalSize = liveStatus.positions.reduce((s, p) => s + p.qty, 0);
+                // Simple Weighted Average for display
                 const weightedEntry = liveStatus.positions.reduce(
-                    (s, p) => s + p.entryPrice * p.size, 0
+                    (s, p) => s + p.entry * p.qty, 0
                 ) / totalSize;
-
-                const totalPnl = liveStatus.positions.reduce((s, p) => s + (p.pnl || 0), 0);
 
                 bot.currentPosition = {
                     entryPrice: weightedEntry,
                     size: totalSize,
-                    side: 'long',
-                    entryTime: liveStatus.positions[0].entryTime,
-                    pnl: totalPnl
+                    side: liveStatus.positions[0].side, // Assume all same side for now
+                    entryTime: liveStatus.positions[0].time,
+                    pnl: 0 // Python calculates PnL on equity, individual position PnL not passed in generic struct
                 };
             } else {
                 bot.currentPosition = null;
             }
-
             await bot.save();
         }
 
@@ -203,10 +216,12 @@ export async function getBotStatus(userId, symbol, timeframe) {
             ...bot.toObject(), 
             logs: logs || bot.logs, 
             trades: liveStatus.trades || [],
-            positions: liveStatus.positions || []
+            positions: liveStatus.positions || [],
+            candles: liveStatus.candles || [] // Pass candles to frontend
         };
     } 
     else if (bot && bot.status === 'running') {
+        // Python says stopped, Node says running -> Sync to stopped
         bot.status = 'stopped';
         bot.stoppedAt = new Date();
         bot.currentPosition = null;

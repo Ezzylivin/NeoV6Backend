@@ -1,7 +1,7 @@
 // File: backend/routes/botRoutes.js
-// 🚀 UPGRADE: v2.0 - "Unified Bot Router"
+// 🚀 UPGRADE: v2.1 - "Unified Bot Router + Reset"
 // Integrates:
-// 1. Live Bot Control (Start/Stop/Status)
+// 1. Live Bot Control (Start/Stop/Reset/Status)
 // 2. Telemetry (Logs/Winners)
 // 3. Strategy Database (Save/Load/Delete setups)
 
@@ -11,10 +11,11 @@ import {
   stopBotController,
   getBotStatusController,
   getBotLogsController,
-  getBotWinnersController
+  getBotWinnersController,
+  resetBotController // 🆕 IMPORTED: Controller to handle resets
 } from "../controllers/botController.js";
 
-// 🚀 ADDED: Import strategy controllers
+// Import strategy controllers
 import {
   createSetup,
   getSetups,
@@ -34,6 +35,9 @@ router.post("/start", protect, startBotController);
 // POST /api/bot/stop -> Stops the user's trading bot
 router.post("/stop", protect, stopBotController);
 
+// 🆕 POST /api/bot/reset -> Wipes trade history & resets balance
+router.post("/reset", protect, resetBotController);
+
 
 // --- 2. Live Bot Data & Telemetry ---
 
@@ -47,7 +51,7 @@ router.get("/logs", protect, getBotLogsController);
 router.get("/winners", protect, getBotWinnersController);
 
 
-// --- 3. Strategy Database (The Missing Link) ---
+// --- 3. Strategy Database ---
 // These routes handle saving/loading strategies to MongoDB
 
 // POST /api/bot/strategies -> Save a new strategy

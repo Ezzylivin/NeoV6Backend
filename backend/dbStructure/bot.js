@@ -9,11 +9,14 @@ const logEntrySchema = new Schema({
     timestamp: { type: Date, default: Date.now },
     type: { 
         type: String, 
-        enum: ['info', 'buy', 'sell', 'error', 'status', 'system', 'risk'], 
-        required: true 
+        // 🛠 FIX: Added UPPERCASE variants to the enum
+        enum: ['info', 'INFO', 'buy', 'BUY', 'sell', 'SELL', 'error', 'ERROR', 'status', 'STATUS', 'system', 'SYSTEM', 'risk', 'RISK', 'warning', 'WARNING'], 
+        required: true,
+        // Optional: Force lowercase before saving
+        set: (v) => v ? v.toLowerCase() : v 
     },
     message: { type: String, required: true },
-    data: { type: Schema.Types.Mixed } // Optional payload for debugging
+    data: { type: Schema.Types.Mixed } 
 }, { _id: false });
 
 // 2️⃣ POSITION SCHEMA (Live Trades)

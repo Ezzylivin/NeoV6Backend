@@ -1,5 +1,5 @@
 // File: backend/dbStructure/bot.js
-// 🚀 UPGRADE: v29.2 - Full Data Parity & Dynamic Capital Sync
+// 🚀 UPGRADE: v29.3 - Hybrid Params Support (Strings & Numbers)
 
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
@@ -9,7 +9,7 @@ const logEntrySchema = new Schema({
     timestamp: { type: Date, default: Date.now },
     type: { 
         type: String, 
-        enum: ['info', 'buy', 'sell', 'error', 'status', 'system', 'risk'], // Added 'risk' for clarity
+        enum: ['info', 'buy', 'sell', 'error', 'status', 'system', 'risk'], 
         required: true 
     },
     message: { type: String, required: true },
@@ -32,7 +32,9 @@ const positionSchema = new Schema({
 const strategyConfigSchema = new Schema({
     code: { type: String, required: true }, // e.g., "sma_crossover"
     active: { type: Boolean, default: true },
-    params: { type: Map, of: Number } // Flexible params: { "period": 14, "stdDev": 2 }
+    // 🛠️ UPGRADE: Changed 'of: Number' to 'of: Schema.Types.Mixed'
+    // This allows params to hold Numbers (14, 0.5) AND Strings ("btc_xgboost")
+    params: { type: Map, of: Schema.Types.Mixed } 
 }, { _id: false });
 
 // 4️⃣ EQUITY CURVE (For Frontend Charts)
@@ -49,7 +51,7 @@ const botSchema = new Schema(
   {
     // 🆔 IDENTITY
     userId: { type: String, required: true, index: true }, 
-    botId: { type: String, unique: true, sparse: true },   
+    botId: { type: String, unique: true, sparse: true },    
     
     // 📈 MARKET CONFIG
     symbol: { type: String, required: true, trim: true, uppercase: true },
@@ -97,7 +99,7 @@ const botSchema = new Schema(
     performanceMetrics: {
         totalProfit: { type: Number, default: 0 },
         totalTrades: { type: Number, default: 0 },
-        winRate: { type: Number, default: 0 },      // %
+        winRate: { type: Number, default: 0 },       // %
         profitFactor: { type: Number, default: 0 },
         sharpeRatio: { type: Number, default: 0 },
         maxDrawdown: { type: Number, default: 0 },  // Actual historical max DD

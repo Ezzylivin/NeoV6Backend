@@ -1,19 +1,15 @@
 // File: src/backend/services/botService.js
-// 🚀 UPGRADE: v5.2 - File-System Based Winners & Robust ID Generation
+// 🚀 UPGRADE: v5.1 - Identity, Scope & Reset
+// 🛠 Fixes: Adds Reset Logic, Fixes IP addressing, Syncs MongoDB.
 
 import axios from 'axios';
 import https from 'https';
-import fs from 'fs/promises'; // NEW: For reading results
-import path from 'path';      // NEW: For path resolution
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
 // Use Env Var for flexibility, default to Localhost for Render internal comms
 const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://127.0.0.1:8000"; 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-// 📂 NEW: Define path to optimizer results
-const OPTIMIZER_DIR = path.resolve('./ML/data/optimizer_results');
 
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
     try {
@@ -60,65 +56,11 @@ async function resolveStrategies(userId, config) {
     return [];
 }
 
-// 🚀 UPDATED: Read from File System instead of Python API
 export async function getWinnersList() {
     try {
-        // 1. Check if directory exists
-        try {
-            await fs.access(OPTIMIZER_DIR);
-        } catch (e) {
-            console.warn(`⚠️ Optimizer directory not found: ${OPTIMIZER_DIR}`);
-            return []; 
-        }
-
-        // 2. Read all filenames
-        const files = await fs.readdir(OPTIMIZER_DIR);
-        const jsonFiles = files.filter(file => file.endsWith('.json'));
-
-        // 3. Parse files in parallel
-        const winners = await Promise.all(
-            jsonFiles.map(async (filename) => {
-                try {
-                    const filePath = path.join(OPTIMIZER_DIR, filename);
-                    const fileContent = await fs.readFile(filePath, 'utf-8');
-                    const data = JSON.parse(fileContent);
-
-                    // 🛡️ CRITICAL FIX: Ensure botId exists for Frontend Keys
-                    // If JSON lacks botId, use filename (minus .json)
-                    const safeBotId = data.botId || filename.replace('.json', '');
-                    
-                    // 🛡️ Fallback for ROI calculation if missing
-                    let safeRoi = data.roi;
-                    if (safeRoi === undefined && data.metrics) {
-                         const capital = data.config?.initial_capital || 1000;
-                         safeRoi = data.metrics.net_profit / capital; 
-                    }
-
-                    return {
-                        ...data,
-                        botId: safeBotId,      
-                        filename: filename,    
-                        roi: safeRoi || 0,
-                        symbol: data.symbol || 'UNKNOWN',
-                        metrics: data.metrics || {},
-                        config: data.config || {}
-                    };
-                } catch (err) {
-                    console.error(`❌ Error parsing ${filename}:`, err.message);
-                    return null;
-                }
-            })
-        );
-
-        // 4. Return valid, sorted results
-        return winners
-            .filter(w => w !== null)
-            .sort((a, b) => b.roi - a.roi);
-
-    } catch (e) {
-        console.error("🔥 Error in getWinnersList:", e);
-        return [];
-    }
+        const list = await callPythonApi('/api/bot/winners', 'GET');
+        return list || [];
+    } catch (e) { return []; }
 }
 
 export async function startTradingBot(userId, config = {}) {
@@ -260,7 +202,7 @@ export async function getBotStatus(userId, symbol, timeframe) {
                     size: totalSize,
                     side: liveStatus.positions[0].side, // Assume all same side for now
                     entryTime: liveStatus.positions[0].time,
-                    pnl: 0 // Python calculates PnL on equity
+                    pnl: 0 // Python calculates PnL on equity, individual position PnL not passed in generic struct
                 };
             } else {
                 bot.currentPosition = null;

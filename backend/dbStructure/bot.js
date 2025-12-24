@@ -1,7 +1,8 @@
 // File: backend/dbStructure/bot.js
-// 🚀 UPGRADE: v29.4 - Fixed Data Stripping (Trades & Positions)
-
+// 🚀 UPGRADE: v29.5 - Added Auto-ID Generation & ROI Virtuals
 import mongoose from "mongoose";
+import crypto from "crypto"; // Native Node module for ID generation
+
 const { Schema, model } = mongoose;
 
 // 1️⃣ LOG ENTRY SCHEMA
@@ -30,7 +31,6 @@ const positionSchema = new Schema({
 }, { _id: false });
 
 // 3️⃣ TRADE HISTORY SCHEMA (Completed Trades)
-// 🛠 FIX: Added this so completed trades aren't stripped from the DB
 const tradeSchema = new Schema({
     symbol: { type: String, required: true },
     side: { type: String, enum: ['long', 'short'], required: true },
@@ -42,7 +42,7 @@ const tradeSchema = new Schema({
     pnl: { type: Number, required: true },
     pnlPct: { type: Number, default: 0 },
     fee: { type: Number, default: 0 },
-    exitReason: { type: String, default: 'strategy' } // e.g., 'sl', 'tp', 'signal'
+    exitReason: { type: String, default: 'strategy' }
 }, { _id: false });
 
 // 4️⃣ STRATEGY CONFIG SCHEMA
@@ -52,7 +52,7 @@ const strategyConfigSchema = new Schema({
     params: { type: Map, of: Schema.Types.Mixed } 
 }, { _id: false });
 
-// 5️⃣ EQUITY CURVE (For Frontend Charts)
+// 5️⃣ EQUITY CURVE
 const equityPointSchema = new Schema({
     timestamp: { type: Date, default: Date.now },
     balance: { type: Number, required: true },
@@ -66,6 +66,7 @@ const botSchema = new Schema(
   {
     // 🆔 IDENTITY
     userId: { type: String, required: true, index: true }, 
+    // Sparse is useful, but we MUST ensure this exists for the frontend keys
     botId: { type: String, unique: true, sparse: true },    
     
     // 📈 MARKET CONFIG
@@ -113,7 +114,7 @@ const botSchema = new Schema(
     performanceMetrics: {
         totalProfit: { type: Number, default: 0 },
         totalTrades: { type: Number, default: 0 },
-        winRate: { type: Number, default: 0 },       
+        winRate: { type: Number, default: 0 },        
         profitFactor: { type: Number, default: 0 },
         sharpeRatio: { type: Number, default: 0 },
         maxDrawdown: { type: Number, default: 0 },  
@@ -123,28 +124,48 @@ const botSchema = new Schema(
         largestLoss: { type: Number, default: 0 }
     },
 
-    // 🛠 FIX: Added `tradeHistory` so the Python API can retrieve it
     tradeHistory: [tradeSchema],
-
-    // 🛠 FIX: Added `activePositions` (Array) to match Python's `doc.get('activePositions')`
     activePositions: [positionSchema],
-
-    // 🛠 FIX: Added `candles` (Optional) if you want to snapshot chart data
     candles: [{ type: Schema.Types.Mixed }],
-
     equityCurve: [equityPointSchema], 
-    
-    // Legacy support for single position (can be deprecated later)
     currentPosition: { type: positionSchema, default: null },
-    
     logs: [logEntrySchema],
 
     startedAt: { type: Date },
     stoppedAt: { type: Date },
     lastActive: { type: Date, default: Date.now } 
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    // Ensure virtuals are sent to React
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
 );
+
+// ======================================================
+// 🧮 VIRTUALS
+// ======================================================
+
+// Calculate ROI dynamically based on balance and capital
+botSchema.virtual('roi').get(function() {
+    if (!this.capitalAllocation || this.capitalAllocation === 0) return 0;
+    return (this.currentBalance - this.capitalAllocation) / this.capitalAllocation;
+});
+
+// ======================================================
+// 🛡️ HOOKS (MIDDLEWARE)
+// ======================================================
+
+// Ensure botId exists before saving
+botSchema.pre('save', function(next) {
+    if (!this.botId) {
+        // Generate a random ID: e.g., "BOT_BTC-USD_1h_a1b2c3d4"
+        const suffix = crypto.randomBytes(4).toString('hex');
+        this.botId = `BOT_${this.symbol}_${this.timeframe}_${suffix}`;
+    }
+    next();
+});
 
 // ======================================================
 // 🛠️ METHODS

@@ -132,16 +132,25 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
             httpsAgent: httpsAgent, 
             timeout: 1800000 // 30 min
         });
-        comboApiResult = response.data;
+        
+        // 🟢 FIX: Handle both wrapped and unwrapped responses
+        const rawData = response.data;
+        
+        // Check if Python returned the data directly OR wrapped in combinedResult
+        // The Python 'controller.py' returns the object directly now.
+        const actualResult = rawData.combinedResult || rawData;
 
-        if (!comboApiResult?.combinedResult) {
+        // Validation: Ensure we have the core data we need
+        if (!actualResult?.metrics || !actualResult?.equityCurve) {
+            console.error("🔥 Invalid Data Received:", JSON.stringify(rawData).substring(0, 200));
             throw new Error("Invalid combo data structure from Python API.");
         }
         
+        // 🟢 FIX: Wrap it in 'combinedResult' so the Frontend gets what IT expects
         return {
              userId,
              ...comboConfig,
-             ...comboApiResult
+             combinedResult: actualResult 
          };
 
     } catch (apiError) {

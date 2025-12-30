@@ -1,8 +1,8 @@
 {
   "name": "ai-trading-bot-backend",
   "type": "module",
-  "version": "2.0.0",
-  "description": "Backend server for AI trading bot with Express, MongoDB, WebSocket, and Web3 Auth.",
+  "version": "2.1.0",
+  "description": "Backend Proxy Gateway for AI trading bot connecting Vercel to Python VPS.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -13,8 +13,8 @@
     "trading",
     "bot",
     "express",
-    "websocket",
-    "mongodb",
+    "proxy",
+    "middleware",
     "web3"
   ],
   "author": "your-name",
@@ -28,6 +28,7 @@
     "crypto-js": "^4.2.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "http-proxy-middleware": "^3.0.0", 
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.4.0",

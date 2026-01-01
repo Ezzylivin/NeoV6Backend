@@ -4,12 +4,10 @@ import Backtest from "../dbStructure/backtest.js";
 import axios from "axios";
 import https from 'https';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import crypto from 'crypto';
 
 // --- Configuration ---
-// 🚀 FIX: Use Dynamic URL (Best Practice) + Fallback to VPS
 const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000";
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
@@ -53,8 +51,8 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
         // --- 2. CACHE MISS: Call Python Server ---
         console.log(`[Service] Cache MISS. Calling Python ML Server...`);
         
-        // 🚀 FIX: Correct Endpoint for Single Backtests
-        const flaskUrl = `${ML_SERVER_URL}/api/ml/run-backtest-on`;
+        // 🟢 MATCHING PYTHON ROUTE #3
+        const flaskUrl = `${ML_SERVER_URL}/api/ml/run-backtest-on`; 
         let mlResult;
 
         try {
@@ -63,6 +61,11 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
                 timeout: 600000 // 10 minutes
             });
             mlResult = response.data;
+
+            // Handle wrapped vs unwrapped responses from Python
+            if (mlResult.combinedResult) {
+                mlResult = mlResult.combinedResult;
+            }
 
             if (!mlResult?.metrics || !mlResult?.equityCurve) {
                 throw new Error("Invalid data structure from Python API.");
@@ -99,7 +102,6 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
             candlesTested: mlResult.candleData ? mlResult.candleData.length : 0
         };
 
-        // Create a lighter version for DB saving
         const dataToSave = { ...fullResult };
         delete dataToSave.candleData; 
         delete dataToSave.mlPredictions; 
@@ -123,8 +125,8 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
     console.log("[Service] Starting COMBO backtest...");
     
-    // 🚀 FIX: Correct Endpoint for Combo Backtests
-    const flaskUrl = `${ML_SERVER_URL}/api/ml/run-combo-backtest`;
+    // 🚀 FIX: Updated to match Python api2.py route (@app.post('/api/backtest/combo'))
+    const flaskUrl = `${ML_SERVER_URL}/api/backtest/combo`;
     let comboApiResult;
 
     try {
@@ -133,20 +135,18 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
             timeout: 1800000 // 30 min
         });
         
-        // 🟢 FIX: Handle both wrapped and unwrapped responses
         const rawData = response.data;
         
-        // Check if Python returned the data directly OR wrapped in combinedResult
-        // The Python 'controller.py' returns the object directly now.
+        // 🟢 FIX: Normalize response structure
+        // Python might return { combinedResult: {...} } OR just {...}
         const actualResult = rawData.combinedResult || rawData;
 
-        // Validation: Ensure we have the core data we need
         if (!actualResult?.metrics || !actualResult?.equityCurve) {
             console.error("🔥 Invalid Data Received:", JSON.stringify(rawData).substring(0, 200));
             throw new Error("Invalid combo data structure from Python API.");
         }
         
-        // 🟢 FIX: Wrap it in 'combinedResult' so the Frontend gets what IT expects
+        // 🟢 FIX: Ensure Frontend gets the key it expects
         return {
              userId,
              ...comboConfig,

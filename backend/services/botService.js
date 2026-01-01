@@ -62,14 +62,10 @@ async function resolveStrategies(userId, config) {
 
 // 🚀 UPDATED: Read from File System instead of Python API
 export async function getWinnersList() {
-    try {
-        // 1. Check if directory exists
-        try {
-            await fs.access(OPTIMIZER_DIR);
-        } catch (e) {
-            console.warn(`⚠️ Optimizer directory not found: ${OPTIMIZER_DIR}`);
-            return []; 
-        }
+    // This calls @app.get("/api/bot/winners") on your Python VPS
+    const winners = await callPythonApi('/api/bot/winners', 'GET');
+    return Array.isArray(winners) ? winners : [];
+}
 
         // 2. Read all filenames
         const files = await fs.readdir(OPTIMIZER_DIR);

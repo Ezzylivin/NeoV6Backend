@@ -128,14 +128,11 @@ export const getBotLogsController = async (req, res) => {
 // --- Get Certified Winners from Python ---
 export const getBotWinnersController = async (req, res) => {
     try {
-        const pythonUrl = process.env.ML_SERVER_URL || "http://127.0.0.1:8000";
-        const response = await axios.get(`${pythonUrl}/api/bot/winners`);
-        sendResponse(res, response.data);
+        // 🟢 FIX: Use the Service (which now correctly calls Python)
+        const winners = await botService.getWinnersList();
+        res.status(200).json(winners);
     } catch (err) {
-        console.error("❌ Error fetching winners from Python:", err.message);
-        if (err.code === 'ECONNREFUSED') {
-            return sendResponse(res, []);
-        }
-        handleControllerError(res, err, 'getBotWinnersController');
+        console.error("[Controller] Error fetching winners:", err.message);
+        res.status(500).json({ message: "Failed to fetch winners list." });
     }
 };

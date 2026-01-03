@@ -122,12 +122,13 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 /**
  * --- MASTER ORCHESTRATOR (Combo Backtest) ---
  */
+// ... (imports remain the same) ...
+
 export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
     console.log("[Service] Starting COMBO backtest...");
     
-    // 🚀 FIX: Updated to match Python api2.py route (@app.post('/api/backtest/combo'))
+    // Endpoint matching your Python api2.py
     const flaskUrl = `${ML_SERVER_URL}/api/backtest/combo`;
-    let comboApiResult;
 
     try {
         const response = await axios.post(flaskUrl, { ...comboConfig, userId }, {
@@ -137,26 +138,31 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
         
         const rawData = response.data;
         
-        // 🟢 FIX: Normalize response structure
-        // Python might return { combinedResult: {...} } OR just {...}
-        const actualResult = rawData.combinedResult || rawData;
+        // 1. Unwrap the Python response
+        // Python sends: { combinedResult: { metrics: {...}, equityCurve: [...] } }
+        const innerResult = rawData.combinedResult || rawData;
 
-        if (!actualResult?.metrics || !actualResult?.equityCurve) {
+        if (!innerResult?.metrics || !innerResult?.equityCurve) {
             console.error("🔥 Invalid Data Received:", JSON.stringify(rawData).substring(0, 200));
             throw new Error("Invalid combo data structure from Python API.");
         }
         
-        // 🟢 FIX: Ensure Frontend gets the key it expects
+        // 2. 🟢 FLATTEN THE RESPONSE
+        // We return 'metrics' and 'equityCurve' at the top level so the UI finds them easily
         return {
              userId,
              ...comboConfig,
-             combinedResult: actualResult 
+             // Top-level keys for UI Components
+             metrics: innerResult.metrics,
+             equityCurve: innerResult.equityCurve,
+             trades: innerResult.trades,
+             // Nested key for compatibility
+             combinedResult: innerResult 
          };
 
     } catch (apiError) {
         let msg = `Python Server COMBO API call failed: ${apiError.message}`;
         if (apiError.response) {
-             console.error("🔥 [Service] Python Combo Error:", JSON.stringify(apiError.response.data, null, 2));
              msg += ` Status: ${apiError.response.status}`;
         }
         throw new Error(msg);

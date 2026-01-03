@@ -41,7 +41,6 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
 // 🚀 EXPORTED FUNCTIONS
 // ---------------------------------------------------------
 
-/**// ... imports ...
 
 export async function getWinnersList() {
     console.log("[BotService] Fetching Winners List...");

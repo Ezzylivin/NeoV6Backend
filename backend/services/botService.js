@@ -41,47 +41,54 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
 // 🚀 EXPORTED FUNCTIONS
 // ---------------------------------------------------------
 
-/**
- * Fetches "Winners" from Python and formats them for the Frontend
- */
+/**// ... imports ...
+
 export async function getWinnersList() {
-    // 1. Get Raw List from Python
-    // Python returns: [{ "id": "...", "name": "...", "config": { ...json_file_content... } }]
+    console.log("[BotService] Fetching Winners List...");
     const rawWinners = await callPythonApi('/api/bot/winners', 'GET');
     
-    if (!Array.isArray(rawWinners)) return [];
+    if (!Array.isArray(rawWinners)) {
+        console.warn("[BotService] Winners response is not an array:", rawWinners);
+        return [];
+    }
 
-    // 2. Transform & Calculate ROI (Restore original logic)
+    console.log(`🔍 [DEBUG] Received ${rawWinners.length} raw winners.`);
+    
+    // Log the structure of the first winner to debug nesting
+    if (rawWinners.length > 0) {
+        console.log("🔍 [DEBUG] First Winner Structure:", JSON.stringify(rawWinners[0], null, 2));
+    }
+
     const formattedWinners = rawWinners.map(wrapper => {
-        // Unwrap the actual data
-        const data = wrapper.config || {}; 
+        const rawConfig = wrapper.config || {};
         
-        // Calculate ROI if missing (logic from your old file-system service)
-        let safeRoi = data.roi;
-        if (safeRoi === undefined && data.metrics) {
-             const capital = data.config?.initial_capital || 1000;
-             safeRoi = capital > 0 ? (data.metrics.net_profit / capital) : 0;
+        // Try to find the inner data
+        // Logic: Is it in 'combinedResult'? Is it in 'metrics'? 
+        const actualData = rawConfig.combinedResult || rawConfig;
+        const metrics = actualData.metrics || {};
+
+        // Debug specific problematic items
+        if (!metrics.roi && !metrics.net_profit) {
+             // console.log("⚠️ [DEBUG] No metrics found for:", wrapper.name);
         }
 
-        // Return flattened object for Frontend
+        let roi = metrics.roi; 
+        if (roi === undefined || roi === null) {
+             const capital = rawConfig.initialBalance || 1000;
+             const profit = metrics.netProfit || metrics.net_profit || 0;
+             roi = capital > 0 ? (profit / capital) * 100 : 0;
+        }
+
         return {
-            ...data, // Spread actual backtest stats (metrics, equityCurve, etc.)
-            
-            // Ensure IDs and Names exist
-            botId: data.botId || wrapper.id, 
-            name: data.name || wrapper.name, // Fixes "undefined" in dropdown
+            ...rawConfig, 
+            botId: rawConfig.botId || wrapper.id, 
+            name: rawConfig.name || wrapper.name,
             filename: wrapper.name,
-            
-            // Ensure ROI exists
-            roi: safeRoi || 0,
-            
-            // Defaults
-            symbol: data.symbol || 'UNKNOWN',
-            metrics: data.metrics || {}
+            roi: parseFloat(roi || 0), 
+            metrics: metrics 
         };
     });
 
-    // 3. Sort by ROI (Highest First)
     return formattedWinners.sort((a, b) => b.roi - a.roi);
 }
 

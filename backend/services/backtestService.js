@@ -122,47 +122,55 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 /**
  * --- MASTER ORCHESTRATOR (Combo Backtest) ---
  */
-// ... (imports remain the same) ...
+// ... imports ...
 
 export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
     console.log("[Service] Starting COMBO backtest...");
     
-    // Endpoint matching your Python api2.py
     const flaskUrl = `${ML_SERVER_URL}/api/backtest/combo`;
 
     try {
         const response = await axios.post(flaskUrl, { ...comboConfig, userId }, {
             httpsAgent: httpsAgent, 
-            timeout: 1800000 // 30 min
+            timeout: 1800000 
         });
         
         const rawData = response.data;
-        
-        // 1. Unwrap the Python response
-        // Python sends: { combinedResult: { metrics: {...}, equityCurve: [...] } }
+
+        // 🔍 DEBUG LOG: See exactly what Python sent back
+        console.log("🔍 [DEBUG] Python Raw Response (Keys):", Object.keys(rawData));
+        if (rawData.combinedResult) {
+             console.log("🔍 [DEBUG] combinedResult Keys:", Object.keys(rawData.combinedResult));
+             console.log("🔍 [DEBUG] Metrics Sample:", JSON.stringify(rawData.combinedResult.metrics, null, 2));
+        }
+
+        // 1. Unwrap
         const innerResult = rawData.combinedResult || rawData;
 
         if (!innerResult?.metrics || !innerResult?.equityCurve) {
-            console.error("🔥 Invalid Data Received:", JSON.stringify(rawData).substring(0, 200));
+            console.error("🔥 Invalid Data. Received full object:", JSON.stringify(rawData).substring(0, 500));
             throw new Error("Invalid combo data structure from Python API.");
         }
         
-        // 2. 🟢 FLATTEN THE RESPONSE
-        // We return 'metrics' and 'equityCurve' at the top level so the UI finds them easily
-        return {
+        // 2. Flatten for Frontend
+        const finalResponse = {
              userId,
              ...comboConfig,
-             // Top-level keys for UI Components
-             metrics: innerResult.metrics,
+             // Lift these to the top level
+             metrics: innerResult.metrics, 
              equityCurve: innerResult.equityCurve,
              trades: innerResult.trades,
-             // Nested key for compatibility
+             // Keep original for safety
              combinedResult: innerResult 
          };
+
+         console.log("✅ [DEBUG] Sending to Controller. Metrics ROI:", finalResponse.metrics?.roi);
+         return finalResponse;
 
     } catch (apiError) {
         let msg = `Python Server COMBO API call failed: ${apiError.message}`;
         if (apiError.response) {
+             console.error("🔥 [Service] Python Error Data:", JSON.stringify(apiError.response.data, null, 2));
              msg += ` Status: ${apiError.response.status}`;
         }
         throw new Error(msg);

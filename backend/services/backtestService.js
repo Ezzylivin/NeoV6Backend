@@ -13,9 +13,8 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
 
 // --- HELPER: Generate Cache Filename ---
-// --- HELPER: Generate Cache Filename ---
 const generateCacheFilename = (config) => {
-    // 🟢 FIX: Ensure we pick up dates regardless of camelCase or snake_case
+    // Pick up dates regardless of camelCase or snake_case to ensure hash changes
     const startDate = config.startDate || config.start_date || 'default_start';
     const endDate = config.endDate || config.end_date || 'default_end';
 
@@ -31,35 +30,36 @@ const generateCacheFilename = (config) => {
         rm: config.riskManagementMode, 
         rp: config.riskPercentage, 
         gt: config.growthCapitalTarget,
-        // Include everything that affects the result
         params: config.params || {}
     });
     
     const hash = crypto.createHash('sha256').update(paramsKey).digest('hex');
-    return `${config.symbol}_${config.timeframe}_${hash}.json`;
+    // Including symbol/tf in filename makes it easier to debug manually
+    return `${config.symbol || 'unknown'}_${config.timeframe || 'unknown'}_${hash}.json`;
 };
 
+/**
+ * --- MASTER FUNCTION (Single Backtest) ---
+ */
 export const runBacktest = async (config, authToken, simulateOnly = false) => {
     console.log(`[Service] Starting runBacktest for ${config.symbol}. Dates: ${config.startDate} to ${config.endDate}`);
     
-    // 1. Generate path
     const cacheFilename = generateCacheFilename(config);
     const cacheFilePath = path.join(RESULTS_CACHE_DIR, cacheFilename);
     
     try {
         await fs.mkdir(RESULTS_CACHE_DIR, { recursive: true });
         
-        // 🟢 FIX: During debugging, you can comment out this try/catch block 
-        // to force a fresh run and bypass the cache entirely.
+        // Try to load from cache
         try {
             const cachedData = await fs.readFile(cacheFilePath, 'utf-8');
             console.log(`[Service] ✅ Cache HIT: ${cacheFilename}`);
-            return { ...config, ...JSON.parse(cachedData), userId: config.userId };
+            const mlResult = JSON.parse(cachedData);
+            return { ...config, ...mlResult, userId: config.userId };
         } catch (e) { 
             console.log(`[Service] ❌ Cache MISS: Running fresh backtest...`);
         }
         
-        // 2. Call Python
         const flaskUrl = `${ML_SERVER_URL}/api/ml/run-backtest-on`; 
         
         const response = await axios.post(flaskUrl, config, { 
@@ -69,12 +69,49 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
 
         let mlResult = response.data.combinedResult || response.data;
 
+        if (!mlResult?.metrics || !mlResult?.equityCurve) {
+            throw new Error("Invalid data structure from Python API.");
+        }
+
+        // Save to Cache
+        try { 
+            await fs.writeFile(cacheFilePath, JSON.stringify(mlResult, null, 2), 'utf-8'); 
+        } catch (saveError) { 
+            console.error(`[Service] Cache save failed: ${saveError.message}`); 
+        }
+
+        // Prepare for DB
+        const fullResult = {
+            ...config,
+            ...mlResult,
+            userId: config.userId,
+            strategy: { 
+                code: config.code, 
+                name: config.params?.strategyType || config.code, 
+                params: config.params || {} 
+            },
+            candlesTested: mlResult.candleData ? mlResult.candleData.length : 0
+        };
+
+        const dataToSave = { ...fullResult };
+        delete dataToSave.candleData; 
+        delete dataToSave.mlPredictions; 
+
+        if (!simulateOnly) { 
+            await Backtest.create(dataToSave);
+        }
         
+        return fullResult;
+
+    } catch (error) {
+        console.error(`[Service] Critical Error: ${error.message}`);
+        throw error;
+    }
+};
+
 /**
  * --- MASTER ORCHESTRATOR (Combo Backtest) ---
  */
-
-
 export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
     console.log("[Service] Starting COMBO backtest...");
     
@@ -87,41 +124,27 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
         });
         
         const rawData = response.data;
-
-        // 🔍 DEBUG LOG: See exactly what Python sent back
-        console.log("🔍 [DEBUG] Python Raw Response (Keys):", Object.keys(rawData));
-        if (rawData.combinedResult) {
-             console.log("🔍 [DEBUG] combinedResult Keys:", Object.keys(rawData.combinedResult));
-             console.log("🔍 [DEBUG] Metrics Sample:", JSON.stringify(rawData.combinedResult.metrics, null, 2));
-        }
-
-        // 1. Unwrap
         const innerResult = rawData.combinedResult || rawData;
 
         if (!innerResult?.metrics || !innerResult?.equityCurve) {
-            console.error("🔥 Invalid Data. Received full object:", JSON.stringify(rawData).substring(0, 500));
+            console.error("🔥 Invalid Data structure from Python.");
             throw new Error("Invalid combo data structure from Python API.");
         }
         
-        // 2. Flatten for Frontend
-        const finalResponse = {
+        // Flatten for Frontend compatibility
+        return {
              userId,
              ...comboConfig,
-             // Lift these to the top level
              metrics: innerResult.metrics, 
              equityCurve: innerResult.equityCurve,
              trades: innerResult.trades,
-             // Keep original for safety
              combinedResult: innerResult 
          };
 
-         console.log("✅ [DEBUG] Sending to Controller. Metrics ROI:", finalResponse.metrics?.roi);
-         return finalResponse;
-
     } catch (apiError) {
-        let msg = `Python Server COMBO API call failed: ${apiError.message}`;
+        let msg = `Python Server COMBO API failed: ${apiError.message}`;
         if (apiError.response) {
-             console.error("🔥 [Service] Python Error Data:", JSON.stringify(apiError.response.data, null, 2));
+             console.error("🔥 [Service] Python Error Data:", JSON.stringify(apiError.response.data));
              msg += ` Status: ${apiError.response.status}`;
         }
         throw new Error(msg);

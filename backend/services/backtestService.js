@@ -1,5 +1,3 @@
-// File: src/backend/services/backtestService.js
-
 import Backtest from "../dbStructure/backtest.js";
 import axios from "axios";
 import https from 'https';
@@ -14,28 +12,16 @@ const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
 
 // --- HELPER: Generate Cache Filename ---
 const generateCacheFilename = (config) => {
-    // Pick up dates regardless of camelCase or snake_case to ensure hash changes
-    const startDate = config.startDate || config.start_date || 'default_start';
-    const endDate = config.endDate || config.end_date || 'default_end';
-
-    const paramsKey = JSON.stringify({
-        sym: config.symbol, 
-        tf: config.timeframe, 
-        sd: startDate, 
-        ed: endDate,
-        mlMode: config.mlMode, 
-        mlm: config.mlModel, 
-        mlt: config.mlThreshold,
-        code: config.code, 
-        rm: config.riskManagementMode, 
-        rp: config.riskPercentage, 
-        gt: config.growthCapitalTarget,
-        params: config.params || {}
-    });
+    // Use all parameters explicitly without normalizing names or relying on dependents
+    const paramsKey = JSON.stringify(config);  // Entire config is now hashed for uniqueness
     
     const hash = crypto.createHash('sha256').update(paramsKey).digest('hex');
-    // Including symbol/tf in filename makes it easier to debug manually
-    return `${config.symbol || 'unknown'}_${config.timeframe || 'unknown'}_${hash}.json`;
+    // Construct filename using symbol and timeframe for debugging while using the unique hash
+    return [
+        config.symbol || 'symbol-unknown',
+        config.timeframe || 'time-unknown',
+        hash
+    ].join('_') + ".json";
 };
 
 /**

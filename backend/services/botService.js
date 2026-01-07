@@ -1,17 +1,20 @@
 // File: src/backend/services/botService.js
 
 import axios from 'axios';
+import https from 'https';
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
 // 🟢 CONFIG: Your Python VPS Engine
 const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000"; 
-const httpsAgent = { rejectUnauthorized: false }; // simplified for axios
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 // --- Helper for calling Python ---
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
     try {
         let url = `${ML_SERVER_URL}${endpoint}`;
+        
+        // Construct Query Params for GET requests
         const queryParams = new URLSearchParams();
         if (method === 'GET') {
             if (data.userId) queryParams.append("userId", data.userId);
@@ -25,6 +28,7 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
             method, 
             url, 
             data: method !== 'GET' ? data : undefined, 
+            httpsAgent, 
             timeout: 15000 
         };
         const response = await axios(config);
@@ -33,69 +37,15 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
         if (error.code !== 'ECONNREFUSED') {
             console.warn(`[Python API Warning] ${endpoint}: ${error.message}`);
         }
-        return null;
+        return null; // Return null so controllers handle it gracefully
     }
 }
 
-// ---------------------------------------------------------
-// 🚀 EXPORTED FUNCTIONS
-// ---------------------------------------------------------
-
-
-export async function getWinnersList() {
-    console.log("[BotService] Fetching Winners List...");
-    const rawWinners = await callPythonApi('/api/bot/winners', 'GET');
-    
-    if (!Array.isArray(rawWinners)) {
-        console.warn("[BotService] Winners response is not an array:", rawWinners);
-        return [];
-    }
-
-    console.log(`🔍 [DEBUG] Received ${rawWinners.length} raw winners.`);
-    
-    // Log the structure of the first winner to debug nesting
-    if (rawWinners.length > 0) {
-        console.log("🔍 [DEBUG] First Winner Structure:", JSON.stringify(rawWinners[0], null, 2));
-    }
-
-    const formattedWinners = rawWinners.map(wrapper => {
-        const rawConfig = wrapper.config || {};
-        
-        // Try to find the inner data
-        // Logic: Is it in 'combinedResult'? Is it in 'metrics'? 
-        const actualData = rawConfig.combinedResult || rawConfig;
-        const metrics = actualData.metrics || {};
-
-        // Debug specific problematic items
-        if (!metrics.roi && !metrics.net_profit) {
-             // console.log("⚠️ [DEBUG] No metrics found for:", wrapper.name);
-        }
-
-        let roi = metrics.roi; 
-        if (roi === undefined || roi === null) {
-             const capital = rawConfig.initialBalance || 1000;
-             const profit = metrics.netProfit || metrics.net_profit || 0;
-             roi = capital > 0 ? (profit / capital) * 100 : 0;
-        }
-
-        return {
-            ...rawConfig, 
-            botId: rawConfig.botId || wrapper.id, 
-            name: rawConfig.name || wrapper.name,
-            filename: wrapper.name,
-            roi: parseFloat(roi || 0), 
-            metrics: metrics 
-        };
-    });
-
-    return formattedWinners.sort((a, b) => b.roi - a.roi);
-}
-
-// ... (Keep the rest of your file: startTradingBot, stopTradingBot, etc. unchanged) ...
-// Below is the rest of the file for safety/reference:
-
+// --- Strategy Resolver Helper ---
 async function resolveStrategies(userId, config) {
     if (config.strategies?.length > 0) return config.strategies.map(s => ({ code: s.code, params: s.params || {} }));
+    
+    // Handle Combo Configs
     if (config.comboConfig?.strategyCodes?.length > 0) {
         try {
             const dbStrategies = await Strategy.find({ userId: userId, code: { $in: config.comboConfig.strategyCodes } }).lean();
@@ -107,6 +57,8 @@ async function resolveStrategies(userId, config) {
             return config.comboConfig.strategyCodes.map(code => ({ code: code, params: {} }));
         }
     } 
+    
+    // Handle Single Strategy ID
     if (config.strategyId) {
         const strategy = await Strategy.findById(config.strategyId).lean();
         if (strategy) return [{ code: strategy.code, params: strategy.params }];
@@ -114,15 +66,71 @@ async function resolveStrategies(userId, config) {
     return [];
 }
 
+// ---------------------------------------------------------
+// 🚀 EXPORTED FUNCTIONS (Called by Controller)
+// ---------------------------------------------------------
+
+export async function getWinnersList() {
+    // 1. Get Raw List from Python
+    const rawWinners = await callPythonApi('/api/bot/winners', 'GET');
+    
+    if (!Array.isArray(rawWinners)) {
+        console.warn("[BotService] Winners response is not an array.");
+        return [];
+    }
+
+    // 2. Transform & Calculate ROI (Deep Unwrapping)
+    const formattedWinners = rawWinners.map(wrapper => {
+        // The actual data might be in 'wrapper.config' or at top level
+        const rawConfig = wrapper.config || {};
+        
+        // 🟢 DEEP DIVE: Find the metrics wherever they are hiding
+        // Priority: combinedResult.metrics -> metrics -> rawConfig
+        const actualData = rawConfig.combinedResult || rawConfig;
+        const metrics = actualData.metrics || {};
+
+        // Calculate ROI safely
+        let roi = metrics.roi; 
+        
+        // Fallback calculation if ROI is missing but profit/capital exist
+        if (roi === undefined || roi === null) {
+             const capital = rawConfig.initialBalance || 1000;
+             const profit = metrics.netProfit || metrics.net_profit || 0;
+             roi = capital > 0 ? (profit / capital) * 100 : 0; 
+        }
+
+        // Return flattened object for Frontend Dropdown
+        return {
+            ...rawConfig, // Spread original config params
+            
+            // Ensure Essential IDs exist
+            botId: rawConfig.botId || wrapper.id, 
+            name: rawConfig.name || wrapper.name || "Unknown Strategy",
+            filename: wrapper.name,
+            
+            // 🟢 The Golden Number (Parsed as Float)
+            roi: parseFloat(roi || 0), 
+            
+            // Ensure metrics exist for display
+            metrics: metrics 
+        };
+    });
+
+    // 3. Sort by ROI (Highest First)
+    return formattedWinners.sort((a, b) => b.roi - a.roi);
+}
+
 export async function startTradingBot(userId, config = {}) {
     if (!userId) throw new Error("Missing userId");
 
+    // 1. Resolve Strategies
     const strategiesPayload = await resolveStrategies(userId, config);
     if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
     const cleanSymbol = (config.symbol || "BTC-USD").replace('/', '-');
     const botId = `${userId}_${cleanSymbol}_${config.timeframe || "1h"}`;
 
+    // 2. Prepare Python Payload
     const pythonConfig = {
         userId, 
         botId,
@@ -143,9 +151,10 @@ export async function startTradingBot(userId, config = {}) {
         params: { hybridMode: 'AND', ...config.params }
     };
 
-    const response = await callPythonApi('/api/bot/start', 'POST', pythonConfig);
-    if (!response) throw new Error("Failed to start bot via Python Engine.");
+    // 3. Start on Python
+    await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
+    // 4. Update Node.js DB
     const updateData = {
         userId,
         symbol: pythonConfig.symbol,
@@ -172,6 +181,8 @@ export async function startTradingBot(userId, config = {}) {
 
 export async function stopTradingBot(userId) {
     if (!userId) throw new Error("Missing userId");
+    
+    // Find any running bot for this user (Simplified for single-bot per user logic)
     const bot = await Bot.findOne({ userId, status: 'running' });
     
     if (bot) {
@@ -182,22 +193,31 @@ export async function stopTradingBot(userId) {
         await bot.save();
         return bot;
     }
+    
     throw new Error("No running bot found to stop.");
 }
 
 export async function getBotStatus(userId) {
+    // Find active bot ID from Node DB
     const active = await Bot.findOne({ userId, status: 'running' }).select('botId');
     if (!active) return { status: 'stopped', isConfigured: false, logs: [] };
 
+    // Ask Python for live stats
     const liveStatus = await callPythonApi('/api/bot/status', 'GET', { botId: active.botId });
+    
+    // Sync Node DB if needed (Optional but good for consistency)
     let bot = await Bot.findOne({ botId: active.botId });
 
     if (liveStatus && liveStatus.status === 'running') {
         if (bot) {
             bot.currentBalance = liveStatus.currentBalance;
+            // ... (sync other fields if desired)
             await bot.save();
         }
+        
+        // Fetch logs separately
         const logs = await callPythonApi('/api/bot/logs', 'GET', { botId: active.botId });
+
         return { 
             ...bot.toObject(), 
             logs: logs || bot.logs, 
@@ -206,10 +226,13 @@ export async function getBotStatus(userId) {
             candles: liveStatus.candles || [] 
         };
     } 
+    
+    // If Python says stopped but Node says running
     if (bot && bot.status === 'running') {
         bot.status = 'stopped';
         await bot.save();
     }
+
     return { status: 'stopped', isConfigured: false, logs: [] };
 }
 
@@ -221,7 +244,5 @@ export async function getBotLogs(userId, limit) {
 }
 
 export async function resetBotController(userId, config) {
-    // Basic implementation to match your controller calls if needed
-    // The previous file had 'resetTradingBot' but controller called something else? 
-    // Just ensuring exports align.
+    // Stub for reset calls if needed by controller imports
 }

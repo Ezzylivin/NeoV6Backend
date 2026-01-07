@@ -13,116 +13,67 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 const RESULTS_CACHE_DIR = path.resolve(process.cwd(), 'python_data', 'results');
 
 // --- HELPER: Generate Cache Filename ---
+// --- HELPER: Generate Cache Filename ---
 const generateCacheFilename = (config) => {
+    // 🟢 FIX: Ensure we pick up dates regardless of camelCase or snake_case
+    const startDate = config.startDate || config.start_date || 'default_start';
+    const endDate = config.endDate || config.end_date || 'default_end';
+
     const paramsKey = JSON.stringify({
-        sym: config.symbol, tf: config.timeframe, sd: config.startDate, ed: config.endDate,
-        mlMode: config.mlMode, mlm: config.mlModel, mlt: config.mlThreshold,
+        sym: config.symbol, 
+        tf: config.timeframe, 
+        sd: startDate, 
+        ed: endDate,
+        mlMode: config.mlMode, 
+        mlm: config.mlModel, 
+        mlt: config.mlThreshold,
         code: config.code, 
-        sl: config.params?.SL ?? 'none', tp: config.params?.TP ?? 'none',
-        rm: config.riskManagementMode, rp: config.riskPercentage, gt: config.growthCapitalTarget,
-        matr: config.params?.minAtrPct, tper: config.params?.trendFilterPeriod,
-        hybrid: config.params?.hybridMode,
-        adx: config.params?.minAdxLevel ?? 'none',
-        tsl: config.params?.tslAtrMult ?? 'none'
+        rm: config.riskManagementMode, 
+        rp: config.riskPercentage, 
+        gt: config.growthCapitalTarget,
+        // Include everything that affects the result
+        params: config.params || {}
     });
+    
     const hash = crypto.createHash('sha256').update(paramsKey).digest('hex');
-    return `${hash}.json`;
+    return `${config.symbol}_${config.timeframe}_${hash}.json`;
 };
 
-/**
- * --- MASTER FUNCTION (Single Backtest) ---
- */
 export const runBacktest = async (config, authToken, simulateOnly = false) => {
-    console.log(`[Service] Starting runBacktest. Mode: ${config.mlMode}. Forwarding to Python...`);
+    console.log(`[Service] Starting runBacktest for ${config.symbol}. Dates: ${config.startDate} to ${config.endDate}`);
     
-    // --- 1. Caching Logic ---
+    // 1. Generate path
     const cacheFilename = generateCacheFilename(config);
     const cacheFilePath = path.join(RESULTS_CACHE_DIR, cacheFilename);
     
     try {
         await fs.mkdir(RESULTS_CACHE_DIR, { recursive: true });
+        
+        // 🟢 FIX: During debugging, you can comment out this try/catch block 
+        // to force a fresh run and bypass the cache entirely.
         try {
             const cachedData = await fs.readFile(cacheFilePath, 'utf-8');
-            console.log(`[Service] Cache HIT for ${cacheFilename}.`);
-            const mlResult = JSON.parse(cachedData);
-            return { ...config, ...mlResult, userId: config.userId };
-        } catch (e) { /* Cache miss, ignore */ }
+            console.log(`[Service] ✅ Cache HIT: ${cacheFilename}`);
+            return { ...config, ...JSON.parse(cachedData), userId: config.userId };
+        } catch (e) { 
+            console.log(`[Service] ❌ Cache MISS: Running fresh backtest...`);
+        }
         
-        // --- 2. CACHE MISS: Call Python Server ---
-        console.log(`[Service] Cache MISS. Calling Python ML Server...`);
-        
-        // 🟢 MATCHING PYTHON ROUTE #3
+        // 2. Call Python
         const flaskUrl = `${ML_SERVER_URL}/api/ml/run-backtest-on`; 
-        let mlResult;
-
-        try {
-            const response = await axios.post(flaskUrl, config, { 
-                httpsAgent: httpsAgent, 
-                timeout: 600000 // 10 minutes
-            });
-            mlResult = response.data;
-
-            // Handle wrapped vs unwrapped responses from Python
-            if (mlResult.combinedResult) {
-                mlResult = mlResult.combinedResult;
-            }
-
-            if (!mlResult?.metrics || !mlResult?.equityCurve) {
-                throw new Error("Invalid data structure from Python API.");
-            }
-        } catch (apiError) {
-            let msg = `Python Server API call failed (${flaskUrl}): ${apiError.message}`;
-            if (apiError.response) {
-                console.error("🔥 [Service] Python Error Response:", JSON.stringify(apiError.response.data, null, 2));
-                msg += ` Status: ${apiError.response.status}. Data: ${JSON.stringify(apiError.response.data)}`;
-            }
-            throw new Error(msg);
-        }
-
-        // --- 3. Save to Cache ---
-        try { 
-            await fs.writeFile(cacheFilePath, JSON.stringify(mlResult, null, 2), 'utf-8'); 
-        } catch (saveError) { 
-            console.error(`[Service] Warning: Cache save failed: ${saveError.message}`); 
-        }
-
-        // --- 4. PREPARE DATA FOR DB SAVE ---
-        const fullResult = {
-            ...config,
-            ...mlResult,
-            userId: config.userId,
-            
-            strategy: { 
-                code: config.code, 
-                name: config.params?.strategyType || config.code, 
-                type: config.params?.strategyType || "Unknown", 
-                params: config.params || {} 
-            },
-            
-            candlesTested: mlResult.candleData ? mlResult.candleData.length : 0
-        };
-
-        const dataToSave = { ...fullResult };
-        delete dataToSave.candleData; 
-        delete dataToSave.mlPredictions; 
-
-        if (!simulateOnly) { 
-            console.log(`[Service] Saving NEW backtest to DB.`); 
-            await Backtest.create(dataToSave);
-        }
         
-        return fullResult;
+        const response = await axios.post(flaskUrl, config, { 
+            httpsAgent: httpsAgent, 
+            timeout: 600000 
+        });
 
-    } catch (error) {
-        console.error(`[Service] Critical Error: ${error.message}`);
-        throw error;
-    }
-};
+        let mlResult = response.data.combinedResult || response.data;
 
+        
 /**
  * --- MASTER ORCHESTRATOR (Combo Backtest) ---
  */
-// ... imports ...
+
 
 export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
     console.log("[Service] Starting COMBO backtest...");

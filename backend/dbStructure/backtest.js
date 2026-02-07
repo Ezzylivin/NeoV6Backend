@@ -116,8 +116,8 @@ const backtestSchema = new Schema({
   tradeBreakdown: [tradeResultSchema],
   equityCurve: [equityPointSchema],
 
-  // ✅ THE FIX: This field allows the database to save your chart data
-  candleData: { type: [Object] }, 
+  // ⚡ OPTIMIZED FIX: Use "Mixed" to prevent memory bloat
+  candleData: { type: Schema.Types.Mixed }, 
 
   metrics: metricsSchema,
   risk: { 

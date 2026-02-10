@@ -1,7 +1,7 @@
 // File: src/backend/services/botService.js
-// 🚀 UPGRADE: v9.2 - Force Sync Python State to MongoDB
+// 🚀 UPGRADE: v9.6 - Includes Final Sync on Stop
 import axios from "axios";
-import https from 'https'; // Added missing import for Agent
+import https from 'https';
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
@@ -112,14 +112,13 @@ export async function startTradingBot(userId, config = {}) {
         status: 'running',
         mode: pythonConfig.mode,
         capitalAllocation: pythonConfig.initialBalance,
-        // 🟢 FIX: Initialize currentBalance immediately so it doesn't show 0
         currentBalance: pythonConfig.initialBalance, 
         isCombo: pythonConfig.isCombo,
         strategies: strategiesPayload,
         comboConfig: pythonConfig.comboConfig,
         mlMode: pythonConfig.mlMode,
         startedAt: new Date(),
-        stoppedAt: null // Clear old stop time
+        stoppedAt: null 
     };
 
     return await Bot.findOneAndUpdate(
@@ -132,22 +131,51 @@ export async function startTradingBot(userId, config = {}) {
     );
 }
 
+// 🟢 2. STOP BOT (Fixed: Saves Final State)
 export async function stopTradingBot(userId) {
     if (!userId) throw new Error("Missing userId");
-    
-    // Find running bot
-    const bot = await Bot.findOne({ userId, status: 'running' });
-    
-    if (bot) {
-        await callPythonApi('/api/bot/stop', 'POST', { botId: bot.botId });
-        bot.status = 'stopped';
-        bot.stoppedAt = new Date();
-        bot.logs.unshift({ timestamp: new Date(), message: "🛑 Bot Stopped.", type: 'status' });
-        await bot.save();
-        return bot;
+
+    // 1. 🟢 FINAL SYNC: Fetch the latest data from Python BEFORE stopping
+    // This ensures we capture the candles/equity curve one last time
+    const finalState = await callPythonApi('/api/bot/status', 'GET', { userId });
+
+    // 2. Notify Python to Stop
+    try {
+        await callPythonApi('/api/bot/stop', 'POST', { userId });
+    } catch (err) {
+        console.warn("⚠️ Python Stop Warning:", err.message);
     }
-    
-    throw new Error("No running bot found to stop.");
+
+    // 3. Prepare MongoDB Update
+    const updateData = {
+        status: 'stopped',
+        stoppedAt: new Date(),
+        $push: { 
+            logs: { type: 'status', message: `🛑 Bot Stopped.`, timestamp: new Date() } 
+        }
+    };
+
+    // 4. 🟢 SAVE FINAL DATA: If Python gave us data, save it to DB now
+    if (finalState) {
+        if (finalState.candles && finalState.candles.length > 0) {
+            updateData.candles = finalState.candles;
+        }
+        if (finalState.equityCurve && finalState.equityCurve.length > 0) {
+            updateData.equityCurve = finalState.equityCurve;
+        }
+        if (finalState.currentBalance !== undefined) {
+            updateData.currentBalance = finalState.currentBalance;
+        }
+    }
+
+    // 5. Commit to Database
+    const bot = await Bot.findOneAndUpdate(
+        { userId },
+        updateData,
+        { new: true }
+    );
+
+    return bot;
 }
 
 export async function resetBotController(userId, config) {
@@ -179,33 +207,28 @@ export async function getBotStatus(userId) {
     if (!active) return { status: 'stopped', isConfigured: false, logs: [] };
 
     // 2. Ask Python for live stats
-    const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId }); // Use userId to match Python state
+    const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId }); 
     
     // 3. 🟢 SYNC LOGIC: Update DB with Python Data
     if (liveStatus && liveStatus.status === 'running') {
         let needsSave = false;
 
-        // Sync Balance
         if (liveStatus.currentBalance !== undefined && liveStatus.currentBalance !== active.currentBalance) {
             active.currentBalance = liveStatus.currentBalance;
             needsSave = true;
         }
 
-        // Sync Candles (Critical for Chart)
         if (liveStatus.candles && liveStatus.candles.length > 0) {
             active.candles = liveStatus.candles;
             needsSave = true;
         }
 
-        // Sync Equity Curve
         if (liveStatus.equityCurve && liveStatus.equityCurve.length > 0) {
             active.equityCurve = liveStatus.equityCurve;
             needsSave = true;
         }
 
-        // Sync Logs
         if (liveStatus.logs && liveStatus.logs.length > 0) {
-            // Simple merge: add new logs from Python to DB
             const existingLogs = new Set(active.logs.map(l => l.message));
             liveStatus.logs.forEach(msg => {
                 if (!existingLogs.has(msg)) {
@@ -215,17 +238,15 @@ export async function getBotStatus(userId) {
             });
         }
 
-        // 💾 SAVE TO DB (This fixes the empty array issue!)
         if (needsSave) {
             await active.save();
         }
 
         return { 
             ...active.toObject(), 
-            // Prefer live data for response even if save failed
             candles: liveStatus.candles || active.candles,
             equityCurve: liveStatus.equityCurve || active.equityCurve,
-            logs: active.logs.reverse().slice(0, 50) // Return latest logs
+            logs: active.logs.reverse().slice(0, 50) 
         };
     } 
     

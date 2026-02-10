@@ -1,5 +1,3 @@
-// File: src/backend/controllers/backtestController.js
-
 import Strategy from "../dbStructure/strategy.js";
 import Backtest from "../dbStructure/backtest.js";
 // 🚀 FIXED: Import both from the correct service
@@ -7,9 +5,8 @@ import {
     runBacktest, 
     runCombinedStrategyService 
 } from "../services/backtestService.js"; 
-// 🚀 FIXED: strategyEngineService.js removed
 import { fetchAllExchangeSymbols, fetchAllExchangeParams } from "../services/priceService.js";
-// 🚀 FIXED: Import the model service directly instead of using axios self-call
+// 🚀 FIXED: Import the model service directly
 import { getAvailableModels } from "../services/mlService.js"; 
 import mongoose from "mongoose";
 
@@ -25,7 +22,6 @@ const handleControllerError = (res, error, context) => {
 
 // --- Helper to extract JWT Token ---
 const extractAuthToken = (req) => {
-    // Note: Express headers are lowercased by default
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         return authHeader.split(' ')[1];
@@ -33,40 +29,32 @@ const extractAuthToken = (req) => {
     return null;
 };
 
-// --- Run single strategy backtest ---
+// --- 1. Run single strategy backtest ---
 export const runBacktestController = async (req, res) => {
     try {
         const userId = req.user._id;
-        // 1. Prepare config for Python
-        // simulateOnly: false means we intend to save it if successful
         const config = { ...req.body, userId, simulateOnly: false };
-        const authToken = extractAuthToken(req); // Extract the token
+        const authToken = extractAuthToken(req);
 
         if (!config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: symbol, or timeframe." });
         }
 
-        // 2. CALL PYTHON SERVICE FIRST (Do not save to DB yet!)
         console.log("[Controller] Forwarding request to Python Service...");
-        
-        // The service handles calling Python AND saving to the DB internally.
         const result = await runBacktest(config, authToken); 
-        
-        // 3. Return the result
         res.status(201).json(result);
 
     } catch (err) {
-        console.error("[Controller] Error:", err.message);
         handleControllerError(res, err, 'runBacktestController');
     }
 };
 
-// --- Run combo backtest ---
+// --- 2. Run combo backtest ---
 export const runComboBacktestController = async (req, res) => {
     try {
         const userId = req.user._id;
         const comboPayload = { ...req.body, userId };
-        const authToken = extractAuthToken(req); // Extract the token
+        const authToken = extractAuthToken(req);
 
         if (!comboPayload.strategies || !Array.isArray(comboPayload.strategies) || comboPayload.strategies.length === 0) {
             return res.status(400).json({ message: "The 'strategies' array is required." });
@@ -75,8 +63,6 @@ export const runComboBacktestController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
         }
 
-        // PASS authToken to the service
-        // 🚀 FIXED: This now correctly calls the function from backtestService.js
         const result = await runCombinedStrategyService(userId, comboPayload, authToken);
         res.status(200).json(result);
     } catch (error) {
@@ -84,18 +70,17 @@ export const runComboBacktestController = async (req, res) => {
     }
 };
 
-// --- Preview a strategy ---
+// --- 3. Preview a strategy ---
 export const previewStrategyController = async (req, res) => {
     try {
         const userId = req.user._id;
         const config = { ...req.body, userId, simulateOnly: true };
-        const authToken = extractAuthToken(req); // Extract the token
+        const authToken = extractAuthToken(req);
 
         if (!config.code || !config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: code, symbol, or timeframe." });
         }
 
-        // PASS authToken to the service
         const result = await runBacktest(config, authToken);
         res.status(200).json(result);
     } catch (err) {
@@ -103,32 +88,24 @@ export const previewStrategyController = async (req, res) => {
     }
 };
 
-// --- Other Controllers (CRUD, Options) ---
-
-// --- UPDATED: fetchBacktestOptionsController ---
+// --- 4. Fetch Backtest Options (Symbols, Models, etc.) ---
 export const fetchBacktestOptionsController = async (req, res) => {
     try {
         const userId = req.user._id;
-        console.log(`[OPTIONS CONTROLLER] Attempting to fetch options for userId: ${userId}`);
+        console.log(`[OPTIONS CONTROLLER] Fetching options for userId: ${userId}`);
 
         // Fetch strategies, symbols, params, and ML models in parallel
         const [strategies, exchangeSymbols, exchangeParams, availableModels] = await Promise.all([
             Strategy.find({ userId }).select("name code params").lean(),
             fetchAllExchangeSymbols(),
             fetchAllExchangeParams(),
-            // 🚀 FIXED: Directly call the service function, no inefficient self-call
-            getAvailableModels()
-                .catch(err => {
-                    // Log the error but don't crash the whole options fetch
-                    console.error("[OPTIONS CONTROLLER] Failed to fetch ML models:", err.message);
-                    return []; // Return an empty array if fetching models fails
-                })
-            // --- END Fetch ML models ---
+            // 🚀 FIXED: Call service directly to get dynamic models
+            getAvailableModels().catch(err => {
+                console.error("[OPTIONS] Failed to fetch ML models:", err.message);
+                return []; 
+            })
         ]);
 
-        console.log(`[OPTIONS CONTROLLER] DB strategies: ${strategies.length}, Exchange Symbols: ${exchangeSymbols.length}, Models: ${availableModels.length}`);
-
-        // Combine symbols and timeframes from exchanges and strategies
         const symbolSet = new Set(exchangeSymbols);
         const timeframeSet = new Set(exchangeParams.timeframes);
         strategies.forEach(s => {
@@ -136,24 +113,44 @@ export const fetchBacktestOptionsController = async (req, res) => {
             if (s.params?.timeframe) timeframeSet.add(s.params.timeframe);
         });
 
-        // Prepare the response data including the fetched models
         const responseData = {
             strategies,
             symbols: Array.from(symbolSet).sort(),
             timeframes: Array.from(timeframeSet),
-            models: availableModels // Include the fetched models here
+            models: availableModels // 🟢 Needed for frontend dropdown
         };
 
-        console.log('[OPTIONS CONTROLLER] Sending successful response to frontend.');
         res.json(responseData);
     } catch (err) {
-        // Handle errors from Strategy.find, fetchAllExchangeSymbols, etc.
         handleControllerError(res, err, 'fetchBacktestOptionsController');
     }
 };
-// --- END UPDATED ---
 
+// --- 5. Get Backtest Status (For Polling) ---
+// 🟢 NEW: Handles the smart progress bar logic
+export const getBacktestStatusController = async (req, res) => {
+    try {
+        const { jobId } = req.query;
+        const userId = req.user._id;
 
+        if (!jobId) return res.status(400).json({ message: "Missing jobId parameter." });
+
+        const backtest = await Backtest.findOne({ _id: jobId, userId }).select("status stage progress").lean();
+        
+        if (!backtest) return res.status(404).json({ message: "Job not found." });
+
+        // Return specific 'stage' string for the frontend switch statement
+        res.json({
+            status: backtest.status,
+            stage: backtest.stage || (backtest.status === 'COMPLETED' ? 'completed' : 'processing'),
+            progress: backtest.progress || 0
+        });
+    } catch (err) {
+        handleControllerError(res, err, 'getBacktestStatusController');
+    }
+};
+
+// --- 6. Fetch Past Backtests ---
 export const fetchPastBacktestsController = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -171,6 +168,7 @@ export const fetchPastBacktestsController = async (req, res) => {
     }
 };
 
+// --- 7. Get Full Backtest Result ---
 export const getBacktestByIdController = async (req, res) => {
     try {
         const { backtestId } = req.params;
@@ -190,6 +188,7 @@ export const getBacktestByIdController = async (req, res) => {
     }
 };
 
+// --- 8. Delete Backtest ---
 export const deleteBacktestController = async (req, res) => {
     try {
         const { backtestId } = req.params;

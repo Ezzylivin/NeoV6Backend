@@ -1,5 +1,5 @@
 // File: backend/dbStructure/bot.js
-// 🚀 UPGRADE: v29.5 - Added Auto-ID Generation & ROI Virtuals
+// 🚀 UPGRADE: v29.6 - Added Virtual Aliases for Controller Compatibility
 import mongoose from "mongoose";
 import crypto from "crypto"; // Native Node module for ID generation
 
@@ -144,21 +144,23 @@ const botSchema = new Schema(
 );
 
 // ======================================================
-// 🧮 VIRTUALS
+// 🧮 VIRTUALS (CRITICAL FOR CONTROLLER COMPATIBILITY)
 // ======================================================
 
-// 1. Calculate ROI dynamically based on balance and capital
+// 1. Calculate ROI dynamically
 botSchema.virtual('roi').get(function() {
     if (!this.capitalAllocation || this.capitalAllocation === 0) return 0;
     return (this.currentBalance - this.capitalAllocation) / this.capitalAllocation;
 });
 
-// 2. 🟢 ALIAS: 'positions' -> 'activePositions' (Fixes Controller Compatibility)
+// 2. 🟢 Alias 'activePositions' -> 'positions' 
+// (The Controller expects 'positions', but DB has 'activePositions')
 botSchema.virtual('positions').get(function() {
     return this.activePositions;
 });
 
-// 3. 🟢 ALIAS: 'metrics' -> 'performanceMetrics' (Fixes Controller Compatibility)
+// 3. 🟢 Alias 'performanceMetrics' -> 'metrics'
+// (The Controller expects 'metrics', but DB has 'performanceMetrics')
 botSchema.virtual('metrics').get(function() {
     return this.performanceMetrics;
 });
@@ -184,7 +186,8 @@ botSchema.pre('save', function(next) {
 botSchema.methods.startSession = async function(liveBalance) {
     this.status = 'running';
     this.startedAt = new Date();
-    this.stoppedAt = null;
+    // 🟢 FIX: Explicitly clear the stop time when starting
+    this.stoppedAt = null; 
     
     this.currentBalance = liveBalance;
     this.capitalAllocation = liveBalance; 

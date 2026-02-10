@@ -75,7 +75,7 @@ const botSchema = new Schema(
     
     // 💰 CAPITAL & RISK
     capitalAllocation: { type: Number, required: true }, 
-    currentBalance: { type: Number, required: true },    
+    currentBalance: { type: Number, required: true },     
     
     riskManagementMode: { type: String, enum: ['static', 'dynamic'], default: 'static' },
     riskPercentage: { type: Number, default: 1 }, 
@@ -147,10 +147,20 @@ const botSchema = new Schema(
 // 🧮 VIRTUALS
 // ======================================================
 
-// Calculate ROI dynamically based on balance and capital
+// 1. Calculate ROI dynamically based on balance and capital
 botSchema.virtual('roi').get(function() {
     if (!this.capitalAllocation || this.capitalAllocation === 0) return 0;
     return (this.currentBalance - this.capitalAllocation) / this.capitalAllocation;
+});
+
+// 2. 🟢 ALIAS: 'positions' -> 'activePositions' (Fixes Controller Compatibility)
+botSchema.virtual('positions').get(function() {
+    return this.activePositions;
+});
+
+// 3. 🟢 ALIAS: 'metrics' -> 'performanceMetrics' (Fixes Controller Compatibility)
+botSchema.virtual('metrics').get(function() {
+    return this.performanceMetrics;
 });
 
 // ======================================================
@@ -184,7 +194,8 @@ botSchema.methods.startSession = async function(liveBalance) {
 };
 
 botSchema.methods.addLog = function(type, message, data = null) {
-    const entry = { type, message, timestamp: new Date(), data };
+    // 🟢 Auto-convert string type to object structure to satisfy Schema
+    const entry = { type: type || 'info', message, timestamp: new Date(), data };
     this.logs.unshift(entry);
     if (this.logs.length > 200) {
         this.logs.pop();
@@ -203,4 +214,4 @@ botSchema.methods.updateMetrics = function(pnl) {
     });
 };
 
-export default model("Bot", botSchema);
+export default mongoose.models.Bot || model("Bot", botSchema);

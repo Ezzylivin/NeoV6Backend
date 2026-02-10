@@ -1,5 +1,5 @@
 // File: src/backend/services/botService.js
-// 🚀 UPGRADE: v9.6 - Includes Final Sync on Stop
+// 🚀 UPGRADE: v9.7 - Fixed "Empty Start" Bug (Immediate Sync)
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -104,7 +104,22 @@ export async function startTradingBot(userId, config = {}) {
     // 3. Start on Python
     await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
-    // 4. Update Node.js DB
+    // 🟢 3.5 IMMEDIATE SYNC (The Fix)
+    // We immediately ask Python for the state it just initialized.
+    // This retrieves the candles and equity curve so they aren't empty in the DB.
+    let initialCandles = [];
+    let initialEquity = [];
+    try {
+        const liveState = await callPythonApi('/api/bot/status', 'GET', { userId });
+        if (liveState) {
+            if (liveState.candles) initialCandles = liveState.candles;
+            if (liveState.equityCurve) initialEquity = liveState.equityCurve;
+        }
+    } catch (e) {
+        console.warn("⚠️ Immediate sync failed, data will load on next poll.");
+    }
+
+    // 4. Update Node.js DB with the DATA included
     const updateData = {
         userId,
         symbol: pythonConfig.symbol,
@@ -118,7 +133,10 @@ export async function startTradingBot(userId, config = {}) {
         comboConfig: pythonConfig.comboConfig,
         mlMode: pythonConfig.mlMode,
         startedAt: new Date(),
-        stoppedAt: null 
+        stoppedAt: null,
+        // 🟢 SAVE INITIAL DATA NOW
+        candles: initialCandles,
+        equityCurve: initialEquity
     };
 
     return await Bot.findOneAndUpdate(
@@ -131,12 +149,11 @@ export async function startTradingBot(userId, config = {}) {
     );
 }
 
-// 🟢 2. STOP BOT (Fixed: Saves Final State)
+// 🟢 2. STOP BOT (Includes Final Sync)
 export async function stopTradingBot(userId) {
     if (!userId) throw new Error("Missing userId");
 
     // 1. 🟢 FINAL SYNC: Fetch the latest data from Python BEFORE stopping
-    // This ensures we capture the candles/equity curve one last time
     const finalState = await callPythonApi('/api/bot/status', 'GET', { userId });
 
     // 2. Notify Python to Stop
@@ -155,7 +172,7 @@ export async function stopTradingBot(userId) {
         }
     };
 
-    // 4. 🟢 SAVE FINAL DATA: If Python gave us data, save it to DB now
+    // 4. 🟢 SAVE FINAL DATA to DB
     if (finalState) {
         if (finalState.candles && finalState.candles.length > 0) {
             updateData.candles = finalState.candles;

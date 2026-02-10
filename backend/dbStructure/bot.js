@@ -1,4 +1,4 @@
-// File: backend/dbStructure/bot.js
+// File: src/backend/dbStructure/bot.js
 // 🚀 UPGRADE: v29.7 - Permissive Schema (Fixes Silent Rejections)
 import mongoose from "mongoose";
 import crypto from "crypto"; 

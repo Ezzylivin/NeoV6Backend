@@ -1,5 +1,5 @@
 // File: src/backend/services/botService.js
-// 🚀 UPGRADE: v9.7 - Fixed "Empty Start" Bug (Immediate Sync)
+// 🚀 UPGRADE: v9.8 - Robust Sync with Retry Loop
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -13,8 +13,6 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
     try {
         let url = `${ML_SERVER_URL}${endpoint}`;
-        
-        // Construct Query Params for GET requests
         const queryParams = new URLSearchParams();
         if (method === 'GET') {
             if (data.userId) queryParams.append("userId", data.userId);
@@ -45,7 +43,6 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
 async function resolveStrategies(userId, config) {
     if (config.strategies?.length > 0) return config.strategies.map(s => ({ code: s.code, params: s.params || {} }));
     
-    // Handle Combo Configs
     if (config.comboConfig?.strategyCodes?.length > 0) {
         try {
             const dbStrategies = await Strategy.find({ userId: userId, code: { $in: config.comboConfig.strategyCodes } }).lean();
@@ -58,7 +55,6 @@ async function resolveStrategies(userId, config) {
         }
     } 
     
-    // Handle Single Strategy ID
     if (config.strategyId) {
         const strategy = await Strategy.findById(config.strategyId).lean();
         if (strategy) return [{ code: strategy.code, params: strategy.params }];
@@ -73,14 +69,12 @@ async function resolveStrategies(userId, config) {
 export async function startTradingBot(userId, config = {}) {
     if (!userId) throw new Error("Missing userId");
 
-    // 1. Resolve Strategies
     const strategiesPayload = await resolveStrategies(userId, config);
     if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
     const cleanSymbol = (config.symbol || "BTC-USD").replace('/', '-');
     const botId = `${userId}_${cleanSymbol}_${config.timeframe || "1h"}`;
 
-    // 2. Prepare Python Payload
     const pythonConfig = {
         userId, 
         botId,
@@ -101,25 +95,39 @@ export async function startTradingBot(userId, config = {}) {
         params: { hybridMode: 'AND', ...config.params }
     };
 
-    // 3. Start on Python
+    console.log(`[BotService] 🚀 Initializing Bot ${botId} on Python...`);
+
+    // 1. Start on Python
     await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
-    // 🟢 3.5 IMMEDIATE SYNC (The Fix)
-    // We immediately ask Python for the state it just initialized.
-    // This retrieves the candles and equity curve so they aren't empty in the DB.
+    // 🟢 2. SMART RETRY LOOP (The Fix)
+    // We try up to 3 times to get the data, waiting 1.5s between tries.
     let initialCandles = [];
     let initialEquity = [];
-    try {
-        const liveState = await callPythonApi('/api/bot/status', 'GET', { userId });
-        if (liveState) {
-            if (liveState.candles) initialCandles = liveState.candles;
-            if (liveState.equityCurve) initialEquity = liveState.equityCurve;
+    
+    for (let i = 1; i <= 3; i++) {
+        console.log(`[BotService] ⏳ Sync Attempt ${i}/3...`);
+        
+        // Wait 1.5s to let Python finish fetching from Coinbase/Kraken
+        await new Promise(resolve => setTimeout(resolve, 1500)); 
+
+        try {
+            const liveState = await callPythonApi('/api/bot/status', 'GET', { userId });
+            
+            if (liveState && liveState.candles && liveState.candles.length > 0) {
+                console.log(`[BotService] ✅ Success! Received ${liveState.candles.length} candles.`);
+                initialCandles = liveState.candles;
+                initialEquity = liveState.equityCurve || [];
+                break; // Exit loop, we have data!
+            } else {
+                console.warn(`[BotService] ⚠️ Attempt ${i}: Python returned 0 candles.`);
+            }
+        } catch (e) {
+            console.warn(`[BotService] ⚠️ Attempt ${i} Failed: ${e.message}`);
         }
-    } catch (e) {
-        console.warn("⚠️ Immediate sync failed, data will load on next poll.");
     }
 
-    // 4. Update Node.js DB with the DATA included
+    // 3. Update Node.js DB with the DATA
     const updateData = {
         userId,
         symbol: pythonConfig.symbol,
@@ -134,7 +142,7 @@ export async function startTradingBot(userId, config = {}) {
         mlMode: pythonConfig.mlMode,
         startedAt: new Date(),
         stoppedAt: null,
-        // 🟢 SAVE INITIAL DATA NOW
+        // 🟢 Save the data we just retrieved
         candles: initialCandles,
         equityCurve: initialEquity
     };
@@ -149,21 +157,21 @@ export async function startTradingBot(userId, config = {}) {
     );
 }
 
-// 🟢 2. STOP BOT (Includes Final Sync)
+// 🟢 STOP BOT (Includes Final Sync)
 export async function stopTradingBot(userId) {
     if (!userId) throw new Error("Missing userId");
 
-    // 1. 🟢 FINAL SYNC: Fetch the latest data from Python BEFORE stopping
+    // 1. Final Sync
     const finalState = await callPythonApi('/api/bot/status', 'GET', { userId });
 
-    // 2. Notify Python to Stop
+    // 2. Stop Python
     try {
         await callPythonApi('/api/bot/stop', 'POST', { userId });
     } catch (err) {
         console.warn("⚠️ Python Stop Warning:", err.message);
     }
 
-    // 3. Prepare MongoDB Update
+    // 3. Update DB
     const updateData = {
         status: 'stopped',
         stoppedAt: new Date(),
@@ -172,37 +180,20 @@ export async function stopTradingBot(userId) {
         }
     };
 
-    // 4. 🟢 SAVE FINAL DATA to DB
     if (finalState) {
-        if (finalState.candles && finalState.candles.length > 0) {
-            updateData.candles = finalState.candles;
-        }
-        if (finalState.equityCurve && finalState.equityCurve.length > 0) {
-            updateData.equityCurve = finalState.equityCurve;
-        }
-        if (finalState.currentBalance !== undefined) {
-            updateData.currentBalance = finalState.currentBalance;
-        }
+        if (finalState.candles && finalState.candles.length > 0) updateData.candles = finalState.candles;
+        if (finalState.equityCurve && finalState.equityCurve.length > 0) updateData.equityCurve = finalState.equityCurve;
+        if (finalState.currentBalance !== undefined) updateData.currentBalance = finalState.currentBalance;
     }
 
-    // 5. Commit to Database
-    const bot = await Bot.findOneAndUpdate(
-        { userId },
-        updateData,
-        { new: true }
-    );
-
-    return bot;
+    return await Bot.findOneAndUpdate({ userId }, updateData, { new: true });
 }
 
 export async function resetBotController(userId, config) {
     try {
         await callPythonApi('/api/bot/reset', 'POST', { userId, ...config });
-    } catch (e) {
-        console.warn("Python reset warning:", e.message);
-    }
+    } catch (e) { console.warn("Python reset warning:", e.message); }
 
-    // Wipe DB Record
     return await Bot.findOneAndUpdate(
         { userId },
         {
@@ -219,14 +210,11 @@ export async function resetBotController(userId, config) {
 }
 
 export async function getBotStatus(userId) {
-    // 1. Get active bot from DB
     const active = await Bot.findOne({ userId, status: 'running' });
     if (!active) return { status: 'stopped', isConfigured: false, logs: [] };
 
-    // 2. Ask Python for live stats
     const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId }); 
     
-    // 3. 🟢 SYNC LOGIC: Update DB with Python Data
     if (liveStatus && liveStatus.status === 'running') {
         let needsSave = false;
 
@@ -234,17 +222,14 @@ export async function getBotStatus(userId) {
             active.currentBalance = liveStatus.currentBalance;
             needsSave = true;
         }
-
         if (liveStatus.candles && liveStatus.candles.length > 0) {
             active.candles = liveStatus.candles;
             needsSave = true;
         }
-
         if (liveStatus.equityCurve && liveStatus.equityCurve.length > 0) {
             active.equityCurve = liveStatus.equityCurve;
             needsSave = true;
         }
-
         if (liveStatus.logs && liveStatus.logs.length > 0) {
             const existingLogs = new Set(active.logs.map(l => l.message));
             liveStatus.logs.forEach(msg => {
@@ -254,10 +239,7 @@ export async function getBotStatus(userId) {
                 }
             });
         }
-
-        if (needsSave) {
-            await active.save();
-        }
+        if (needsSave) await active.save();
 
         return { 
             ...active.toObject(), 
@@ -266,15 +248,12 @@ export async function getBotStatus(userId) {
             logs: active.logs.reverse().slice(0, 50) 
         };
     } 
-    
     return active.toObject();
 }
 
 export async function getBotLogs(userId, limit) {
     const active = await Bot.findOne({ userId, status: 'running' });
     if (!active) return [];
-    
-    // Try to get fresh logs from Python first
     const remoteLogs = await callPythonApi('/api/bot/logs', 'GET', { userId });
     return Array.isArray(remoteLogs) ? remoteLogs : active.logs;
 }
@@ -282,7 +261,6 @@ export async function getBotLogs(userId, limit) {
 export async function getWinnersList() {
     const rawWinners = await callPythonApi('/api/bot/winners', 'GET');
     if (!Array.isArray(rawWinners)) return [];
-
     return rawWinners.map(wrapper => {
         const rawConfig = wrapper.config || {};
         const roi = wrapper.roi || 0;

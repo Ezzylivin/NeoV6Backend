@@ -1,6 +1,6 @@
 // File: backend/controllers/botController.js
-// 🚀 UPGRADE: v67.3 - "Reset Ready"
-// Changes: Added resetBotController to wipe bot history via Python service.
+// 🚀 UPGRADE: v67.4 - "Crash Proof Status"
+// Changes: Added null check in getBotStatusController to prevent 500 errors on new accounts.
 
 import * as botService from "../services/botService.js";
 import axios from "axios"; 
@@ -93,20 +93,30 @@ export const getBotStatusController = async (req, res) => {
 
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
 
+        // 🟢 Fetch status from service (which usually calls Python or DB)
         const status = await botService.getBotStatus(userId);
 
-        // ✅ CRASH PROOF: Handle case where no bot exists yet
+        // ✅ CRASH PROOF FIX: Handle null/undefined status gracefully
+        // If the service returns nothing (e.g. new user, no bot in DB), return a safe default.
         if (!status) {
             return sendResponse(res, { 
                 status: 'stopped', 
                 isConfigured: false,
-                logs: [] 
+                logs: [],
+                activePositions: [],
+                performance: { pnl: 0, winRate: 0 }
             });
         }
 
         sendResponse(res, status);
     } catch (err) {
-        handleControllerError(res, err, 'getBotStatusController');
+        // 🟢 Log error but return a safe fallback so frontend UI doesn't break
+        console.error("[getBotStatusController] Warning:", err.message);
+        return sendResponse(res, { 
+            status: 'stopped', 
+            error: "Failed to fetch remote status",
+            logs: []
+        });
     }
 };
 

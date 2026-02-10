@@ -1,7 +1,7 @@
 // File: src/backend/services/botService.js
-
-import axios from 'axios';
-import https from 'https';
+// 🚀 UPGRADE: v9.2 - Force Sync Python State to MongoDB
+import axios from "axios";
+import https from 'https'; // Added missing import for Agent
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
@@ -37,7 +37,7 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
         if (error.code !== 'ECONNREFUSED') {
             console.warn(`[Python API Warning] ${endpoint}: ${error.message}`);
         }
-        return null; // Return null so controllers handle it gracefully
+        return null; 
     }
 }
 
@@ -67,58 +67,8 @@ async function resolveStrategies(userId, config) {
 }
 
 // ---------------------------------------------------------
-// 🚀 EXPORTED FUNCTIONS (Called by Controller)
+// 🚀 EXPORTED FUNCTIONS
 // ---------------------------------------------------------
-
-export async function getWinnersList() {
-    // 1. Get Raw List from Python
-    const rawWinners = await callPythonApi('/api/bot/winners', 'GET');
-    
-    if (!Array.isArray(rawWinners)) {
-        console.warn("[BotService] Winners response is not an array.");
-        return [];
-    }
-
-    // 2. Transform & Calculate ROI (Deep Unwrapping)
-    const formattedWinners = rawWinners.map(wrapper => {
-        // The actual data might be in 'wrapper.config' or at top level
-        const rawConfig = wrapper.config || {};
-        
-        // 🟢 DEEP DIVE: Find the metrics wherever they are hiding
-        // Priority: combinedResult.metrics -> metrics -> rawConfig
-        const actualData = rawConfig.combinedResult || rawConfig;
-        const metrics = actualData.metrics || {};
-
-        // Calculate ROI safely
-        let roi = metrics.roi; 
-        
-        // Fallback calculation if ROI is missing but profit/capital exist
-        if (roi === undefined || roi === null) {
-             const capital = rawConfig.initialBalance || 1000;
-             const profit = metrics.netProfit || metrics.net_profit || 0;
-             roi = capital > 0 ? (profit / capital) * 100 : 0; 
-        }
-
-        // Return flattened object for Frontend Dropdown
-        return {
-            ...rawConfig, // Spread original config params
-            
-            // Ensure Essential IDs exist
-            botId: rawConfig.botId || wrapper.id, 
-            name: rawConfig.name || wrapper.name || "Unknown Strategy",
-            filename: wrapper.name,
-            
-            // 🟢 The Golden Number (Parsed as Float)
-            roi: parseFloat(roi || 0), 
-            
-            // Ensure metrics exist for display
-            metrics: metrics 
-        };
-    });
-
-    // 3. Sort by ROI (Highest First)
-    return formattedWinners.sort((a, b) => b.roi - a.roi);
-}
 
 export async function startTradingBot(userId, config = {}) {
     if (!userId) throw new Error("Missing userId");
@@ -162,11 +112,14 @@ export async function startTradingBot(userId, config = {}) {
         status: 'running',
         mode: pythonConfig.mode,
         capitalAllocation: pythonConfig.initialBalance,
+        // 🟢 FIX: Initialize currentBalance immediately so it doesn't show 0
+        currentBalance: pythonConfig.initialBalance, 
         isCombo: pythonConfig.isCombo,
         strategies: strategiesPayload,
         comboConfig: pythonConfig.comboConfig,
         mlMode: pythonConfig.mlMode,
-        startedAt: new Date()
+        startedAt: new Date(),
+        stoppedAt: null // Clear old stop time
     };
 
     return await Bot.findOneAndUpdate(
@@ -182,7 +135,7 @@ export async function startTradingBot(userId, config = {}) {
 export async function stopTradingBot(userId) {
     if (!userId) throw new Error("Missing userId");
     
-    // Find any running bot for this user (Simplified for single-bot per user logic)
+    // Find running bot
     const bot = await Bot.findOne({ userId, status: 'running' });
     
     if (bot) {
@@ -197,52 +150,110 @@ export async function stopTradingBot(userId) {
     throw new Error("No running bot found to stop.");
 }
 
+export async function resetBotController(userId, config) {
+    try {
+        await callPythonApi('/api/bot/reset', 'POST', { userId, ...config });
+    } catch (e) {
+        console.warn("Python reset warning:", e.message);
+    }
+
+    // Wipe DB Record
+    return await Bot.findOneAndUpdate(
+        { userId },
+        {
+            status: 'stopped',
+            currentBalance: config.capitalAllocation || 1000,
+            equityCurve: [],
+            tradeHistory: [],
+            activePositions: [],
+            logs: [],
+            candles: [] 
+        },
+        { new: true }
+    );
+}
+
 export async function getBotStatus(userId) {
-    // Find active bot ID from Node DB
-    const active = await Bot.findOne({ userId, status: 'running' }).select('botId');
+    // 1. Get active bot from DB
+    const active = await Bot.findOne({ userId, status: 'running' });
     if (!active) return { status: 'stopped', isConfigured: false, logs: [] };
 
-    // Ask Python for live stats
-    const liveStatus = await callPythonApi('/api/bot/status', 'GET', { botId: active.botId });
+    // 2. Ask Python for live stats
+    const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId }); // Use userId to match Python state
     
-    // Sync Node DB if needed (Optional but good for consistency)
-    let bot = await Bot.findOne({ botId: active.botId });
-
+    // 3. 🟢 SYNC LOGIC: Update DB with Python Data
     if (liveStatus && liveStatus.status === 'running') {
-        if (bot) {
-            bot.currentBalance = liveStatus.currentBalance;
-            // ... (sync other fields if desired)
-            await bot.save();
+        let needsSave = false;
+
+        // Sync Balance
+        if (liveStatus.currentBalance !== undefined && liveStatus.currentBalance !== active.currentBalance) {
+            active.currentBalance = liveStatus.currentBalance;
+            needsSave = true;
         }
-        
-        // Fetch logs separately
-        const logs = await callPythonApi('/api/bot/logs', 'GET', { botId: active.botId });
+
+        // Sync Candles (Critical for Chart)
+        if (liveStatus.candles && liveStatus.candles.length > 0) {
+            active.candles = liveStatus.candles;
+            needsSave = true;
+        }
+
+        // Sync Equity Curve
+        if (liveStatus.equityCurve && liveStatus.equityCurve.length > 0) {
+            active.equityCurve = liveStatus.equityCurve;
+            needsSave = true;
+        }
+
+        // Sync Logs
+        if (liveStatus.logs && liveStatus.logs.length > 0) {
+            // Simple merge: add new logs from Python to DB
+            const existingLogs = new Set(active.logs.map(l => l.message));
+            liveStatus.logs.forEach(msg => {
+                if (!existingLogs.has(msg)) {
+                    active.logs.push({ timestamp: new Date(), message: msg, type: 'info' });
+                    needsSave = true;
+                }
+            });
+        }
+
+        // 💾 SAVE TO DB (This fixes the empty array issue!)
+        if (needsSave) {
+            await active.save();
+        }
 
         return { 
-            ...bot.toObject(), 
-            logs: logs || bot.logs, 
-            trades: liveStatus.trades || [],
-            positions: liveStatus.positions || [],
-            candles: liveStatus.candles || [] 
+            ...active.toObject(), 
+            // Prefer live data for response even if save failed
+            candles: liveStatus.candles || active.candles,
+            equityCurve: liveStatus.equityCurve || active.equityCurve,
+            logs: active.logs.reverse().slice(0, 50) // Return latest logs
         };
     } 
     
-    // If Python says stopped but Node says running
-    if (bot && bot.status === 'running') {
-        bot.status = 'stopped';
-        await bot.save();
-    }
-
-    return { status: 'stopped', isConfigured: false, logs: [] };
+    return active.toObject();
 }
 
 export async function getBotLogs(userId, limit) {
     const active = await Bot.findOne({ userId, status: 'running' });
     if (!active) return [];
-    const logs = await callPythonApi('/api/bot/logs', 'GET', { botId: active.botId });
-    return Array.isArray(logs) ? logs : [];
+    
+    // Try to get fresh logs from Python first
+    const remoteLogs = await callPythonApi('/api/bot/logs', 'GET', { userId });
+    return Array.isArray(remoteLogs) ? remoteLogs : active.logs;
 }
 
-export async function resetBotController(userId, config) {
-    // Stub for reset calls if needed by controller imports
+export async function getWinnersList() {
+    const rawWinners = await callPythonApi('/api/bot/winners', 'GET');
+    if (!Array.isArray(rawWinners)) return [];
+
+    return rawWinners.map(wrapper => {
+        const rawConfig = wrapper.config || {};
+        const roi = wrapper.roi || 0;
+        return {
+            ...rawConfig,
+            botId: rawConfig.botId || wrapper.id,
+            name: rawConfig.name || wrapper.name || "Unknown Strategy",
+            roi: parseFloat(roi),
+            metrics: { roi: parseFloat(roi) } 
+        };
+    }).sort((a, b) => b.roi - a.roi);
 }

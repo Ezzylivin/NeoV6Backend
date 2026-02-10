@@ -9,10 +9,11 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 🟢 1. GET Available ML Models (Uses Controller -> Service -> Cache -> Python)
-router.get('/available-models', getModelsController);
+// 🟢 1. GET Available ML Models (Renamed to match Frontend)
+// Frontend calls: /api/ml/models
+router.get('/models', getModelsController); 
 
-// 🟡 2. Legacy Route: Pre-calculated results (Keep this if you still use it)
+// 🟡 2. Legacy Route: Pre-calculated results
 router.get('/ml-backtest-results', (req, res) => {
     const projectRoot = path.resolve(__dirname, '..');
     const filePath = path.join(projectRoot, 'data', 'backtest_results.json');

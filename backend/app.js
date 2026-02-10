@@ -10,6 +10,8 @@ import backtestRoutes from "./routes/backtestRoutes.mjs"; // Ensure extension ma
 import backtestSetupRoutes from "./routes/backtestSetupRoutes.js"; 
 import botRoutes from "./routes/botRoutes.js"; 
 import mlRoutes from "./routes/mlRoutes.js";
+import marketRoutes from "./routes/marketRoutes.js";
+import mlRoutes from "./routes/mlRoutes.js";
 
 const app = express();
 
@@ -44,6 +46,7 @@ app.use("/api/combos", comboStrategyRoutes);
 app.use("/api/backtest", backtestRoutes);
 app.use("/api/backtestSetups", backtestSetupRoutes); 
 app.use("/api/bot", botRoutes); 
+app.use("/api/market", marketRoutes); // 🟢 Fixes chart 404
 app.use("/api/ml", mlRoutes);
 
 // --- Health Check ---

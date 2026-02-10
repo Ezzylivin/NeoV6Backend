@@ -1,7 +1,7 @@
 // File: backend/dbStructure/bot.js
-// 🚀 UPGRADE: v29.6 - Added Virtual Aliases for Controller Compatibility
+// 🚀 UPGRADE: v29.7 - Permissive Schema (Fixes Silent Rejections)
 import mongoose from "mongoose";
-import crypto from "crypto"; // Native Node module for ID generation
+import crypto from "crypto"; 
 
 const { Schema, model } = mongoose;
 
@@ -18,7 +18,7 @@ const logEntrySchema = new Schema({
     data: { type: Schema.Types.Mixed } 
 }, { _id: false });
 
-// 2️⃣ POSITION SCHEMA (Live Trades)
+// 2️⃣ POSITION SCHEMA
 const positionSchema = new Schema({
     entryPrice: { type: Number, required: true },
     size: { type: Number, required: true },
@@ -30,7 +30,7 @@ const positionSchema = new Schema({
     unrealizedPnL: { type: Number, default: 0 }
 }, { _id: false });
 
-// 3️⃣ TRADE HISTORY SCHEMA (Completed Trades)
+// 3️⃣ TRADE HISTORY SCHEMA
 const tradeSchema = new Schema({
     symbol: { type: String, required: true },
     side: { type: String, enum: ['long', 'short'], required: true },
@@ -66,7 +66,6 @@ const botSchema = new Schema(
   {
     // 🆔 IDENTITY
     userId: { type: String, required: true, index: true }, 
-    // Sparse is useful, but we MUST ensure this exists for the frontend keys
     botId: { type: String, unique: true, sparse: true },    
     
     // 📈 MARKET CONFIG
@@ -75,7 +74,7 @@ const botSchema = new Schema(
     
     // 💰 CAPITAL & RISK
     capitalAllocation: { type: Number, required: true }, 
-    currentBalance: { type: Number, required: true },     
+    currentBalance: { type: Number, required: true },      
     
     riskManagementMode: { type: String, enum: ['static', 'dynamic'], default: 'static' },
     riskPercentage: { type: Number, default: 1 }, 
@@ -126,7 +125,10 @@ const botSchema = new Schema(
 
     tradeHistory: [tradeSchema],
     activePositions: [positionSchema],
+    
+    // 🟢 CRITICAL: Mixed type allows any candle structure
     candles: [{ type: Schema.Types.Mixed }],
+    
     equityCurve: [equityPointSchema], 
     currentPosition: { type: positionSchema, default: null },
     logs: [logEntrySchema],
@@ -137,42 +139,35 @@ const botSchema = new Schema(
   },
   { 
     timestamps: true,
-    // Ensure virtuals are sent to React
     toJSON: { virtuals: true },
-    toObject: { virtuals: true }
+    toObject: { virtuals: true },
+    strict: false // 🟢 ADDED: Prevents Mongo from rejecting unknown fields
   }
 );
 
 // ======================================================
-// 🧮 VIRTUALS (CRITICAL FOR CONTROLLER COMPATIBILITY)
+// 🧮 VIRTUALS
 // ======================================================
 
-// 1. Calculate ROI dynamically
 botSchema.virtual('roi').get(function() {
     if (!this.capitalAllocation || this.capitalAllocation === 0) return 0;
     return (this.currentBalance - this.capitalAllocation) / this.capitalAllocation;
 });
 
-// 2. 🟢 Alias 'activePositions' -> 'positions' 
-// (The Controller expects 'positions', but DB has 'activePositions')
 botSchema.virtual('positions').get(function() {
     return this.activePositions;
 });
 
-// 3. 🟢 Alias 'performanceMetrics' -> 'metrics'
-// (The Controller expects 'metrics', but DB has 'performanceMetrics')
 botSchema.virtual('metrics').get(function() {
     return this.performanceMetrics;
 });
 
 // ======================================================
-// 🛡️ HOOKS (MIDDLEWARE)
+// 🛡️ HOOKS
 // ======================================================
 
-// Ensure botId exists before saving
 botSchema.pre('save', function(next) {
     if (!this.botId) {
-        // Generate a random ID: e.g., "BOT_BTC-USD_1h_a1b2c3d4"
         const suffix = crypto.randomBytes(4).toString('hex');
         this.botId = `BOT_${this.symbol}_${this.timeframe}_${suffix}`;
     }
@@ -186,7 +181,6 @@ botSchema.pre('save', function(next) {
 botSchema.methods.startSession = async function(liveBalance) {
     this.status = 'running';
     this.startedAt = new Date();
-    // 🟢 FIX: Explicitly clear the stop time when starting
     this.stoppedAt = null; 
     
     this.currentBalance = liveBalance;
@@ -197,7 +191,6 @@ botSchema.methods.startSession = async function(liveBalance) {
 };
 
 botSchema.methods.addLog = function(type, message, data = null) {
-    // 🟢 Auto-convert string type to object structure to satisfy Schema
     const entry = { type: type || 'info', message, timestamp: new Date(), data };
     this.logs.unshift(entry);
     if (this.logs.length > 200) {

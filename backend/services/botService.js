@@ -1,5 +1,5 @@
 // File: backend/services/botService.js
-// 🚀 UPGRADE: v11.6 - "Force-Start" & Conflict Resolution (Fixes 400 Bad Request)
+// 🚀 UPGRADE: v11.7 - Atomic Path Resolution (Fixes "Symbol Path Conflict")
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -60,7 +60,7 @@ export async function startTradingBot(userId, incomingData = {}) {
 
     const config = incomingData.config || incomingData;
 
-    // 1. Hardened Fallbacks to prevent 400 Bad Request from missing UI fields
+    // 1. Fallbacks to prevent validation failures on missing UI fields
     const symbol = (config.symbol || "BTC-USD").replace('/', '-').toUpperCase();
     const timeframe = config.timeframe || "1h";
     const capital = Number(config.capitalAllocation) || 1000;
@@ -105,22 +105,21 @@ export async function startTradingBot(userId, incomingData = {}) {
         mlMode: rawConfig.mlMode,
         startedAt: new Date(),
         stoppedAt: null,
-        candles: [], // Python sync loop will populate this later
+        candles: [], 
         equityCurve: []
     };
 
-    // 4. Update DB using userId as primary filter to "reset" any stale states
+    // 4. Update DB using userId filter. Required fields are only in $set to avoid conflict
     return await Bot.findOneAndUpdate(
         { userId }, 
         { 
             $set: updateData,
             $setOnInsert: { 
-                symbol, 
-                capitalAllocation: capital 
+                lastActive: new Date() // Do not duplicate 'symbol' or 'capital' here
             },
             $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${symbol}`, type: 'status' } }
         },
-        { new: true, upsert: true, runValidators: false } // Disable validators to ensure the "Launch" completes
+        { new: true, upsert: true, runValidators: false }
     );
 }
 
@@ -145,11 +144,13 @@ export async function getBotStatus(userId) {
             dbBot = await Bot.findOneAndUpdate(
                 { userId }, 
                 { 
-                    $set: { status: 'running', lastActive: new Date() },
-                    $setOnInsert: { 
-                        symbol: liveStatus.symbol || "UNKNOWN", 
+                    $set: { 
+                        status: 'running', 
+                        lastActive: new Date(),
+                        symbol: liveStatus.symbol || "BTC-USD",
                         capitalAllocation: liveStatus.currentBalance || 1000 
-                    } 
+                    }
+                    // 🟢 Removed $setOnInsert here to avoid conflict
                 },
                 { new: true, upsert: true, runValidators: false }
             );

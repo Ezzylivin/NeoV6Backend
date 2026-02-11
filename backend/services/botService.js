@@ -1,5 +1,5 @@
-// File: services/botService.js
-// 🔍 DEBUG VERSION: Screaming Logs + Retry Loop
+// File: backend/services/botService.js
+// 🚀 UPGRADE: v10.1 - Smart Input Handling (Fixes 400/422 Errors)
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -13,7 +13,6 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
     try {
         let url = `${ML_SERVER_URL}${endpoint}`;
-        
         const queryParams = new URLSearchParams();
         if (method === 'GET') {
             if (data.userId) queryParams.append("userId", data.userId);
@@ -42,10 +41,8 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
 
 // --- Strategy Resolver Helper ---
 async function resolveStrategies(userId, config) {
-    // 1. Direct Strategies List
     if (config.strategies?.length > 0) return config.strategies.map(s => ({ code: s.code, params: s.params || {} }));
     
-    // 2. Combo Config (List of Codes)
     if (config.comboConfig?.strategyCodes?.length > 0) {
         try {
             const dbStrategies = await Strategy.find({ userId: userId, code: { $in: config.comboConfig.strategyCodes } }).lean();
@@ -58,7 +55,6 @@ async function resolveStrategies(userId, config) {
         }
     } 
     
-    // 3. Single Strategy ID
     if (config.strategyId) {
         const strategy = await Strategy.findById(config.strategyId).lean();
         if (strategy) return [{ code: strategy.code, params: strategy.params }];
@@ -70,26 +66,36 @@ async function resolveStrategies(userId, config) {
 // 🚀 EXPORTED FUNCTIONS
 // ---------------------------------------------------------
 
-export async function startTradingBot(userId, config = {}) {
+export async function startTradingBot(userId, incomingData = {}) {
     console.log("\n\n🚨🚨🚨 START TRADING BOT CALLED 🚨🚨🚨"); 
     console.log(`👤 User: ${userId}`);
 
     if (!userId) throw new Error("Missing userId");
 
-    // 1. Resolve Strategies
+    // 🟢 1. SMART UNWRAPPING (The Fix)
+    // If data comes in as { config: { ... } }, unwrap it.
+    // If data comes in as { symbol: ... }, use it directly.
+    const config = incomingData.config || incomingData;
+
+    // 🟢 2. VALIDATION
+    if (!config.symbol || !config.timeframe) {
+        console.error("❌ Invalid Config Received:", JSON.stringify(config));
+        throw new Error("Missing required fields: symbol, timeframe, or capitalAllocation.");
+    }
+
+    // 3. Resolve Strategies
     const strategiesPayload = await resolveStrategies(userId, config);
     if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
     const cleanSymbol = (config.symbol || "BTC-USD").replace('/', '-');
     const botId = `${userId}_${cleanSymbol}_${config.timeframe || "1h"}`;
 
-    // 2. Prepare Python Payload
-    const pythonConfig = {
-        userId, 
+    // 4. Prepare Clean Config
+    const rawConfig = {
         botId,
         mode: config.mode || 'paper', 
-        symbol: config.symbol || "BTC-USD", 
-        timeframe: config.timeframe || "1h",
+        symbol: config.symbol, 
+        timeframe: config.timeframe,
         initialBalance: Number(config.capitalAllocation) || 1000, 
         mlMode: config.mlMode || "off",
         mlModel: config.mlModel || "",
@@ -104,63 +110,53 @@ export async function startTradingBot(userId, config = {}) {
         params: { hybridMode: 'AND', ...config.params }
     };
 
-    console.log("👉 1. Sending START command to Python...");
-    await callPythonApi('/api/bot/start', 'POST', pythonConfig);
+    // 🟢 5. WRAP FOR PYTHON (Correct Structure)
+    const pythonPayload = {
+        userId: userId,
+        config: rawConfig 
+    };
 
-    // 🟢 3. DEBUG RETRY LOOP (The Fix)
+    console.log("👉 1. Sending START command to Python...");
+    await callPythonApi('/api/bot/start', 'POST', pythonPayload);
+
+    // 🟢 6. RETRY LOOP
     let initialCandles = [];
     let initialEquity = [];
     
     console.log("👉 2. Entering RETRY LOOP (Wait 6s max)...");
     
     for (let i = 1; i <= 4; i++) {
-        console.log(`   ⏳ ITERATION ${i}/4 - Waiting 1.5s...`);
-        
-        // Wait 1.5s to let Python finish fetching
         await new Promise(resolve => setTimeout(resolve, 1500)); 
 
         try {
-            console.log(`   📡 Asking Python for status...`);
             const liveState = await callPythonApi('/api/bot/status', 'GET', { userId });
             
-            if (liveState) {
-                const cCount = liveState.candles ? liveState.candles.length : 0;
-                console.log(`   🔍 Python Response: Candles=${cCount}`);
-
-                if (cCount > 0) {
-                    console.log(`   ✅ SUCCESS! Got ${cCount} candles.`);
-                    initialCandles = liveState.candles;
-                    initialEquity = liveState.equityCurve || [];
-                    break; 
-                } else {
-                    console.log(`   ⚠️ Got 0 candles. Retrying...`);
-                }
-            } else {
-                console.log(`   ❌ Python returned NULL.`);
+            if (liveState && liveState.candles && liveState.candles.length > 0) {
+                console.log(`   ✅ SUCCESS! Got ${liveState.candles.length} candles.`);
+                initialCandles = liveState.candles;
+                initialEquity = liveState.equityCurve || [];
+                break; 
             }
         } catch (e) {
             console.error(`   ❌ LOOP ERROR: ${e.message}`);
         }
     }
 
-    console.log(`👉 3. Loop Finished. Saving to DB with ${initialCandles.length} candles.`);
-
-    // 4. Update Node.js DB
+    // 7. Update Node.js DB
     const updateData = {
         userId,
-        symbol: pythonConfig.symbol,
-        timeframe: pythonConfig.timeframe,
+        symbol: rawConfig.symbol,
+        timeframe: rawConfig.timeframe,
         status: 'running',
-        mode: pythonConfig.mode,
-        capitalAllocation: pythonConfig.initialBalance,
-        currentBalance: pythonConfig.initialBalance, 
-        isCombo: pythonConfig.isCombo,
+        mode: rawConfig.mode,
+        capitalAllocation: rawConfig.initialBalance,
+        currentBalance: rawConfig.initialBalance, 
+        isCombo: rawConfig.isCombo,
         strategies: strategiesPayload,
-        comboConfig: pythonConfig.comboConfig,
-        mlMode: pythonConfig.mlMode,
+        comboConfig: rawConfig.comboConfig,
+        mlMode: rawConfig.mlMode,
         startedAt: new Date(),
         stoppedAt: null,
-        // 🟢 SAVE INITIAL DATA
         candles: initialCandles,
         equityCurve: initialEquity
     };
@@ -169,11 +165,11 @@ export async function startTradingBot(userId, config = {}) {
         { botId }, 
         { 
             $set: updateData,
-            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${pythonConfig.symbol}`, type: 'status' } }
+            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${rawConfig.symbol}`, type: 'status' } }
         },
         { new: true, upsert: true, setDefaultsOnInsert: true }
     );
-
+    
     console.log("✅✅✅ DB SAVE COMPLETE ✅✅✅\n\n");
     return result;
 }
@@ -182,17 +178,14 @@ export async function startTradingBot(userId, config = {}) {
 export async function stopTradingBot(userId) {
     if (!userId) throw new Error("Missing userId");
 
-    // 1. Final Sync
     const finalState = await callPythonApi('/api/bot/status', 'GET', { userId });
 
-    // 2. Stop Python
     try {
         await callPythonApi('/api/bot/stop', 'POST', { userId });
     } catch (err) {
         console.warn("⚠️ Python Stop Warning:", err.message);
     }
 
-    // 3. Update DB
     const updateData = {
         status: 'stopped',
         stoppedAt: new Date(),

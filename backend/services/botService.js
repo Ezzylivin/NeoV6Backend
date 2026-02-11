@@ -1,5 +1,5 @@
-// File: src/backend/services/botService.js
-// 🚀 UPGRADE: v9.9 - Robust Sync (Waits for Python Data)
+// File: services/botService.js
+// 🔍 DEBUG VERSION: Screaming Logs + Retry Loop
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -13,6 +13,7 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 async function callPythonApi(endpoint, method = 'GET', data = {}) {
     try {
         let url = `${ML_SERVER_URL}${endpoint}`;
+        
         const queryParams = new URLSearchParams();
         if (method === 'GET') {
             if (data.userId) queryParams.append("userId", data.userId);
@@ -20,7 +21,7 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
             if (queryParams.toString()) url += `?${queryParams.toString()}`;
         }
 
-        console.log(`[BotService] ${method} -> ${url}`);
+        console.log(`[🔍 API CALL] ${method} -> ${url}`); 
 
         const config = { 
             method, 
@@ -33,7 +34,7 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
         return response.data;
     } catch (error) {
         if (error.code !== 'ECONNREFUSED') {
-            console.warn(`[Python API Warning] ${endpoint}: ${error.message}`);
+            console.error(`[❌ API ERROR] ${endpoint}: ${error.message}`);
         }
         return null; 
     }
@@ -41,8 +42,10 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
 
 // --- Strategy Resolver Helper ---
 async function resolveStrategies(userId, config) {
+    // 1. Direct Strategies List
     if (config.strategies?.length > 0) return config.strategies.map(s => ({ code: s.code, params: s.params || {} }));
     
+    // 2. Combo Config (List of Codes)
     if (config.comboConfig?.strategyCodes?.length > 0) {
         try {
             const dbStrategies = await Strategy.find({ userId: userId, code: { $in: config.comboConfig.strategyCodes } }).lean();
@@ -55,6 +58,7 @@ async function resolveStrategies(userId, config) {
         }
     } 
     
+    // 3. Single Strategy ID
     if (config.strategyId) {
         const strategy = await Strategy.findById(config.strategyId).lean();
         if (strategy) return [{ code: strategy.code, params: strategy.params }];
@@ -67,14 +71,19 @@ async function resolveStrategies(userId, config) {
 // ---------------------------------------------------------
 
 export async function startTradingBot(userId, config = {}) {
+    console.log("\n\n🚨🚨🚨 START TRADING BOT CALLED 🚨🚨🚨"); 
+    console.log(`👤 User: ${userId}`);
+
     if (!userId) throw new Error("Missing userId");
 
+    // 1. Resolve Strategies
     const strategiesPayload = await resolveStrategies(userId, config);
     if (strategiesPayload.length === 0) throw new Error("No valid strategies found.");
 
     const cleanSymbol = (config.symbol || "BTC-USD").replace('/', '-');
     const botId = `${userId}_${cleanSymbol}_${config.timeframe || "1h"}`;
 
+    // 2. Prepare Python Payload
     const pythonConfig = {
         userId, 
         botId,
@@ -95,39 +104,48 @@ export async function startTradingBot(userId, config = {}) {
         params: { hybridMode: 'AND', ...config.params }
     };
 
-    console.log(`[BotService] 🚀 Initializing Bot ${botId} on Python...`);
-
-    // 1. Start on Python
+    console.log("👉 1. Sending START command to Python...");
     await callPythonApi('/api/bot/start', 'POST', pythonConfig);
 
-    // 🟢 2. SMART RETRY LOOP (The Fix)
-    // We try up to 4 times to get the data, waiting 1.5s between tries.
+    // 🟢 3. DEBUG RETRY LOOP (The Fix)
     let initialCandles = [];
     let initialEquity = [];
     
+    console.log("👉 2. Entering RETRY LOOP (Wait 6s max)...");
+    
     for (let i = 1; i <= 4; i++) {
-        console.log(`[BotService] ⏳ Sync Attempt ${i}/4...`);
+        console.log(`   ⏳ ITERATION ${i}/4 - Waiting 1.5s...`);
         
         // Wait 1.5s to let Python finish fetching
         await new Promise(resolve => setTimeout(resolve, 1500)); 
 
         try {
+            console.log(`   📡 Asking Python for status...`);
             const liveState = await callPythonApi('/api/bot/status', 'GET', { userId });
             
-            if (liveState && liveState.candles && liveState.candles.length > 0) {
-                console.log(`[BotService] ✅ Success! Received ${liveState.candles.length} candles.`);
-                initialCandles = liveState.candles;
-                initialEquity = liveState.equityCurve || [];
-                break; 
+            if (liveState) {
+                const cCount = liveState.candles ? liveState.candles.length : 0;
+                console.log(`   🔍 Python Response: Candles=${cCount}`);
+
+                if (cCount > 0) {
+                    console.log(`   ✅ SUCCESS! Got ${cCount} candles.`);
+                    initialCandles = liveState.candles;
+                    initialEquity = liveState.equityCurve || [];
+                    break; 
+                } else {
+                    console.log(`   ⚠️ Got 0 candles. Retrying...`);
+                }
             } else {
-                console.warn(`[BotService] ⚠️ Attempt ${i}: Python returned 0 candles.`);
+                console.log(`   ❌ Python returned NULL.`);
             }
         } catch (e) {
-            console.warn(`[BotService] ⚠️ Attempt ${i} Failed: ${e.message}`);
+            console.error(`   ❌ LOOP ERROR: ${e.message}`);
         }
     }
 
-    // 3. Update Node.js DB
+    console.log(`👉 3. Loop Finished. Saving to DB with ${initialCandles.length} candles.`);
+
+    // 4. Update Node.js DB
     const updateData = {
         userId,
         symbol: pythonConfig.symbol,
@@ -142,12 +160,12 @@ export async function startTradingBot(userId, config = {}) {
         mlMode: pythonConfig.mlMode,
         startedAt: new Date(),
         stoppedAt: null,
-        // 🟢 SAVE INITIAL DATA NOW
+        // 🟢 SAVE INITIAL DATA
         candles: initialCandles,
         equityCurve: initialEquity
     };
 
-    return await Bot.findOneAndUpdate(
+    const result = await Bot.findOneAndUpdate(
         { botId }, 
         { 
             $set: updateData,
@@ -155,6 +173,9 @@ export async function startTradingBot(userId, config = {}) {
         },
         { new: true, upsert: true, setDefaultsOnInsert: true }
     );
+
+    console.log("✅✅✅ DB SAVE COMPLETE ✅✅✅\n\n");
+    return result;
 }
 
 // 🟢 STOP BOT

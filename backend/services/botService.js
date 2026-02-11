@@ -1,5 +1,5 @@
 // File: backend/services/botService.js
-// 🚀 UPGRADE: v10.1 - Smart Input Handling (Fixes 400/422 Errors)
+// 🚀 UPGRADE: v11.1 - Unified Service (Smart Inputs + Data Guarantee)
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -72,9 +72,8 @@ export async function startTradingBot(userId, incomingData = {}) {
 
     if (!userId) throw new Error("Missing userId");
 
-    // 🟢 1. SMART UNWRAPPING (The Fix)
-    // If data comes in as { config: { ... } }, unwrap it.
-    // If data comes in as { symbol: ... }, use it directly.
+    // 🟢 1. SMART UNWRAPPING
+    // Handles both { config: {...} } and { ... } formats
     const config = incomingData.config || incomingData;
 
     // 🟢 2. VALIDATION
@@ -119,27 +118,34 @@ export async function startTradingBot(userId, incomingData = {}) {
     console.log("👉 1. Sending START command to Python...");
     await callPythonApi('/api/bot/start', 'POST', pythonPayload);
 
-    // 🟢 6. RETRY LOOP
+    // 🟢 6. DATA GUARANTEE LOOP (The Fix for Empty Candles)
+    // We wait up to 10 seconds for Python to fetch data before saving to DB
     let initialCandles = [];
     let initialEquity = [];
     
-    console.log("👉 2. Entering RETRY LOOP (Wait 6s max)...");
+    console.log("⏳ Waiting for Python to fetch market data...");
     
-    for (let i = 1; i <= 4; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1500)); 
-
+    for (let i = 1; i <= 10; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s
+        
         try {
             const liveState = await callPythonApi('/api/bot/status', 'GET', { userId });
             
             if (liveState && liveState.candles && liveState.candles.length > 0) {
-                console.log(`   ✅ SUCCESS! Got ${liveState.candles.length} candles.`);
+                console.log(`   ✅ Data Acquired: ${liveState.candles.length} candles.`);
                 initialCandles = liveState.candles;
                 initialEquity = liveState.equityCurve || [];
                 break; 
+            } else {
+                console.log(`   ...attempt ${i}/10: No candles yet.`);
             }
         } catch (e) {
             console.error(`   ❌ LOOP ERROR: ${e.message}`);
         }
+    }
+
+    if (initialCandles.length === 0) {
+        console.warn("⚠️ Warning: Python timed out fetching data. Bot starting with empty state.");
     }
 
     // 7. Update Node.js DB

@@ -1,5 +1,5 @@
 // File: backend/services/botService.js
-// 🚀 UPGRADE: v11.3 - Real-Time Status Bypass (Fixes "Offline" Sync Delay)
+// 🚀 UPGRADE: v11.4 - Hardened Validation (Fixes Required Field Rejections)
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -60,18 +60,19 @@ export async function startTradingBot(userId, incomingData = {}) {
 
     const config = incomingData.config || incomingData;
 
-    if (!config.symbol || !config.timeframe) {
+    // Critical: Pre-validation to ensure data exists before hitting DB
+    if (!config.symbol || !config.timeframe || !config.capitalAllocation) {
         throw new Error("Missing required fields: symbol, timeframe, or capitalAllocation.");
     }
 
     const strategiesPayload = await resolveStrategies(userId, config);
-    const cleanSymbol = (config.symbol || "BTC-USD").replace('/', '-');
+    const cleanSymbol = (config.symbol || "BTC-USD").replace('/', '-').toUpperCase();
     const botId = `${userId}_${cleanSymbol}_${config.timeframe || "1h"}`;
 
     const rawConfig = {
         botId,
         mode: config.mode || 'paper', 
-        symbol: config.symbol, 
+        symbol: cleanSymbol, 
         timeframe: config.timeframe,
         initialBalance: Number(config.capitalAllocation) || 1000, 
         mlMode: config.mlMode || "off",
@@ -107,14 +108,15 @@ export async function startTradingBot(userId, incomingData = {}) {
         }
     }
 
+    // Prepare update payload with explicit casting to satisfy Schema
     const updateData = {
         userId,
-        symbol: rawConfig.symbol,
+        symbol: cleanSymbol,
         timeframe: rawConfig.timeframe,
         status: 'running',
         mode: rawConfig.mode,
-        capitalAllocation: rawConfig.initialBalance,
-        currentBalance: rawConfig.initialBalance, 
+        capitalAllocation: Number(rawConfig.initialBalance),
+        currentBalance: Number(rawConfig.initialBalance), 
         isCombo: rawConfig.isCombo,
         strategies: strategiesPayload,
         comboConfig: rawConfig.comboConfig,
@@ -129,9 +131,15 @@ export async function startTradingBot(userId, incomingData = {}) {
         { botId }, 
         { 
             $set: updateData,
-            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${rawConfig.symbol}`, type: 'status' } }
+            // $setOnInsert ensures required fields are present if the doc is new
+            $setOnInsert: { 
+                userId, 
+                symbol: cleanSymbol, 
+                capitalAllocation: Number(rawConfig.initialBalance) 
+            },
+            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${cleanSymbol}`, type: 'status' } }
         },
-        { new: true, upsert: true, setDefaultsOnInsert: true }
+        { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
     );
 }
 
@@ -146,28 +154,30 @@ export async function resetBotController(userId, config) {
     return await Bot.findOneAndUpdate({ userId }, { status: 'stopped', currentBalance: config.capitalAllocation || 1000, equityCurve: [], tradeHistory: [], activePositions: [], logs: [], candles: [] }, { new: true });
 }
 
-// 🟢 🚀 UPGRADED STATUS CHECK (Self-Healing & Real-Time Bypass)
 export async function getBotStatus(userId) {
-    // 1. Ask Python FIRST (The Truth Source)
     const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId }); 
-
     let dbBot = await Bot.findOne({ userId });
 
-    // 🛑 Scenario A: Python is Running - Bypass DB "Stopped" state
     if (liveStatus && (liveStatus.status === 'running' || liveStatus.status === 'initializing')) {
-        // If DB doesn't match, we update it in the background, but return LIVE data now
+        // Hardened resync logic to prevent "Missing Required Field" errors
         if (!dbBot || dbBot.status !== 'running') {
-            console.log(`[Self-Heal] Resyncing DB for active user: ${userId}`);
+            console.log(`[Self-Heal] Resyncing DB for ${userId}. Ensuring required fields...`);
             dbBot = await Bot.findOneAndUpdate(
                 { userId }, 
-                { status: 'running', lastActive: new Date() },
-                { new: true, upsert: true }
+                { 
+                    $set: { status: 'running', lastActive: new Date() },
+                    $setOnInsert: { 
+                        symbol: liveStatus.symbol || "UNKNOWN", 
+                        capitalAllocation: liveStatus.currentBalance || 1000 
+                    } 
+                },
+                { new: true, upsert: true, runValidators: false } // Avoid blocking sync with validators
             );
         }
 
         return { 
             ...dbBot.toObject(), 
-            status: 'running', // Override any stale DB status
+            status: 'running', 
             candles: liveStatus.candles || dbBot.candles || [], 
             equityCurve: liveStatus.equityCurve || dbBot.equityCurve || [],
             logs: liveStatus.logs || dbBot.logs || [],
@@ -175,12 +185,10 @@ export async function getBotStatus(userId) {
         };
     }
 
-    // 🛑 Scenario B: Both say Stopped
     if ((!liveStatus || liveStatus.status === 'stopped') && (!dbBot || dbBot.status === 'stopped')) {
         return { status: 'stopped', isConfigured: !!dbBot, logs: dbBot?.logs || [] };
     }
 
-    // Fallback: Return DB state
     return dbBot ? dbBot.toObject() : { status: 'stopped', logs: [] };
 }
 

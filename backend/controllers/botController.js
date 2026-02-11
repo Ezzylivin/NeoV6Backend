@@ -1,88 +1,66 @@
 // File: backend/controllers/botController.js
-// 🚀 UPGRADE: v67.4 - "Crash Proof Status"
-// Changes: Added null check in getBotStatusController to prevent 500 errors on new accounts.
-
+// 🚀 UPGRADE: v10.2 - Service Delegation (Fixes Payload Structure Errors)
 import * as botService from "../services/botService.js";
-import axios from "axios"; 
 
 // Helper for consistent API responses
 const sendResponse = (res, data, status = 200) => {
     res.status(status).json(data);
 };
 
-// Helper for consistent error handling
-const handleControllerError = (res, err, context) => {
-    console.error(`[${context} Error]`, err);
-    // Return the specific error message from the service/Python if available
-    res.status(500).json({ message: err.message || `Failed in ${context}.` });
-};
-
 // --- Start the trading bot ---
 export const startBotController = async (req, res) => {
     try {
-        // 🚀 CRITICAL UPGRADE: Prefer Wallet Address from body, fallback to req.user
-        const userId = req.body.userId || req.user?._id; 
-        
+        // 1. Robust User Extraction
+        const userId = req.body.userId || req.user?._id;
         if (!userId) {
-            return sendResponse(res, { message: "User Identity (Wallet or Login) missing." }, 401);
+            return sendResponse(res, { message: "User Identity missing." }, 401);
         }
 
-        const config = req.body;
+        console.log(`👤 Controller StartBot for User: ${userId}`);
+
+        // 2. Pass EVERYTHING to Service
+        // The service now handles "Smart Unwrapping" (Flat vs Wrapped configs)
+        // and performs the validation there.
+        const bot = await botService.startTradingBot(userId, req.body);
         
-        // 1. Basic Validation
-        if (!config.symbol || !config.timeframe || !config.capitalAllocation) {
-            return sendResponse(res, { message: "Missing required fields: symbol, timeframe, or capitalAllocation." }, 400);
-        }
-
-        // 2. Strategy Validation (Prevent starting a bot with no logic)
-        const hasSingle = !!config.strategyId;
-        const hasCombo = config.comboConfig && config.comboConfig.strategyCodes && config.comboConfig.strategyCodes.length > 0;
-        const hasParams = config.params && Object.keys(config.params).length > 0; // Check for ML params
-
-        if (!hasSingle && !hasCombo && !hasParams) {
-            return sendResponse(res, { message: "You must select a Strategy or a Combo Setup to start the bot." }, 400);
-        }
-
-        // 3. Launch via Service (which talks to Python)
-        const bot = await botService.startTradingBot(userId, config);
-        sendResponse(res, bot, 201); 
+        sendResponse(res, bot, 201);
 
     } catch (err) {
-        handleControllerError(res, err, 'startBotController');
+        console.error("❌ Controller Error:", err.message);
+        // Send back the received body so you can debug in Chrome Network Tab if needed
+        res.status(400).json({ 
+            message: err.message || "Failed to start bot.",
+            debugPayload: req.body 
+        });
     }
 };
 
 // --- Stop the trading bot ---
 export const stopBotController = async (req, res) => {
     try {
-        // 🚀 UPGRADE: Check body/query for userId first
         const userId = req.body.userId || req.query.userId || req.user?._id;
-        
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
 
         const bot = await botService.stopTradingBot(userId);
         sendResponse(res, bot);
     } catch (err) {
-        handleControllerError(res, err, 'stopBotController');
+        res.status(500).json({ message: err.message || "Failed to stop bot." });
     }
 };
 
-// --- 🆕 RESET BOT (Wipe History) ---
+// --- Reset Bot (Wipe History) ---
 export const resetBotController = async (req, res) => {
     try {
-        // Forward the reset request directly to the Python Service
-        const pythonUrl = process.env.ML_SERVER_URL || "http://127.0.0.1:8000";
+        const userId = req.body.userId || req.query.userId || req.user?._id;
+        if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
+
+        // Forward to Service (Clean Architecture)
+        // We pass req.body to allow any specific reset configs if needed in future
+        const result = await botService.resetBotController(userId, req.body);
         
-        // Pass the entire body (userId, botId, capitalAllocation)
-        const response = await axios.post(`${pythonUrl}/api/bot/reset`, req.body);
-        
-        sendResponse(res, response.data);
+        sendResponse(res, result);
     } catch (err) {
-        // Handle specific Python errors gracefully
-        if (err.response) {
-            return res.status(err.response.status).json(err.response.data);
-        }
-        handleControllerError(res, err, 'resetBotController');
+        res.status(500).json({ message: err.message || "Failed to reset bot." });
     }
 };
 
@@ -90,14 +68,11 @@ export const resetBotController = async (req, res) => {
 export const getBotStatusController = async (req, res) => {
     try {
         const userId = req.query.userId || req.user?._id;
-
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
 
-        // 🟢 Fetch status from service (which usually calls Python or DB)
         const status = await botService.getBotStatus(userId);
 
-        // ✅ CRASH PROOF FIX: Handle null/undefined status gracefully
-        // If the service returns nothing (e.g. new user, no bot in DB), return a safe default.
+        // Crash Proof: Return safe default if null
         if (!status) {
             return sendResponse(res, { 
                 status: 'stopped', 
@@ -110,8 +85,7 @@ export const getBotStatusController = async (req, res) => {
 
         sendResponse(res, status);
     } catch (err) {
-        // 🟢 Log error but return a safe fallback so frontend UI doesn't break
-        console.error("[getBotStatusController] Warning:", err.message);
+        console.error("[getBotStatus] Error:", err.message);
         return sendResponse(res, { 
             status: 'stopped', 
             error: "Failed to fetch remote status",
@@ -124,21 +98,19 @@ export const getBotStatusController = async (req, res) => {
 export const getBotLogsController = async (req, res) => {
     try {
         const userId = req.query.userId || req.user?._id;
-        
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
 
         const limit = parseInt(req.query.limit) || 100;
         const logs = await botService.getBotLogs(userId, limit);
         sendResponse(res, logs);
     } catch (err) {
-        handleControllerError(res, err, 'getBotLogsController');
+        res.status(500).json({ message: "Failed to fetch logs." });
     }
 };
 
-// --- Get Certified Winners from Python ---
+// --- Get Certified Winners ---
 export const getBotWinnersController = async (req, res) => {
     try {
-        // 🟢 FIX: Use the Service (which now correctly calls Python)
         const winners = await botService.getWinnersList();
         res.status(200).json(winners);
     } catch (err) {

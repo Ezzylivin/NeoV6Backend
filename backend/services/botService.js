@@ -1,5 +1,5 @@
 // File: backend/services/botService.js
-// 🚀 UPGRADE: v11.4 - Hardened Validation (Fixes Required Field Rejections)
+// 🚀 UPGRADE: v11.5 - Conflict Resolution (Fixes "Updating path userId" Conflict)
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -60,7 +60,6 @@ export async function startTradingBot(userId, incomingData = {}) {
 
     const config = incomingData.config || incomingData;
 
-    // Critical: Pre-validation to ensure data exists before hitting DB
     if (!config.symbol || !config.timeframe || !config.capitalAllocation) {
         throw new Error("Missing required fields: symbol, timeframe, or capitalAllocation.");
     }
@@ -108,9 +107,8 @@ export async function startTradingBot(userId, incomingData = {}) {
         }
     }
 
-    // Prepare update payload with explicit casting to satisfy Schema
     const updateData = {
-        userId,
+        // userId removed from $set/payload to avoid MongoDB conflict error
         symbol: cleanSymbol,
         timeframe: rawConfig.timeframe,
         status: 'running',
@@ -128,12 +126,11 @@ export async function startTradingBot(userId, incomingData = {}) {
     };
 
     return await Bot.findOneAndUpdate(
-        { botId }, 
+        { botId }, // userId is implicitly part of botId
         { 
             $set: updateData,
-            // $setOnInsert ensures required fields are present if the doc is new
             $setOnInsert: { 
-                userId, 
+                // Removed userId here to resolve conflict error
                 symbol: cleanSymbol, 
                 capitalAllocation: Number(rawConfig.initialBalance) 
             },
@@ -159,19 +156,19 @@ export async function getBotStatus(userId) {
     let dbBot = await Bot.findOne({ userId });
 
     if (liveStatus && (liveStatus.status === 'running' || liveStatus.status === 'initializing')) {
-        // Hardened resync logic to prevent "Missing Required Field" errors
         if (!dbBot || dbBot.status !== 'running') {
-            console.log(`[Self-Heal] Resyncing DB for ${userId}. Ensuring required fields...`);
+            console.log(`[Self-Heal] Resyncing DB for ${userId}. Fixing state...`);
             dbBot = await Bot.findOneAndUpdate(
-                { userId }, 
+                { userId }, // Use userId as the query only
                 { 
                     $set: { status: 'running', lastActive: new Date() },
                     $setOnInsert: { 
+                        // Do not include userId in $setOnInsert to avoid conflict
                         symbol: liveStatus.symbol || "UNKNOWN", 
                         capitalAllocation: liveStatus.currentBalance || 1000 
                     } 
                 },
-                { new: true, upsert: true, runValidators: false } // Avoid blocking sync with validators
+                { new: true, upsert: true, runValidators: false }
             );
         }
 

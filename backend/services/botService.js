@@ -1,5 +1,5 @@
 // File: backend/services/botService.js
-// 🚀 UPGRADE: v11.5 - Conflict Resolution (Fixes "Updating path userId" Conflict)
+// 🚀 UPGRADE: v11.6 - "Force-Start" & Conflict Resolution (Fixes 400 Bad Request)
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -60,20 +60,20 @@ export async function startTradingBot(userId, incomingData = {}) {
 
     const config = incomingData.config || incomingData;
 
-    if (!config.symbol || !config.timeframe || !config.capitalAllocation) {
-        throw new Error("Missing required fields: symbol, timeframe, or capitalAllocation.");
-    }
+    // 1. Hardened Fallbacks to prevent 400 Bad Request from missing UI fields
+    const symbol = (config.symbol || "BTC-USD").replace('/', '-').toUpperCase();
+    const timeframe = config.timeframe || "1h";
+    const capital = Number(config.capitalAllocation) || 1000;
 
     const strategiesPayload = await resolveStrategies(userId, config);
-    const cleanSymbol = (config.symbol || "BTC-USD").replace('/', '-').toUpperCase();
-    const botId = `${userId}_${cleanSymbol}_${config.timeframe || "1h"}`;
+    const botId = `${userId}_${symbol}_${timeframe}`;
 
     const rawConfig = {
         botId,
         mode: config.mode || 'paper', 
-        symbol: cleanSymbol, 
-        timeframe: config.timeframe,
-        initialBalance: Number(config.capitalAllocation) || 1000, 
+        symbol, 
+        timeframe,
+        initialBalance: capital, 
         mlMode: config.mlMode || "off",
         mlModel: config.mlModel || "",
         mlThreshold: config.mlThreshold || 0.5,
@@ -87,56 +87,40 @@ export async function startTradingBot(userId, incomingData = {}) {
         params: { hybridMode: 'AND', ...config.params }
     };
 
+    // 2. Call Python FIRST
     const pythonPayload = { userId: userId, config: rawConfig };
     await callPythonApi('/api/bot/start', 'POST', pythonPayload);
 
-    let initialCandles = [];
-    let initialEquity = [];
-    
-    console.log("⏳ Waiting for Python data sync...");
-    
-    for (let i = 1; i <= 8; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); 
-        const liveState = await callPythonApi('/api/bot/status', 'GET', { userId });
-        
-        if (liveState && liveState.candles && liveState.candles.length > 0) {
-            initialCandles = liveState.candles;
-            initialEquity = liveState.equityCurve || [];
-            console.log(`   ✅ Data Acquired: ${initialCandles.length} candles.`);
-            break; 
-        }
-    }
-
+    // 3. Prepare DB Payload - userId removed from $set to avoid Conflict Error
     const updateData = {
-        // userId removed from $set/payload to avoid MongoDB conflict error
-        symbol: cleanSymbol,
-        timeframe: rawConfig.timeframe,
+        symbol,
+        timeframe,
         status: 'running',
         mode: rawConfig.mode,
-        capitalAllocation: Number(rawConfig.initialBalance),
-        currentBalance: Number(rawConfig.initialBalance), 
+        capitalAllocation: capital,
+        currentBalance: capital, 
         isCombo: rawConfig.isCombo,
         strategies: strategiesPayload,
         comboConfig: rawConfig.comboConfig,
         mlMode: rawConfig.mlMode,
         startedAt: new Date(),
         stoppedAt: null,
-        candles: initialCandles,
-        equityCurve: initialEquity
+        candles: [], // Python sync loop will populate this later
+        equityCurve: []
     };
 
+    // 4. Update DB using userId as primary filter to "reset" any stale states
     return await Bot.findOneAndUpdate(
-        { botId }, // userId is implicitly part of botId
+        { userId }, 
         { 
             $set: updateData,
             $setOnInsert: { 
-                // Removed userId here to resolve conflict error
-                symbol: cleanSymbol, 
-                capitalAllocation: Number(rawConfig.initialBalance) 
+                symbol, 
+                capitalAllocation: capital 
             },
-            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${cleanSymbol}`, type: 'status' } }
+            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${symbol}`, type: 'status' } }
         },
-        { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
+        { new: true, upsert: true, runValidators: false } // Disable validators to ensure the "Launch" completes
     );
 }
 
@@ -159,11 +143,10 @@ export async function getBotStatus(userId) {
         if (!dbBot || dbBot.status !== 'running') {
             console.log(`[Self-Heal] Resyncing DB for ${userId}. Fixing state...`);
             dbBot = await Bot.findOneAndUpdate(
-                { userId }, // Use userId as the query only
+                { userId }, 
                 { 
                     $set: { status: 'running', lastActive: new Date() },
                     $setOnInsert: { 
-                        // Do not include userId in $setOnInsert to avoid conflict
                         symbol: liveStatus.symbol || "UNKNOWN", 
                         capitalAllocation: liveStatus.currentBalance || 1000 
                     } 

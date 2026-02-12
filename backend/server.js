@@ -1,5 +1,5 @@
 // File: backend/server.js
-// 🚀 UPGRADE: v14.1 - Persistent Logs & Catch-Up Sync
+// 🚀 UPGRADE: v14.2 - Corrected Broadcast Logic & Persistent Sync
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
@@ -11,7 +11,7 @@ import { startPriceFeed } from "./services/priceService.js";
 
 // 🟢 DB IMPORTS
 import Bot from "./dbStructure/bot.js"; 
-import Log from "./dbStructure/log.js"; // 🟢 Added for persistence
+import Log from "./dbStructure/log.js"; 
 import { getBotStatus } from "./services/botService.js"; 
 
 dotenv.config();
@@ -22,47 +22,40 @@ const PYTHON_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000";
 // ============================================================
 // 🟢 MONGOOSE CONNECTION LISTENERS
 // ============================================================
-
-mongoose.connection.on('connected', () => console.log("✅ MongoDB: Connection established."));
-mongoose.connection.on('error', (err) => console.error(`❌ MongoDB: Connection error: ${err.message}`));
-mongoose.connection.on('disconnected', () => console.warn("⚠️ MongoDB: Connection lost."));
+mongoose.connection.on('connected', () => console.log("✅ MongoDB: Connected."));
+mongoose.connection.on('error', (err) => console.error(`❌ MongoDB Error: ${err.message}`));
 
 process.on('SIGINT', async () => {
     await mongoose.connection.close();
-    console.log("🛑 Mongoose connection closed.");
+    console.log("🛑 Mongoose closed.");
     process.exit(0);
 });
 
 // ============================================================
-// 🟢 ROUTES: Health & History Sync
+// 🟢 ROUTES
 // ============================================================
-
 app.get("/api/health", (req, res) => {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// 🟢 NEW: History Catch-Up Endpoint
-// Fetches the last 100 logs so the UI can "remember" the bot's thoughts
+// History Catch-Up Endpoint
 app.get("/api/bot/logs/:userId", async (req, res) => {
     try {
         const { userId } = req.params;
         const history = await Log.find({ userId })
             .sort({ timestamp: -1 })
             .limit(100);
-        
-        // Return messages in chronological order for the UI
         res.status(200).json(history.map(l => l.message).reverse());
     } catch (err) {
-        res.status(500).json({ error: "Failed to fetch log history" });
+        res.status(500).json({ error: "History sync failed" });
     }
 });
 
-app.get("/", (req, res) => res.status(200).send("🚀 NEO-V6 Backend is Healthy!"));
+app.get("/", (req, res) => res.status(200).send("🚀 NEO-V6 Backend Healthy!"));
 
 // ============================================================
 // 🟢 3. WEBSOCKET SETUP
 // ============================================================
-
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: { origin: "*", methods: ["GET", "POST"] }
@@ -71,45 +64,49 @@ const io = new Server(server, {
 io.on('connection', (socket) => {
     const userId = socket.handshake.query.userId;
     if (userId) {
-        console.log(`🔌 WebSocket: User connected ${userId}`);
         socket.join(userId);
+        console.log(`🔌 WebSocket: Room joined by ${userId}`);
     }
 });
 
-// 🟢 INTERNAL WEBHOOK: Python calls this
-// Updated to SAVE to MongoDB before broadcasting
+/**
+ * 🟢 INTERNAL WEBHOOK BROADCASTER
+ * Python calls this to push updates.
+ * This handles BOTH 'bot_log' (saved to DB) and 'bot_status_update' (real-time metrics).
+ */
 app.post('/api/internal/broadcast', async (req, res) => {
     const { userId, type, data } = req.body;
     
     if (!userId || !type || !data) {
-        return res.status(400).json({ error: "Missing payload" });
+        return res.status(400).json({ error: "Missing payload fields" });
     }
 
     try {
-        // 1. 🟢 PERSIST LOG (If it's a thinking/log event)
+        // 1. Persist to MongoDB only if it's a log message
         if (type === 'bot_log') {
             await Log.create({
                 userId,
-                message: data,
-                level: data.includes('🧠') ? 'thought' : 'info',
+                message: typeof data === 'string' ? data : JSON.stringify(data),
+                level: (typeof data === 'string' && data.includes('🧠')) ? 'thought' : 'info',
                 timestamp: new Date()
             });
         }
 
-        // 2. 🟢 REAL-TIME BROADCAST
+        // 2. Broadcast the FULL data object to the frontend
+        // This ensures PnL, Exposure, and Balance updates reach the UI
         io.to(userId).emit(type, data);
         
         res.status(200).json({ success: true });
-    } catch (dbErr) {
-        console.error("❌ Storage Error:", dbErr.message);
-        // Still broadcast even if DB fails so user sees live data
+    } catch (err) {
+        console.error("❌ Broadcast Error:", err.message);
+        // Fallback: emit even if DB fails
         io.to(userId).emit(type, data);
-        res.status(200).json({ success: true, warning: "Broadcasted but not saved" });
+        res.status(200).json({ success: true, warning: "DB write failed" });
     }
 });
 
 // ============================================================
-// 🟢 4. MAINTENANCE (Heartbeat & Auto-Save)
+// 🟢 4. MAINTENANCE
 // ============================================================
 const keepAlive = async () => {
     try {
@@ -132,16 +129,17 @@ const autoSaveBots = async () => {
 // ============================================================
 const startServer = async () => {
     try {
-        await mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 5000 });
+        await mongoose.connect(process.env.MONGO_URI);
         startPriceFeed();
 
         const PORT = process.env.PORT || 10000;
         server.listen(PORT, () => {
-            console.log(`🚀 Server running on port ${PORT}`);
+            console.log(`🚀 Node Server & WebSocket running on port ${PORT}`);
             setInterval(keepAlive, 300000); 
             setInterval(autoSaveBots, 600000); 
         });
     } catch (err) {
+        console.error("Server Start Failed:", err);
         process.exit(1); 
     }
 };

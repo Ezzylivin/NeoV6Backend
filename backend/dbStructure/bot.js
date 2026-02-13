@@ -1,16 +1,16 @@
 // File: src/backend/dbStructure/bot.js
-// 🚀 UPGRADE: v29.8 - Added Explicit Shorting Logic (Fixes Persistence)
+// 🚀 UPGRADE: v29.9 - Enhanced ML Persistence & Margin Optimization
 import mongoose from "mongoose";
 import crypto from "crypto"; 
 
 const { Schema, model } = mongoose;
 
-// 1️⃣ LOG ENTRY SCHEMA
+// 1️⃣ LOG ENTRY SCHEMA (Enhanced with color-coding hints)
 const logEntrySchema = new Schema({
     timestamp: { type: Date, default: Date.now },
     type: { 
         type: String, 
-        enum: ['info', 'INFO', 'buy', 'BUY', 'sell', 'SELL', 'error', 'ERROR', 'status', 'STATUS', 'system', 'SYSTEM', 'risk', 'RISK', 'warning', 'WARNING'], 
+        enum: ['info', 'buy', 'sell', 'error', 'status', 'system', 'risk', 'warning', 'neural'], 
         required: true,
         set: (v) => v ? v.toLowerCase() : v 
     },
@@ -18,7 +18,7 @@ const logEntrySchema = new Schema({
     data: { type: Schema.Types.Mixed } 
 }, { _id: false });
 
-// 2️⃣ POSITION SCHEMA
+// 2️⃣ POSITION SCHEMA (Added Unrealized Calculation fields)
 const positionSchema = new Schema({
     entryPrice: { type: Number, required: true },
     size: { type: Number, required: true },
@@ -26,6 +26,7 @@ const positionSchema = new Schema({
     entryTime: { type: Date, default: Date.now },
     stopLoss: { type: Number },
     takeProfit: { type: Number },
+    trailingStop: { type: Number }, // Dynamic floor for profits
     currentPrice: { type: Number },
     unrealizedPnL: { type: Number, default: 0 }
 }, { _id: false });
@@ -42,7 +43,7 @@ const tradeSchema = new Schema({
     pnl: { type: Number, required: true },
     pnlPct: { type: Number, default: 0 },
     fee: { type: Number, default: 0 },
-    exitReason: { type: String, default: 'strategy' }
+    exitReason: { type: String, enum: ['strategy', 'sl', 'tp', 'trailing', 'manual', 'halt'], default: 'strategy' }
 }, { _id: false });
 
 // 4️⃣ STRATEGY CONFIG SCHEMA
@@ -52,7 +53,7 @@ const strategyConfigSchema = new Schema({
     params: { type: Map, of: Schema.Types.Mixed } 
 }, { _id: false });
 
-// 5️⃣ EQUITY CURVE
+// 5️⃣ EQUITY CURVE (For Frontend Visualization)
 const equityPointSchema = new Schema({
     timestamp: { type: Date, default: Date.now },
     balance: { type: Number, required: true },
@@ -71,7 +72,7 @@ const botSchema = new Schema(
     // 📈 MARKET CONFIG
     symbol: { type: String, required: true, trim: true, uppercase: true },
     timeframe: { type: String, required: true, default: "1h" },
-    enable_shorting: { type: Boolean, default: false }, // 🟢 ADDED: Critical for Shorting Permission
+    enable_shorting: { type: Boolean, default: false }, 
     
     // 💰 CAPITAL & RISK
     capitalAllocation: { type: Number, required: true }, 
@@ -95,10 +96,15 @@ const botSchema = new Schema(
         minVotesRequired: { type: Number, default: 1 } 
     },
     
-    // 🤖 ML CONFIGURATION
+    // 🤖 ML CONFIGURATION (Optimized for Ensemble/Stacking)
     mlMode: { type: String, enum: ['off', 'predictions', 'on'], default: 'off' },
     mlModel: { type: String, default: '' },
     mlThreshold: { type: Number, default: 0.5 },
+    mlConfig: {
+        featureScaling: { type: Boolean, default: true },
+        ensembleWeights: { type: Map, of: Number }, // For Stacking Hybrid
+        lookbackWindows: [Number]
+    },
 
     // ⚙️ EXECUTION PARAMS
     slippageTolerance: { type: Number, default: 0.5 }, 
@@ -127,7 +133,7 @@ const botSchema = new Schema(
     tradeHistory: [tradeSchema],
     activePositions: [positionSchema],
     
-    // 🟢 CRITICAL: Mixed type allows any candle structure
+    // 🕯️ MARKET DATA
     candles: [{ type: Schema.Types.Mixed }],
     
     equityCurve: [equityPointSchema], 
@@ -142,12 +148,12 @@ const botSchema = new Schema(
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-    strict: false // 🟢 KEEPS FLEXIBILITY, BUT EXPLICIT FIELD IS SAFER
+    strict: false 
   }
 );
 
 // ======================================================
-// 🧮 VIRTUALS
+// 🧮 VIRTUALS (Computed Dashboard Data)
 // ======================================================
 
 botSchema.virtual('roi').get(function() {
@@ -155,28 +161,38 @@ botSchema.virtual('roi').get(function() {
     return (this.currentBalance - this.capitalAllocation) / this.capitalAllocation;
 });
 
-botSchema.virtual('positions').get(function() {
-    return this.activePositions;
+botSchema.virtual('isMarginEnabled').get(function() {
+    return this.enable_shorting || this.leverage > 1;
 });
 
-botSchema.virtual('metrics').get(function() {
-    return this.performanceMetrics;
+botSchema.virtual('dailyPnL').get(function() {
+    if (this.equityCurve.length < 2) return 0;
+    const last = this.equityCurve[this.equityCurve.length - 1].balance;
+    const startOfDay = this.equityCurve[0].balance;
+    return last - startOfDay;
 });
 
 // ======================================================
-// 🛡️ HOOKS
+// 🛡️ HOOKS (System Integrity)
 // ======================================================
 
 botSchema.pre('save', function(next) {
+    // Generate unique ID if missing
     if (!this.botId) {
         const suffix = crypto.randomBytes(4).toString('hex');
         this.botId = `BOT_${this.symbol}_${this.timeframe}_${suffix}`;
+    }
+
+    // Safety: If shorting is disabled, leverage must be 1 (Spot only)
+    if (!this.enable_shorting && this.leverage > 1) {
+        this.leverage = 1;
+        this.addLog('warning', 'Leverage reset to 1x as Shorting is disabled.');
     }
     next();
 });
 
 // ======================================================
-// 🛠️ METHODS
+// 🛠️ METHODS (Bot Lifecycle Operations)
 // ======================================================
 
 botSchema.methods.startSession = async function(liveBalance) {
@@ -187,16 +203,19 @@ botSchema.methods.startSession = async function(liveBalance) {
     this.currentBalance = liveBalance;
     this.capitalAllocation = liveBalance; 
     
-    this.addLog('status', `🚀 Bot Started. Capital aligned to Balance: $${liveBalance.toFixed(2)}`);
+    this.addLog('status', `🚀 Protocol Ignited. Capital: $${liveBalance.toFixed(2)}`);
     return this.save();
 };
 
 botSchema.methods.addLog = function(type, message, data = null) {
     const entry = { type: type || 'info', message, timestamp: new Date(), data };
     this.logs.unshift(entry);
-    if (this.logs.length > 200) {
-        this.logs.pop();
-    }
+    if (this.logs.length > 200) this.logs.pop();
+};
+
+botSchema.methods.recordTrade = function(tradeData) {
+    this.tradeHistory.push(tradeData);
+    this.updateMetrics(tradeData.pnl);
 };
 
 botSchema.methods.updateMetrics = function(pnl) {
@@ -204,11 +223,16 @@ botSchema.methods.updateMetrics = function(pnl) {
     pm.totalTrades++;
     pm.totalProfit += pnl;
     
+    // Update Equity Curve
     this.equityCurve.push({
         timestamp: new Date(),
         balance: this.currentBalance + pnl,
         pnlPct: (pnl / this.capitalAllocation) * 100
     });
+
+    // Simple Win Rate calculation
+    const wins = this.tradeHistory.filter(t => t.pnl > 0).length;
+    pm.winRate = (wins / pm.totalTrades) * 100;
 };
 
 export default mongoose.models.Bot || model("Bot", botSchema);

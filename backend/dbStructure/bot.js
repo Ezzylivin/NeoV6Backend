@@ -1,5 +1,5 @@
 // File: src/backend/dbStructure/bot.js
-// 🚀 UPGRADE: v29.7 - Permissive Schema (Fixes Silent Rejections)
+// 🚀 UPGRADE: v29.8 - Added Explicit Shorting Logic (Fixes Persistence)
 import mongoose from "mongoose";
 import crypto from "crypto"; 
 
@@ -71,10 +71,11 @@ const botSchema = new Schema(
     // 📈 MARKET CONFIG
     symbol: { type: String, required: true, trim: true, uppercase: true },
     timeframe: { type: String, required: true, default: "1h" },
+    enable_shorting: { type: Boolean, default: false }, // 🟢 ADDED: Critical for Shorting Permission
     
     // 💰 CAPITAL & RISK
     capitalAllocation: { type: Number, required: true }, 
-    currentBalance: { type: Number, required: true },      
+    currentBalance: { type: Number, required: true },       
     
     riskManagementMode: { type: String, enum: ['static', 'dynamic'], default: 'static' },
     riskPercentage: { type: Number, default: 1 }, 
@@ -141,7 +142,7 @@ const botSchema = new Schema(
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-    strict: false // 🟢 ADDED: Prevents Mongo from rejecting unknown fields
+    strict: false // 🟢 KEEPS FLEXIBILITY, BUT EXPLICIT FIELD IS SAFER
   }
 );
 

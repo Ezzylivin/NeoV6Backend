@@ -1,5 +1,5 @@
 // File: backend/services/botService.js
-// 🚀 UPGRADE: v11.7 - Atomic Path Resolution (Fixes "Symbol Path Conflict")
+// 🚀 UPGRADE: v11.8 - Shorting Permission Persistence (Fixes "Spot Only" Safety Lock)
 import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
@@ -28,6 +28,7 @@ async function callPythonApi(endpoint, method = 'GET', data = {}) {
         const response = await axios(config);
         return response.data;
     } catch (error) {
+        console.error(`[Python API Error] ${endpoint}:`, error.message);
         return null; 
     }
 }
@@ -60,10 +61,13 @@ export async function startTradingBot(userId, incomingData = {}) {
 
     const config = incomingData.config || incomingData;
 
-    // 1. Fallbacks to prevent validation failures on missing UI fields
+    // 1. Core Logic Fallbacks
     const symbol = (config.symbol || "BTC-USD").replace('/', '-').toUpperCase();
     const timeframe = config.timeframe || "1h";
     const capital = Number(config.capitalAllocation) || 1000;
+    
+    // 🟢 CRITICAL FIX: Explicitly extract enable_shorting from incoming payload
+    const enableShorting = config.enable_shorting === true || config.enable_shorting === 'true';
 
     const strategiesPayload = await resolveStrategies(userId, config);
     const botId = `${userId}_${symbol}_${timeframe}`;
@@ -73,6 +77,7 @@ export async function startTradingBot(userId, incomingData = {}) {
         mode: config.mode || 'paper', 
         symbol, 
         timeframe,
+        enable_shorting: enableShorting, // 🟢 PASS TO PYTHON
         initialBalance: capital, 
         mlMode: config.mlMode || "off",
         mlModel: config.mlModel || "",
@@ -87,14 +92,15 @@ export async function startTradingBot(userId, incomingData = {}) {
         params: { hybridMode: 'AND', ...config.params }
     };
 
-    // 2. Call Python FIRST
+    // 2. Call Python Engine
     const pythonPayload = { userId: userId, config: rawConfig };
     await callPythonApi('/api/bot/start', 'POST', pythonPayload);
 
-    // 3. Prepare DB Payload - userId removed from $set to avoid Conflict Error
+    // 3. Prepare DB Payload
     const updateData = {
         symbol,
         timeframe,
+        enable_shorting: enableShorting, // 🟢 PERSIST TO DB
         status: 'running',
         mode: rawConfig.mode,
         capitalAllocation: capital,
@@ -109,15 +115,13 @@ export async function startTradingBot(userId, incomingData = {}) {
         equityCurve: []
     };
 
-    // 4. Update DB using userId filter. Required fields are only in $set to avoid conflict
+    // 4. Atomic DB Update
     return await Bot.findOneAndUpdate(
         { userId }, 
         { 
             $set: updateData,
-            $setOnInsert: { 
-                lastActive: new Date() // Do not duplicate 'symbol' or 'capital' here
-            },
-            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${symbol}`, type: 'status' } }
+            $setOnInsert: { lastActive: new Date() },
+            $push: { logs: { timestamp: new Date(), message: `🚀 Bot Started: ${symbol} (${enableShorting ? 'MARGIN' : 'SPOT'})`, type: 'status' } }
         },
         { new: true, upsert: true, runValidators: false }
     );
@@ -140,7 +144,7 @@ export async function getBotStatus(userId) {
 
     if (liveStatus && (liveStatus.status === 'running' || liveStatus.status === 'initializing')) {
         if (!dbBot || dbBot.status !== 'running') {
-            console.log(`[Self-Heal] Resyncing DB for ${userId}. Fixing state...`);
+            console.log(`[Self-Heal] Resyncing DB for ${userId}...`);
             dbBot = await Bot.findOneAndUpdate(
                 { userId }, 
                 { 
@@ -150,7 +154,6 @@ export async function getBotStatus(userId) {
                         symbol: liveStatus.symbol || "BTC-USD",
                         capitalAllocation: liveStatus.currentBalance || 1000 
                     }
-                    // 🟢 Removed $setOnInsert here to avoid conflict
                 },
                 { new: true, upsert: true, runValidators: false }
             );

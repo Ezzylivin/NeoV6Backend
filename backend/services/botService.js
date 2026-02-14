@@ -142,6 +142,15 @@ export async function getBotStatus(userId) {
     const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId }); 
     let dbBot = await Bot.findOne({ userId });
 
+    // 🛑 1. ZOMBIE PREVENTION CHECK
+    // If the DB explicitly says 'stopped', trust it over Python.
+    // This prevents the "Self-Heal" logic below from resurrecting a bot you just killed.
+    if (dbBot && dbBot.status === 'stopped') {
+        // Optional: If liveStatus says running, we could fire a cleanup stop command here silently.
+        return { ...dbBot.toObject(), status: 'stopped', logs: dbBot.logs || [] };
+    }
+
+    // 2. Self-Heal Logic (Only if DB thinks it's running or doesn't exist)
     if (liveStatus && (liveStatus.status === 'running' || liveStatus.status === 'initializing')) {
         if (!dbBot || dbBot.status !== 'running') {
             console.log(`[Self-Heal] Resyncing DB for ${userId}...`);

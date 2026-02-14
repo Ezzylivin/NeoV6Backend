@@ -1,4 +1,4 @@
-// File: backend/services/botService.js
+/// File: backend/services/botService.js
 // 🚀 UPGRADE: v11.8 - Shorting Permission Persistence (Fixes "Spot Only" Safety Lock)
 import axios from "axios";
 import https from 'https';

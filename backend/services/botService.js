@@ -82,6 +82,8 @@ export async function startTradingBot(userId, incomingData = {}) {
         mlMode: config.mlMode || "off",
         mlModel: config.mlModel || "",
         mlThreshold: config.mlThreshold || 0.5,
+        mlThresholdLong: config.mlThresholdLong || 0.5, 
+        mlThresholdShort: config.mlThresholdShort || 0.5,
         isCombo: strategiesPayload.length > 1,
         strategies: strategiesPayload,
         comboConfig: config.comboConfig || { combinationRule: 'AND' },

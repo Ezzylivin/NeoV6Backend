@@ -89,6 +89,9 @@ export async function startTradingBot(userId, incomingData = {}) {
         comboConfig: config.comboConfig || { combinationRule: 'AND' },
         riskManagementMode: config.riskManagementMode || 'static',
         riskPercentage: Number(config.riskPercentage) || 1,
+        maxDailyLoss: Number(config.maxDailyLoss) || 5,    
+        maxDrawdown: Number(config.maxDrawdown) || 10,     
+        maxTradesPerDay: Number(config.maxTradesPerDay) || 20, 
         maxPyramiding: Number(config.maxPyramiding) || 1,
         slippageBps: Number(config.slippageBps) || 2.0,
         params: { hybridMode: 'AND', ...config.params }

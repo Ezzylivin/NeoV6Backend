@@ -7,41 +7,33 @@ import User from "../dbStructure/user.js";
 
 // Renamed from authMiddleware to 'protect' to match its usage in route files.
 export const protect = async (req, res, next) => {
+    // 🟢 CRITICAL FIX: Allow Preflight OPTIONS requests to bypass authentication
+    // Browsers send OPTIONS without headers to check CORS safety.
+    if (req.method === 'OPTIONS') {
+        return next();
+    }
 
-     console.log('--- [AUTH MIDDLEWARE] INCOMING HEADERS:', req.headers);
-
-    console.log("🔐 protect middleware triggered. Headers:", req.headers.authorization);
-
-
+    console.log('--- [AUTH MIDDLEWARE] INCOMING HEADERS:', req.headers);
     let token;
 
     try {
-        // Expect Authorization header with Bearer token
-        if (
-            req.headers.authorization &&
-            req.headers.authorization.startsWith("Bearer")
-        ) {
+        if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
             token = req.headers.authorization.split(" ")[1];
 
-            // Decode token
+            // Ensure process.env.JWT_SECRET matches what Python uses!
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-            // Fetch user by ID from DB (exclude password field)
             req.user = await User.findById(decoded.id).select("-password");
 
             if (!req.user) {
-                // Use return to stop execution
                 return res.status(401).json({ message: "Not authorized, user not found" });
             }
-
-            // Proceed to the next middleware/controller
             next();
         } else {
             return res.status(401).json({ message: "Not authorized, no token" });
-            // The erroneous 'export' statement that caused the crash was here. It has been removed.
         }
     } catch (err) {
         console.error("Auth middleware error:", err.message);
+        // This is where "token failed" comes from
         return res.status(401).json({ message: "Not authorized, token failed" });
     }
 };

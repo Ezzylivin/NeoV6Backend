@@ -16,6 +16,9 @@ import { getBotStatus } from "./services/botService.js";
 
 dotenv.config();
 
+app.use(express.json());
+
+
 const SELF_URL = process.env.VITE_API_URL || "https://neov6backend.onrender.com";
 const PYTHON_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000";
 

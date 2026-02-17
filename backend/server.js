@@ -81,31 +81,21 @@ io.on('connection', (socket) => {
 app.post('/api/internal/broadcast', async (req, res) => {
     const { userId, type, data } = req.body;
     
-    if (!userId || !type || !data) {
-        return res.status(400).json({ error: "Missing payload fields" });
-    }
+    // 🟢 DEBUG LOG 1: Data arrived from Mendel (Python)
+    console.log(`📥 BRIDGE IN: Received ${type} for user ${userId}`);
 
     try {
-        // 1. Persist to MongoDB only if it's a log message
-        if (type === 'bot_log') {
-            await Log.create({
-                userId,
-                message: typeof data === 'string' ? data : JSON.stringify(data),
-                level: (typeof data === 'string' && data.includes('🧠')) ? 'thought' : 'info',
-                timestamp: new Date()
-            });
-        }
+        if (type === 'bot_log') { /* existing log logic */ }
 
-        // 2. Broadcast the FULL data object to the frontend
-        // This ensures PnL, Exposure, and Balance updates reach the UI
+        // 🟢 DEBUG LOG 2: Attempting to send to browser
+        const roomSize = io.sockets.adapter.rooms.get(userId)?.size || 0;
+        console.log(`📤 BRIDGE OUT: Emitting to room ${userId}. Active listeners: ${roomSize}`);
+
         io.to(userId).emit(type, data);
-        
         res.status(200).json({ success: true });
     } catch (err) {
-        console.error("❌ Broadcast Error:", err.message);
-        // Fallback: emit even if DB fails
-        io.to(userId).emit(type, data);
-        res.status(200).json({ success: true, warning: "DB write failed" });
+        console.error("❌ BRIDGE ERROR:", err.message);
+        res.status(500).json({ error: "Broadcast failed" });
     }
 });
 

@@ -196,6 +196,42 @@ export async function getBotLogs(userId, limit) {
     return active.logs;
 }
 
+export async function closeActivePosition(userId, symbol) {
+    if (!userId) throw new Error("Missing userId");
+
+    console.log(`🎯 Service: Requesting Manual Exit for ${symbol} (User: ${userId})`);
+
+    // 1. Tell the Python Engine to close the trade
+    // We try kebab-case first as it's the standard for FastAPI/Flask setups
+    const pythonResponse = await callPythonApi('/api/bot/close-position', 'POST', { 
+        userId, 
+        symbol 
+    });
+
+    // 2. Local DB Cleanup
+    // Even if Python fails, we update the DB to ensure the UI stays in sync
+    const updatedBot = await Bot.findOneAndUpdate(
+        { userId },
+        { 
+            $set: { activePositions: [] }, // Clear local active positions
+            $push: { 
+                logs: { 
+                    timestamp: new Date(), 
+                    message: `🚩 Manual Exit Executed: ${symbol}`, 
+                    type: 'action' 
+                } 
+            }
+        },
+        { new: true }
+    );
+
+    return {
+        success: !!pythonResponse,
+        message: pythonResponse?.message || "Manual Exit command processed",
+        bot: updatedBot
+    };
+}
+
 export async function getWinnersList() {
     const rawWinners = await callPythonApi('/api/bot/winners', 'GET');
     if (!Array.isArray(rawWinners)) return [];

@@ -1,73 +1,30 @@
-import Strategy from "../dbStructure/strategy.js";
+// File: src/controllers/helpCenterController.js
+import SupportTicket from "../dbStructure/supportTicket.js"; 
 
-// --- Create a new strategy ---
-export const createStrategy = async (req, res) => {
+// 🟢 1. Submit a Support Ticket
+export const submitTicket = async (req, res) => {
   try {
-    const { name, description, params } = req.body;
-    const userId = req.user._id;
-    const code = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-
-    const strategy = await Strategy.create({ userId, name, description, params, code });
-    res.status(201).json(strategy);
-
-  } catch (err) {
-    // This now correctly handles both duplicate key errors and validation errors
-    if (err.code === 11000) {
-      return res.status(409).json({ message: 'A strategy with this name already exists.' });
-    }
-    if (err.name === 'ValidationError') {
-      return res.status(400).json({ message: "Validation Error", details: err.message });
-    }
-    console.error("Error creating strategy:", err);
-    res.status(500).json({ message: "Failed to create strategy due to a server error" });
-  }
-};
-
-// --- Get all strategies for a user ---
-export const getStrategies = async (req, res) => {
-  try {
-    const strategies = await Strategy.find({ userId: req.user._id }).lean();
-    res.json(strategies);
-  } catch (err) {
-    console.error("Error fetching strategies:", err);
-    res.status(500).json({ message: "Failed to fetch strategies" });
-  }
-};
-
-// --- Get a single strategy by its ID ---
-// Renamed for clarity from getStrategyByCode
-export const getStrategyById = async (req, res) => {
-  try {
-    const strategy = await Strategy.findOne({
-      _id: req.params.id,
-      userId: req.user._id,
-    }).lean();
-
-    if (!strategy) {
-      return res.status(404).json({ message: "Strategy not found" });
-    }
-    res.json(strategy);
-  } catch (err)
- {
-    console.error("Error fetching strategy:", err);
-    res.status(500).json({ message: "Failed to fetch strategy" });
-  }
-};
-
-// --- Delete a strategy by its ID ---
-export const deleteStrategy = async (req, res) => {
-  try {
-    const deleted = await Strategy.findOneAndDelete({
-      _id: req.params.id,
-      userId: req.user._id,
+    const { subject, category, message } = req.body;
+    const ticket = await SupportTicket.create({ 
+      userId: req.user._id, 
+      subject, category, message, status: 'open' 
     });
-
-    if (!deleted) {
-      return res.status(404).json({ message: "Strategy not found" });
-    }
-    res.status(200).json({ success: true, message: "Strategy deleted successfully" });
+    res.status(201).json({ success: true, ticket });
   } catch (err) {
-    console.error("Error deleting strategy:", err);
-    res.status(500).json({ message: "Failed to delete strategy" });
+    res.status(500).json({ message: "Failed to submit request" });
   }
+};
+
+// 🟢 2. Get Dynamic FAQs
+export const getFaqs = async (req, res) => {
+  const faqs = [
+    { category: "Neural Link", q: "Why did my link sever?", a: "Connections drop due to inactivity or Render sleep cycles." },
+    { category: "Risk", q: "What is Max Pyramiding?", a: "It limits concurrent positions for a single trend." }
+  ];
+  res.json(faqs);
+};
+
+// 🟢 3. Get System Health
+export const getStatus = async (req, res) => {
+  res.json({ engine: "OPERATIONAL", latency: "42ms", timestamp: new Date() });
 };

@@ -10,7 +10,7 @@ import backtestSetupRoutes from "./routes/backtestSetupRoutes.js";
 import botRoutes from "./routes/botRoutes.js"; 
 import marketRoutes from "./routes/marketRoutes.js";
 import mlRoutes from "./routes/mlRoutes.js";
-import helpRoutes from "./routes/helpRoutes";
+import helpRoutes from "./routes/helpRoutes.js";
 
 const app = express();
 

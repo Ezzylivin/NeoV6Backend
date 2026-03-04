@@ -4,13 +4,13 @@ import cors from "cors";
 
 // --- Route Imports ---
 import userRoutes from "./routes/userRoutes.js";
-import strategyRoutes from "./routes/strategyRoutes.js";
 import comboStrategyRoutes from "./routes/comboStrategyRoutes.js"; 
 import backtestRoutes from "./routes/backtestRoutes.mjs"; // Ensure extension matches your file
 import backtestSetupRoutes from "./routes/backtestSetupRoutes.js"; 
 import botRoutes from "./routes/botRoutes.js"; 
 import marketRoutes from "./routes/marketRoutes.js";
 import mlRoutes from "./routes/mlRoutes.js";
+import helpRoutes from ".routes/helpRoutes
 
 const app = express();
 
@@ -40,7 +40,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // --- API Route Mounting ---
 app.use("/api/users", userRoutes);
-app.use("/api/strategy", strategyRoutes);
+app.use("/api/help", helpRoutes);
 app.use("/api/combos", comboStrategyRoutes); 
 app.use("/api/backtest", backtestRoutes);
 app.use("/api/backtestSetups", backtestSetupRoutes); 

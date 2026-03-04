@@ -12,7 +12,8 @@ import {
   getBotStatusController,
   getBotLogsController,
   getBotWinnersController,
-  resetBotController // 🆕 IMPORTED: Controller to handle resets
+  resetBotController,
+  closePositionController
 } from "../controllers/botController.js";
 
 // Import strategy controllers
@@ -37,6 +38,8 @@ router.post("/stop", protect, stopBotController);
 
 // 🆕 POST /api/bot/reset -> Wipes trade history & resets balance
 router.post("/reset", protect, resetBotController);
+
+router.post("/close-position", protect, closePositionController);
 
 
 // --- 2. Live Bot Data & Telemetry ---

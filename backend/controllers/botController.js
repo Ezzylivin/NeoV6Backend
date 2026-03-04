@@ -108,6 +108,26 @@ export const getBotLogsController = async (req, res) => {
     }
 };
 
+export const closePositionController = async (req, res) => {
+    try {
+        const userId = req.body.userId || req.user?._id;
+        const symbol = req.body.symbol;
+
+        if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
+        if (!symbol) return sendResponse(res, { message: "Asset Symbol missing." }, 400);
+
+        console.log(`🎯 Controller Manual Exit: User ${userId} Closing ${symbol}`);
+
+        // Forward to Service
+        const result = await botService.closeActivePosition(userId, symbol);
+        
+        sendResponse(res, result);
+    } catch (err) {
+        console.error("❌ Manual Exit Error:", err.message);
+        res.status(500).json({ message: err.message || "Failed to close position." });
+    }
+};
+
 // --- Get Certified Winners ---
 export const getBotWinnersController = async (req, res) => {
     try {

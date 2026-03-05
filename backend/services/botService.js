@@ -205,7 +205,8 @@ export async function closeActivePosition(userId, symbol) {
     // We try kebab-case first as it's the standard for FastAPI/Flask setups
     const pythonResponse = await callPythonApi('/api/bot/close-position', 'POST', { 
         userId, 
-        symbol 
+        symbol,
+        timeframe
     });
 
     // 2. Local DB Cleanup

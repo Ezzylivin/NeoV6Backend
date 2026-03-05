@@ -196,25 +196,34 @@ export async function getBotLogs(userId, limit) {
     return active.logs;
 }
 
+// File: backend/services/botService.js
+
 export async function closeActivePosition(userId, symbol) {
     if (!userId) throw new Error("Missing userId");
 
-    console.log(`🎯 Service: Requesting Manual Exit for ${symbol} (User: ${userId})`);
+    // 🟢 FIX: Fetch the bot record first to get the timeframe
+    const botRecord = await Bot.findOne({ userId });
+    
+    // 🟢 FALLBACK: Use the bot's stored timeframe or default to '1h'
+    const timeframe = botRecord?.timeframe || "1h"; 
+    
+    // Now botId will not cause a ReferenceError
+    const botId = `${userId}_${symbol}_${timeframe}`;
+
+    console.log(`🎯 Service: Requesting Manual Exit for ${botId}`);
 
     // 1. Tell the Python Engine to close the trade
-    // We try kebab-case first as it's the standard for FastAPI/Flask setups
     const pythonResponse = await callPythonApi('/api/bot/close-position', 'POST', { 
         userId, 
         symbol,
-        timeframe
+        botId // Identifying the specific instance
     });
 
-    // 2. Local DB Cleanup
-    // Even if Python fails, we update the DB to ensure the UI stays in sync
+    // 2. Local DB Cleanup (Force clear even if Python is slow)
     const updatedBot = await Bot.findOneAndUpdate(
         { userId },
         { 
-            $set: { activePositions: [] }, // Clear local active positions
+            $set: { activePositions: [] },
             $push: { 
                 logs: { 
                     timestamp: new Date(), 
@@ -228,7 +237,6 @@ export async function closeActivePosition(userId, symbol) {
 
     return {
         success: !!pythonResponse,
-        message: pythonResponse?.message || "Manual Exit command processed",
         bot: updatedBot
     };
 }

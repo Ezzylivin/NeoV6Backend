@@ -47,7 +47,7 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
     }
 
     // 2. Route Verification: Ensure this matches the FastAPI endpoint in api3.py
-    const flaskUrl = `${ML_SERVER_URL}/api/ml/run-backtest-on`;
+    const flaskUrl = `${ML_SERVER_URL}/api/backtest/run`;
     
     const response = await axios.post(flaskUrl, backtestConfig, {
       httpsAgent: httpsAgent,

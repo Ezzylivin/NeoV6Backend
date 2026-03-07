@@ -94,11 +94,9 @@ export const runCombinedStrategyService = async (userId, comboConfig, authToken)
     });
 
     const rawData = response.data;
+    console.log("RAW PYTHON DATA KEYS:", Object.keys(rawData));
+    
     const innerResult = rawData.combinedResult || rawData;
-
-    if (!innerResult?.metrics || !innerResult?.equityCurve) {
-      throw new Error("Invalid combo data structure from Python API.");
-    }
 
     return {
       userId,

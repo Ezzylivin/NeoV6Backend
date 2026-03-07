@@ -85,26 +85,34 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
  * Handles complex multi-asset backtests.
  */
 export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
-
-  const flaskUrl = `${ML_SERVER_URL}/api/debug/inspect`;
+  const flaskUrl = `${ML_SERVER_URL}/api/backtest/combo`;
 
   try {
-    const response = await axios.post(flaskUrl, { 
-        ...comboConfig, 
-        userId,
-        // FORCE CONVERSIONS HERE: This is often the hidden fix
-        initialBalance: Number(comboConfig.initialBalance),
-        risk_percentage: parseFloat(comboConfig.risk_percentage || 1.0)
-    }, {
+    const response = await axios.post(flaskUrl, { ...comboConfig, userId }, {
       httpsAgent: httpsAgent,
-      timeout: 10000, // Shorter timeout for debugging
+      timeout: 1800000, // 30 minutes for combo runs
     });
 
-    console.log("DEBUGGER RESPONSE:", response.data);
-    return response.data;
-    
+    const rawData = response.data;
+    const innerResult = rawData.combinedResult || rawData;
+
+    if (!innerResult?.metrics || !innerResult?.equityCurve) {
+      throw new Error("Invalid combo data structure from Python API.");
+    }
+
+    return {
+      userId,
+      ...comboConfig,
+      metrics: innerResult.metrics,
+      equityCurve: innerResult.equityCurve,
+      trades: innerResult.trades,
+      combinedResult: innerResult,
+    };
   } catch (apiError) {
-    console.error("DEBUGGER CALL FAILED:", apiError.response?.data || apiError.message);
-    throw apiError;
+    const msg = `Python Server COMBO API failed: ${apiError.message}`;
+    if (apiError.response) {
+      throw new Error(`${msg} Status: ${apiError.response.status}`);
+    }
+    throw new Error(msg);
   }
 };

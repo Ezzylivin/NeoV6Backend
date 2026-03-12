@@ -84,33 +84,23 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
  * COMBO STRATEGY SERVICE
  * Handles complex multi-asset backtests.
  */
-export const runCombinedStrategyService = async (userId, comboConfig, authToken) => {
-  const flaskUrl = `${ML_SERVER_URL}/api/backtest/combo`;
+export const runCombinedStrategyService = async (userId, comboConfig) => {
+    const flaskUrl = `${ML_SERVER_URL}/api/backtest/combo`;
 
-  try {
-    const response = await axios.post(flaskUrl, { ...comboConfig, userId }, {
-      httpsAgent: httpsAgent,
-      timeout: 1800000, // 30 minutes for combo runs
-    });
+    try {
+        // 🚀 CRITICAL: responseType 'stream' allows data to pass through bit by bit
+        const response = await axios.post(flaskUrl, { ...comboConfig, userId }, {
+            httpsAgent: httpsAgent,
+            timeout: 1800000, 
+            responseType: 'stream' 
+        });
 
-    const rawData = response.data;
-    console.log("RAW PYTHON DATA KEYS:", Object.keys(rawData));
-    
-    const innerResult = rawData.combinedResult || rawData;
+        // We return the raw stream directly to the controller
+        return response.data; 
 
-    return {
-      userId,
-      ...comboConfig,
-      metrics: innerResult.metrics,
-      equityCurve: innerResult.equityCurve,
-      trades: innerResult.trades,
-      combinedResult: innerResult,
-    };
-  } catch (apiError) {
-    const msg = `Python Server COMBO API failed: ${apiError.message}`;
-    if (apiError.response) {
-      throw new Error(`${msg} Status: ${apiError.response.status}`);
+    } catch (apiError) {
+        // Stream errors are handled differently; if it fails to even connect:
+        const msg = `Python Server Connection Failed: ${apiError.message}`;
+        throw new Error(msg);
     }
-    throw new Error(msg);
-  }
 };

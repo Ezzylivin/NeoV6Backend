@@ -34,27 +34,45 @@ export const runBacktestController = async (req, res) => {
     try {
         const userId = req.user._id;
         const config = { ...req.body, userId, simulateOnly: false };
-        const authToken = extractAuthToken(req);
 
         if (!config.symbol || !config.timeframe) {
-            return res.status(400).json({ message: "Missing required fields: symbol, or timeframe." });
+            return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
         }
 
-        console.log("[Controller] Forwarding request to Python Service...");
-        const result = await runBacktest(config, authToken); 
-        res.status(201).json(result);
+        // 1. Set Stream Headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no'); 
+
+        console.log("[Atomic Controller] Opening Stream Pipe to Python...");
+
+        // 2. Call Service (Must use responseType: 'stream')
+        const pythonStream = await runBacktest(config); 
+
+        // 3. Pipe Python -> React
+        pythonStream.pipe(res);
+
+        pythonStream.on('error', (err) => {
+            console.error("❌ Atomic Stream Pipe Error:", err.message);
+            if (!res.headersSent) res.status(500).end();
+        });
 
     } catch (err) {
-        handleControllerError(res, err, 'runBacktestController');
+        console.error("🔥 Controller Atomic Error:", err.message);
+        if (!res.headersSent) {
+            res.status(500).json({ message: err.message });
+        }
     }
 };
 
-// --- 2. Run combo backtest ---
+/**
+ * 🚀 UPGRADE: Supports Hybrid (Combo) Streaming
+ */
 export const runComboBacktestController = async (req, res) => {
     try {
         const userId = req.user._id;
         const comboPayload = { ...req.body, userId };
-        const authToken = extractAuthToken(req);
 
         if (!comboPayload.strategies || !Array.isArray(comboPayload.strategies) || comboPayload.strategies.length === 0) {
             return res.status(400).json({ message: "The 'strategies' array is required." });
@@ -63,10 +81,30 @@ export const runComboBacktestController = async (req, res) => {
             return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
         }
 
-        const result = await runCombinedStrategyService(userId, comboPayload, authToken);
-        res.status(200).json(result);
+        // 1. Set Stream Headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no'); 
+
+        console.log("[Combo Controller] Opening Stream Pipe to Python...");
+
+        // 2. Call Service (Must use responseType: 'stream')
+        const pythonStream = await runCombinedStrategyService(userId, comboPayload);
+
+        // 3. Pipe Python -> React
+        pythonStream.pipe(res);
+
+        pythonStream.on('error', (err) => {
+            console.error("❌ Combo Stream Pipe Error:", err.message);
+            if (!res.headersSent) res.status(500).end();
+        });
+
     } catch (error) {
-        handleControllerError(res, error, 'runComboBacktestController');
+        console.error("🔥 Controller Combo Error:", error.message);
+        if (!res.headersSent) {
+            res.status(500).json({ message: error.message });
+        }
     }
 };
 

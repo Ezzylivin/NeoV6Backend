@@ -33,35 +33,27 @@ const extractAuthToken = (req) => {
 export const runBacktestController = async (req, res) => {
     try {
         const userId = req.user._id;
+        // 🚀 Ensure we aren't trying to force a stream if it's a standard run
         const config = { ...req.body, userId, simulateOnly: false };
 
         if (!config.symbol || !config.timeframe) {
             return res.status(400).json({ message: "Missing required fields: symbol or timeframe." });
         }
 
-        // 1. Set Stream Headers
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no'); 
+        console.log("[Atomic Controller] Executing Standard JSON Run...");
 
-        console.log("[Atomic Controller] Opening Stream Pipe to Python...");
+        // 1. Call Service 
+        // Ensure your runBacktest service returns the 'data' from the axios call
+        const result = await runBacktest(config); 
 
-        // 2. Call Service (Must use responseType: 'stream')
-        const pythonStream = await runBacktest(config); 
-
-        // 3. Pipe Python -> React
-        pythonStream.pipe(res);
-
-        pythonStream.on('error', (err) => {
-            console.error("❌ Atomic Stream Pipe Error:", err.message);
-            if (!res.headersSent) res.status(500).end();
-        });
+        // 2. 🚀 THE FIX: Use res.json() instead of .pipe()
+        // We don't need Event-Stream headers for Atomic runs.
+        return res.status(200).json(result);
 
     } catch (err) {
         console.error("🔥 Controller Atomic Error:", err.message);
         if (!res.headersSent) {
-            res.status(500).json({ message: err.message });
+            res.status(500).json({ message: "Backtest engine failed", error: err.message });
         }
     }
 };

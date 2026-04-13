@@ -9,9 +9,8 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 🟢 1. GET Available ML Models (Renamed to match Frontend)
-// Frontend calls: /api/ml/models
-router.get('/models', getModelsController); 
+// 🚀 THE FIX: Renamed from '/models' to '/available-models' to match React frontend
+router.get('/available-models', getModelsController); 
 
 // 🟡 2. Legacy Route: Pre-calculated results
 router.get('/ml-backtest-results', (req, res) => {

@@ -39,12 +39,10 @@ export const runBacktest = async (config, authToken, simulateOnly = false) => {
     await fs.mkdir(RESULTS_CACHE_DIR, { recursive: true });
     
     // Attempt to load from cache
-    try {
-      const cachedData = await fs.readFile(cacheFilePath, "utf-8");
-      return JSON.parse(cachedData);
-    } catch (e) {
-      // If no cache, proceed to API call
-    }
+    // try {
+    //   const cachedData = await fs.readFile(cacheFilePath, "utf-8");
+    //   return JSON.parse(cachedData);
+    // } catch (e) { }
 
     // 2. Route Verification: Ensure this matches the FastAPI endpoint in api3.py
     const flaskUrl = `${ML_SERVER_URL}/api/backtest/run`;

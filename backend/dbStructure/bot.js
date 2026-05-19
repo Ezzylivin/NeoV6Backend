@@ -99,7 +99,9 @@ const botSchema = new Schema(
     // 🤖 ML CONFIGURATION (Optimized for Ensemble/Stacking)
     mlMode: { type: String, enum: ['off', 'predictions', 'on'], default: 'off' },
     mlModel: { type: String, default: '' },
-    mlThreshold: { type: Number, default: 0.5 },
+    mlThresholdLong: { type: Number, default: 0.55 },
+    mlThresholdShort: { type: Number, default: 0.55 },
+      
     mlConfig: {
         featureScaling: { type: Boolean, default: true },
         ensembleWeights: { type: Map, of: Number }, // For Stacking Hybrid
@@ -107,6 +109,9 @@ const botSchema = new Schema(
     },
 
     // ⚙️ EXECUTION PARAMS
+    params: { type: Schema.Types.Mixed, default: {} },
+    // 🚀 UPGRADE: Explicitly track paper vs live routing
+    mode: { type: String, enum: ['paper', 'live'], default: 'paper' },
     slippageTolerance: { type: Number, default: 0.5 }, 
     leverage: { type: Number, default: 1 },
 

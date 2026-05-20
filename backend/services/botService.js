@@ -201,13 +201,10 @@ export async function getBotLogs(userId, limit) {
 export async function closeActivePosition(userId, symbol) {
     if (!userId) throw new Error("Missing userId");
 
-    // 🟢 FIX: Fetch the bot record first to get the timeframe
+    // Fetch the bot record first to get the timeframe and read the active position
     const botRecord = await Bot.findOne({ userId });
     
-    // 🟢 FALLBACK: Use the bot's stored timeframe or default to '1h'
     const timeframe = botRecord?.timeframe || "1h"; 
-    
-    // Now botId will not cause a ReferenceError
     const botId = `${userId}_${symbol}_${timeframe}`;
 
     console.log(`🎯 Service: Requesting Manual Exit for ${botId}`);
@@ -216,21 +213,40 @@ export async function closeActivePosition(userId, symbol) {
     const pythonResponse = await callPythonApi('/api/bot/close-position', 'POST', { 
         userId, 
         symbol,
-        botId // Identifying the specific instance
+        botId 
     });
 
-    // 2. Local DB Cleanup (Force clear even if Python is slow)
+    // 🚀 UPGRADE: Capture the active position details before wiping them out
+    const activePos = botRecord?.activePositions?.[0];
+    let tradeUpdate = {};
+
+    if (activePos) {
+        // Build the receipt to feed your frontend Audit History component structure
+        const historicalReceipt = {
+            symbol: symbol,
+            side: activePos.side || 'long',
+            entryPrice: activePos.entryPrice || activePos.entry || 0,
+            exitPrice: activePos.currentPrice || activePos.entryPrice || 0, // uses latest tracked asset price
+            size: activePos.size || 0,
+            entryTime: activePos.entryTime || new Date(),
+            exitTime: new Date(),
+            pnl: activePos.unrealizedPnL || 0,
+            exitReason: 'manual'
+        };
+
+        // Inject the trade history push array into our atomic MongoDB query
+        tradeUpdate = { $push: { tradeHistory: historicalReceipt, logs: { timestamp: new Date(), message: `🚩 Manual Exit Executed: ${symbol}`, type: 'action' } } };
+    } else {
+        // Fallback if no position array metrics were established yet
+        tradeUpdate = { $push: { logs: { timestamp: new Date(), message: `🚩 Manual Exit Executed: ${symbol} (No live position data)`, type: 'action' } } };
+    }
+
+    // 2. Local DB Cleanup (Now including the tradeHistory record update)
     const updatedBot = await Bot.findOneAndUpdate(
         { userId },
         { 
-            $set: { activePositions: [] },
-            $push: { 
-                logs: { 
-                    timestamp: new Date(), 
-                    message: `🚩 Manual Exit Executed: ${symbol}`, 
-                    type: 'action' 
-                } 
-            }
+            $set: { activePositions: [], currentPosition: null },
+            ...tradeUpdate
         },
         { new: true }
     );

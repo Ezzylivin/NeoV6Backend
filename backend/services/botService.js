@@ -72,18 +72,24 @@ export async function startTradingBot(userId, incomingData = {}) {
     const strategiesPayload = await resolveStrategies(userId, config);
     const botId = `${userId}_${symbol}_${timeframe}`;
 
-    const rawConfig = {
+   const rawConfig = {
         botId,
         mode: config.mode || 'paper', 
         symbol, 
         timeframe,
-        enable_shorting: enableShorting, // PASS TO PYTHON
+        enable_shorting: enableShorting,
         initialBalance: capital, 
         mlMode: config.mlMode || "off",
-        mlModel: config.mlModel || "stacking", // 🚀 UPGRADE: Fallback to active brain
+        mlModel: config.mlModel || "stacking",
         mlThreshold: config.mlThreshold || 0.55,
         mlThresholdLong: config.mlThresholdLong || 0.55, 
         mlThresholdShort: config.mlThresholdShort || 0.55,
+        
+        // 🚀 UPGRADE: Map new regime parameters for the Python Engine
+        minAdx: Number(config.minAdx) || 20.0,
+        minVolRatio: Number(config.minVolRatio) || 0.8,
+        minWeightedSignal: Number(config.minWeightedSignal) || 0.3,
+
         isCombo: strategiesPayload.length > 1,
         strategies: strategiesPayload,
         comboConfig: config.comboConfig || { combinationRule: 'AND' },
@@ -105,7 +111,7 @@ export async function startTradingBot(userId, incomingData = {}) {
     const updateData = {
         symbol,
         timeframe,
-        enable_shorting: enableShorting, // PERSIST TO DB
+        enable_shorting: enableShorting,
         status: 'running',
         mode: rawConfig.mode,
         capitalAllocation: capital,
@@ -113,14 +119,16 @@ export async function startTradingBot(userId, incomingData = {}) {
         isCombo: rawConfig.isCombo,
         strategies: strategiesPayload,
         comboConfig: rawConfig.comboConfig,
-        
-        // 🚀 FIX: Explicitly persist the ML configuration properties to MongoDB
         mlMode: rawConfig.mlMode,
         mlModel: rawConfig.mlModel,
         mlThresholdLong: rawConfig.mlThresholdLong,
         mlThresholdShort: rawConfig.mlThresholdShort,
         
-        // 🚀 FIX: Explicitly persist the risk parameters to MongoDB
+        // 🚀 UPGRADE: Persist the new runtime regime limits in MongoDB
+        minAdx: rawConfig.minAdx,
+        minVolRatio: rawConfig.minVolRatio,
+        minWeightedSignal: rawConfig.minWeightedSignal,
+        
         riskManagementMode: rawConfig.riskManagementMode,
         riskPercentage: rawConfig.riskPercentage,
         maxDailyLoss: rawConfig.maxDailyLoss,
@@ -129,13 +137,11 @@ export async function startTradingBot(userId, incomingData = {}) {
         maxPyramiding: rawConfig.maxPyramiding,
         slippageTolerance: config.slippageTolerance || 0.5,
         params: rawConfig.params,
-
         startedAt: new Date(),
         stoppedAt: null,
         candles: [], 
         equityCurve: []
     };
-
     // 4. Atomic DB Update
     return await Bot.findOneAndUpdate(
         { userId }, 

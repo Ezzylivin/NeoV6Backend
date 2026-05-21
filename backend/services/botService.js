@@ -173,8 +173,12 @@ export async function getBotStatus(userId) {
     // If the DB explicitly says 'stopped', trust it over Python.
     // This prevents the "Self-Heal" logic below from resurrecting a bot you just killed.
     if (dbBot && dbBot.status === 'stopped') {
-        // Optional: If liveStatus says running, we could fire a cleanup stop command here silently.
-        return { ...dbBot.toObject(), status: 'stopped', logs: dbBot.logs || [] };
+        return { 
+            ...dbBot.toObject(), 
+            status: 'stopped', 
+            logs: dbBot.logs || [],
+            tradeHistory: dbBot.tradeHistory || dbBot.trade_history || [] // 🚀 FIX: Load historical data even when stopped
+        };
     }
 
     // 2. Self-Heal Logic (Only if DB thinks it's running or doesn't exist)
@@ -201,17 +205,34 @@ export async function getBotStatus(userId) {
             candles: liveStatus.candles || dbBot.candles || [], 
             equityCurve: liveStatus.equityCurve || dbBot.equityCurve || [],
             logs: liveStatus.logs || dbBot.logs || [],
-            currentBalance: liveStatus.currentBalance || dbBot.currentBalance
+            currentBalance: liveStatus.currentBalance || dbBot.currentBalance,
+            
+            // 🚀 FIX: Route the engine's active ledger payloads straight to your React UI context
+            tradeHistory: liveStatus.tradeHistory || liveStatus.trade_history || dbBot.tradeHistory || dbBot.trade_history || [],
+            tradeMarkers: liveStatus.tradeMarkers || liveStatus.trade_markers || dbBot.tradeMarkers || dbBot.trade_markers || []
         };
     }
 
     if ((!liveStatus || liveStatus.status === 'stopped') && (!dbBot || dbBot.status === 'stopped')) {
-        return { status: 'stopped', isConfigured: !!dbBot, logs: dbBot?.logs || [] };
+        return { 
+            status: 'stopped', 
+            isConfigured: !!dbBot, 
+            logs: dbBot?.logs || [],
+            tradeHistory: dbBot?.tradeHistory || dbBot?.trade_history || [] // 🚀 FIX: Fallback ledger population
+        };
     }
 
-    return dbBot ? dbBot.toObject() : { status: 'stopped', logs: [] };
-}
+    // Absolute fallback
+    if (dbBot) {
+        const botObj = dbBot.toObject();
+        return {
+            ...botObj,
+            tradeHistory: botObj.tradeHistory || botObj.trade_history || []
+        };
+    }
 
+    return { status: 'stopped', logs: [], tradeHistory: [] };
+}
 export async function getBotLogs(userId, limit) {
     const active = await Bot.findOne({ userId, status: 'running' });
     if (!active) return [];

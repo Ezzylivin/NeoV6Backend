@@ -66,7 +66,7 @@ export async function startTradingBot(userId, incomingData = {}) {
     const timeframe = config.timeframe || "1h";
     const capital = Number(config.capitalAllocation) || 1000;
     
-    // 🟢 CRITICAL FIX: Explicitly extract enable_shorting from incoming payload
+    // Explicitly extract enable_shorting from incoming payload
     const enableShorting = config.enable_shorting === true || config.enable_shorting === 'true';
 
     const strategiesPayload = await resolveStrategies(userId, config);
@@ -77,18 +77,18 @@ export async function startTradingBot(userId, incomingData = {}) {
         mode: config.mode || 'paper', 
         symbol, 
         timeframe,
-        enable_shorting: enableShorting, // 🟢 PASS TO PYTHON
+        enable_shorting: enableShorting, // PASS TO PYTHON
         initialBalance: capital, 
         mlMode: config.mlMode || "off",
-        mlModel: config.mlModel || "",
-        mlThreshold: config.mlThreshold || 0.5,
-        mlThresholdLong: config.mlThresholdLong || 0.5, 
-        mlThresholdShort: config.mlThresholdShort || 0.5,
+        mlModel: config.mlModel || "stacking", // 🚀 UPGRADE: Fallback to active brain
+        mlThreshold: config.mlThreshold || 0.55,
+        mlThresholdLong: config.mlThresholdLong || 0.55, 
+        mlThresholdShort: config.mlThresholdShort || 0.55,
         isCombo: strategiesPayload.length > 1,
         strategies: strategiesPayload,
         comboConfig: config.comboConfig || { combinationRule: 'AND' },
         riskManagementMode: config.riskManagementMode || 'static',
-        riskPercentage: Number(config.riskPercentage) || 1,
+        riskPercentage: Number(config.riskPercentage) || 1.0,
         maxDailyLoss: Number(config.maxDailyLoss) || 5,    
         maxDrawdown: Number(config.maxDrawdown) || 10,     
         maxTradesPerDay: Number(config.maxTradesPerDay) || 20, 
@@ -105,7 +105,7 @@ export async function startTradingBot(userId, incomingData = {}) {
     const updateData = {
         symbol,
         timeframe,
-        enable_shorting: enableShorting, // 🟢 PERSIST TO DB
+        enable_shorting: enableShorting, // PERSIST TO DB
         status: 'running',
         mode: rawConfig.mode,
         capitalAllocation: capital,
@@ -113,7 +113,23 @@ export async function startTradingBot(userId, incomingData = {}) {
         isCombo: rawConfig.isCombo,
         strategies: strategiesPayload,
         comboConfig: rawConfig.comboConfig,
+        
+        // 🚀 FIX: Explicitly persist the ML configuration properties to MongoDB
         mlMode: rawConfig.mlMode,
+        mlModel: rawConfig.mlModel,
+        mlThresholdLong: rawConfig.mlThresholdLong,
+        mlThresholdShort: rawConfig.mlThresholdShort,
+        
+        // 🚀 FIX: Explicitly persist the risk parameters to MongoDB
+        riskManagementMode: rawConfig.riskManagementMode,
+        riskPercentage: rawConfig.riskPercentage,
+        maxDailyLoss: rawConfig.maxDailyLoss,
+        maxDrawdown: rawConfig.maxDrawdown,
+        maxTradesPerDay: rawConfig.maxTradesPerDay,
+        maxPyramiding: rawConfig.maxPyramiding,
+        slippageTolerance: config.slippageTolerance || 0.5,
+        params: rawConfig.params,
+
         startedAt: new Date(),
         stoppedAt: null,
         candles: [], 

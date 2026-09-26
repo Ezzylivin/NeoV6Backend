@@ -153,9 +153,14 @@ const keepAlive = async () => {
 
 const autoSaveBots = async () => {
     try {
-        const runningBots = await Bot.find({ status: 'running' }).select('userId');
-        for (const bot of runningBots) {
-            try { await getBotStatus(bot.userId); } catch (e) {}
+        const runningBots = await Bot.find({ status: 'running' }).select('userId').lean();
+        // Refresh bot statuses with bounded concurrency instead of one-by-one
+        // (each call is a Python round-trip); avoids serializing into minutes
+        // while not hammering the ML service all at once.
+        const CONCURRENCY = 5;
+        for (let i = 0; i < runningBots.length; i += CONCURRENCY) {
+            const batch = runningBots.slice(i, i + CONCURRENCY);
+            await Promise.allSettled(batch.map((bot) => getBotStatus(bot.userId)));
         }
     } catch (e) {}
 };

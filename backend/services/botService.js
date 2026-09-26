@@ -5,7 +5,9 @@ import https from 'https';
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
 
-const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000"; 
+// Set ML_SERVER_URL in the environment (see .env.example). Falls back to a
+// local dev endpoint — never a hardcoded production host in source.
+const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://localhost:8000";
 // Verify TLS certs by default. Only disable via ML_TLS_INSECURE=true (e.g. a
 // self-signed dev box) — never in production, where JWTs and orders traverse this link.
 const httpsAgent = new https.Agent({ rejectUnauthorized: process.env.ML_TLS_INSECURE !== 'true' });

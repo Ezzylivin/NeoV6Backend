@@ -22,7 +22,7 @@ dotenv.config();
 // NOTE: body parsing + CORS are already configured in app.js.
 
 const SELF_URL = process.env.VITE_API_URL || "https://neov6backend.onrender.com";
-const PYTHON_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000";
+const PYTHON_URL = process.env.ML_SERVER_URL || "http://localhost:8000";
 
 // ============================================================
 // 🟢 MONGOOSE CONNECTION LISTENERS

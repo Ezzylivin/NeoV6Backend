@@ -3,7 +3,11 @@ const { Schema, model } = mongoose;
 
 const backtestSetupSchema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    // String (not ObjectId): web3 users are keyed by their lowercased wallet
+    // address, which is not a valid ObjectId. Matches strategy/bot/log schemas
+    // and what backtestSetupController stores. Storing a wallet address in an
+    // ObjectId field caused "Cast to ObjectId failed" for wallet users.
+    userId: { type: String, required: true, index: true },
     
     // --- Organization ---
     name: { type: String, required: true, trim: true },

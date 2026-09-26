@@ -5,7 +5,8 @@ import fs from 'fs/promises';
 
 // --- Configuration ---
 const ML_SERVER_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000";
-const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+// Verify TLS certs by default. Only disable via ML_TLS_INSECURE=true (dev only).
+const httpsAgent = new https.Agent({ rejectUnauthorized: process.env.ML_TLS_INSECURE !== 'true' });
 
 // --- Cache Settings ---
 const MODEL_CACHE_DIR = path.resolve(process.cwd(), 'python_data');

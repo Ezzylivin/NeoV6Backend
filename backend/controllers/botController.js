@@ -10,8 +10,10 @@ const sendResponse = (res, data, status = 200) => {
 // --- Start the trading bot ---
 export const startBotController = async (req, res) => {
     try {
-        // 1. Robust User Extraction
-        const userId = req.body.userId || req.user?._id;
+        // 1. User identity comes ONLY from the verified JWT (set by `protect`).
+        // Never trust a client-supplied userId in the body/query — doing so let
+        // any authenticated user control another user's bot (IDOR).
+        const userId = req.user.id;
         if (!userId) {
             return sendResponse(res, { message: "User Identity missing." }, 401);
         }
@@ -28,17 +30,15 @@ export const startBotController = async (req, res) => {
     } catch (err) {
         console.error("❌ Controller Error:", err.message);
         // Send back the received body so you can debug in Chrome Network Tab if needed
-        res.status(400).json({ 
-            message: err.message || "Failed to start bot.",
-            debugPayload: req.body 
-        });
+        // Do not echo req.body back — it can contain exchange API keys/secrets.
+        res.status(400).json({ message: err.message || "Failed to start bot." });
     }
 };
 
 // --- Stop the trading bot ---
 export const stopBotController = async (req, res) => {
     try {
-        const userId = req.body.userId || req.query.userId || req.user?._id;
+        const userId = req.user.id;
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
 
         const bot = await botService.stopTradingBot(userId);
@@ -51,7 +51,7 @@ export const stopBotController = async (req, res) => {
 // --- Reset Bot (Wipe History) ---
 export const resetBotController = async (req, res) => {
     try {
-        const userId = req.body.userId || req.query.userId || req.user?._id;
+        const userId = req.user.id;
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
 
         // Forward to Service (Clean Architecture)
@@ -67,7 +67,7 @@ export const resetBotController = async (req, res) => {
 // --- Get the bot's current status ---
 export const getBotStatusController = async (req, res) => {
     try {
-        const userId = req.query.userId || req.user?._id;
+        const userId = req.user.id;
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
 
         const status = await botService.getBotStatus(userId);
@@ -97,7 +97,7 @@ export const getBotStatusController = async (req, res) => {
 // --- Get the bot's activity logs ---
 export const getBotLogsController = async (req, res) => {
     try {
-        const userId = req.query.userId || req.user?._id;
+        const userId = req.user.id;
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);
 
         const limit = parseInt(req.query.limit) || 100;
@@ -110,7 +110,7 @@ export const getBotLogsController = async (req, res) => {
 
 export const closePositionController = async (req, res) => {
     try {
-        const userId = req.body.userId || req.user?._id;
+        const userId = req.user.id;
         const symbol = req.body.symbol;
 
         if (!userId) return sendResponse(res, { message: "User Identity missing." }, 401);

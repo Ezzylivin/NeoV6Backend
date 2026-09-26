@@ -168,16 +168,18 @@ export async function resetBotController(userId, config) {
 }
 
 export async function getBotStatus(userId) {
-    const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId }); 
-    let dbBot = await Bot.findOne({ userId });
+    const liveStatus = await callPythonApi('/api/bot/status', 'GET', { userId });
+    // .lean() returns a plain object (no Mongoose hydration) — much cheaper for
+    // these large bot docs, and we only read fields / spread them below.
+    let dbBot = await Bot.findOne({ userId }).lean();
 
     // 🛑 1. ZOMBIE PREVENTION CHECK
     // If the DB explicitly says 'stopped', trust it over Python.
     // This prevents the "Self-Heal" logic below from resurrecting a bot you just killed.
     if (dbBot && dbBot.status === 'stopped') {
-        return { 
-            ...dbBot.toObject(), 
-            status: 'stopped', 
+        return {
+            ...dbBot,
+            status: 'stopped',
             logs: dbBot.logs || [],
             tradeHistory: dbBot.tradeHistory || dbBot.trade_history || [] // 🚀 FIX: Load historical data even when stopped
         };
@@ -198,12 +200,12 @@ export async function getBotStatus(userId) {
                     }
                 },
                 { new: true, upsert: true, runValidators: false }
-            );
+            ).lean();
         }
 
-        return { 
-            ...dbBot.toObject(), 
-            status: 'running', 
+        return {
+            ...dbBot,
+            status: 'running',
             candles: liveStatus.candles || dbBot.candles || [], 
             equityCurve: liveStatus.equityCurve || dbBot.equityCurve || [],
             logs: liveStatus.logs || dbBot.logs || [],
@@ -226,19 +228,20 @@ export async function getBotStatus(userId) {
 
     // Absolute fallback
     if (dbBot) {
-        const botObj = dbBot.toObject();
         return {
-            ...botObj,
-            tradeHistory: botObj.tradeHistory || botObj.trade_history || []
+            ...dbBot,
+            tradeHistory: dbBot.tradeHistory || dbBot.trade_history || []
         };
     }
 
     return { status: 'stopped', logs: [], tradeHistory: [] };
 }
-export async function getBotLogs(userId, limit) {
-    const active = await Bot.findOne({ userId, status: 'running' });
-    if (!active) return [];
-    return active.logs;
+export async function getBotLogs(userId, limit = 100) {
+    // Only pull the logs field, as a plain object, and cap to the requested limit
+    // instead of hydrating the whole (potentially huge) bot document.
+    const active = await Bot.findOne({ userId, status: 'running' }).select('logs').lean();
+    if (!active || !active.logs) return [];
+    return active.logs.slice(-limit);
 }
 
 // File: backend/services/botService.js
@@ -246,10 +249,10 @@ export async function getBotLogs(userId, limit) {
 export async function closeActivePosition(userId, symbol) {
     if (!userId) throw new Error("Missing userId");
 
-    // Fetch the bot record first to get the timeframe and read the active position
-    const botRecord = await Bot.findOne({ userId });
-    
-    const timeframe = botRecord?.timeframe || "1h"; 
+    // Only need timeframe + active positions here — select just those, as a plain object.
+    const botRecord = await Bot.findOne({ userId }).select('timeframe activePositions').lean();
+
+    const timeframe = botRecord?.timeframe || "1h";
     const botId = `${userId}_${symbol}_${timeframe}`;
 
     console.log(`🎯 Service: Requesting Manual Exit for ${botId}`);

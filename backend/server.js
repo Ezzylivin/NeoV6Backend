@@ -4,6 +4,7 @@
 import mongoose from "mongoose";
 import express from "express";
 import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
 import axios from "axios"; 
 import http from "http"; 
 import { Server } from "socket.io"; 
@@ -79,8 +80,23 @@ const io = new Server(server, {
     }
 });
 
+// 🔐 Authenticate the socket handshake with the same JWT used for REST.
+// The room a client joins is the VERIFIED user id from the token, never a
+// client-supplied query param (which would let anyone join any user's room).
+io.use((socket, next) => {
+    try {
+        const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+        if (!token) return next(new Error("Unauthorized: missing token"));
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        socket.userId = String(decoded.id);
+        return next();
+    } catch (err) {
+        return next(new Error("Unauthorized: invalid token"));
+    }
+});
+
 io.on('connection', (socket) => {
-    const userId = socket.handshake.query.userId;
+    const userId = socket.userId; // from the verified JWT
     if (userId) {
         socket.join(userId);
         console.log(`🔌 WebSocket: Room joined by ${userId}`);

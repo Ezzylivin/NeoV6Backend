@@ -13,12 +13,12 @@ import { startPriceFeed } from "./services/priceService.js";
 // 🟢 DB IMPORTS
 import Bot from "./dbStructure/bot.js"; 
 import Log from "./dbStructure/log.js"; 
-import { getBotStatus } from "./services/botService.js"; 
+import { getBotStatus } from "./services/botService.js";
+import { protect } from "./middleware/authMiddleware.js";
 
 dotenv.config();
 
-app.use(express.json());
-
+// NOTE: body parsing + CORS are already configured in app.js.
 
 const SELF_URL = process.env.VITE_API_URL || "https://neov6backend.onrender.com";
 const PYTHON_URL = process.env.ML_SERVER_URL || "http://74.208.28.77:8000";
@@ -42,10 +42,10 @@ app.get("/api/health", (req, res) => {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// History Catch-Up Endpoint
-app.get("/api/bot/logs/:userId", async (req, res) => {
+// History Catch-Up Endpoint (auth required; identity from JWT, not the URL param)
+app.get("/api/bot/logs/:userId", protect, async (req, res) => {
     try {
-        const { userId } = req.params;
+        const userId = req.user.id; // ignore :userId param — prevents reading other users' logs
         const history = await Log.find({ userId })
             .sort({ timestamp: -1 })
             .limit(100);
@@ -61,8 +61,22 @@ app.get("/", (req, res) => res.status(200).send("🚀 NEO-V6 Backend Healthy!"))
 // 🟢 3. WEBSOCKET SETUP
 // ============================================================
 const server = http.createServer(app);
+const isAllowedOrigin = (origin) => {
+    if (!origin) return true; // non-browser clients (server-to-server)
+    const vercelRegex = /\.vercel\.app$/;
+    const localhostRegex = /^http:\/\/localhost:\d+$/;
+    return localhostRegex.test(origin) || vercelRegex.test(origin);
+};
+
 const io = new Server(server, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
+    cors: {
+        origin: (origin, callback) =>
+            isAllowedOrigin(origin)
+                ? callback(null, true)
+                : callback(new Error("Origin not allowed by CORS")),
+        methods: ["GET", "POST"],
+        credentials: true,
+    }
 });
 
 io.on('connection', (socket) => {
@@ -79,8 +93,20 @@ io.on('connection', (socket) => {
  * This handles BOTH 'bot_log' (saved to DB) and 'bot_status_update' (real-time metrics).
  */
 app.post('/api/internal/broadcast', async (req, res) => {
+    // 🔐 Server-to-server auth: the Python ML service must send a matching
+    // x-internal-key header. Enforced when INTERNAL_API_KEY is configured;
+    // if it isn't set yet, warn loudly rather than silently allowing anyone.
+    const expectedKey = process.env.INTERNAL_API_KEY;
+    if (expectedKey) {
+        if (req.get('x-internal-key') !== expectedKey) {
+            return res.status(401).json({ error: "Unauthorized internal call" });
+        }
+    } else {
+        console.warn("⚠️ INTERNAL_API_KEY not set — /api/internal/broadcast is UNPROTECTED. Set it on both the Node backend and the Python ML service.");
+    }
+
     const { userId, type, data } = req.body;
-    
+
     // 🟢 DEBUG LOG 1: Data arrived from Mendel (Python)
     console.log(`📥 BRIDGE IN: Received ${type} for user ${userId}`);
 

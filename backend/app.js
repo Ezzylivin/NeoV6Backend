@@ -1,6 +1,8 @@
 // File: backend/app.js
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 // --- Route Imports ---
 import userRoutes from "./routes/userRoutes.js";
@@ -13,6 +15,18 @@ import mlRoutes from "./routes/mlRoutes.js";
 import helpRoutes from "./routes/helpRoutes.js";
 
 const app = express();
+
+// --- Security headers ---
+app.use(helmet());
+
+// --- Rate limiter for auth endpoints (throttle credential brute-force) ---
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,                  // 20 attempts per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many attempts. Please try again later." },
+});
 
 // --- CORS Configuration ---
 const corsOptions = {
@@ -39,7 +53,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // --- API Route Mounting ---
-app.use("/api/users", userRoutes);
+app.use("/api/users", authLimiter, userRoutes);
 app.use("/api/help", helpRoutes);
 app.use("/api/combos", comboStrategyRoutes); 
 app.use("/api/backtest", backtestRoutes);

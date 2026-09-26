@@ -1,6 +1,10 @@
 import Redis from "ioredis";
 import Price from "../dbStructure/price.js";
+import Cache from "../dbStructure/cache.js";
 import fetch from "node-fetch";
+
+const SYMBOLS_CACHE_KEY = "exchange_symbols::usd";
+const SYMBOLS_CACHE_MS = 15 * 60 * 1000; // 15 minutes
 
 // --- Redis client (fallback to memory if Redis fails) ---
 let redis;
@@ -103,13 +107,25 @@ export const startPriceFeed = (
 // UPDATED: Filters for USD pairs and returns the correct symbol ID (e.g., "BTC-USD").
 export const fetchAllExchangeSymbols = async () => {
   try {
+    // Serve from the TTL cache — the symbol list barely changes, so we don't
+    // need to hit Coinbase's /products (hundreds of items) on every request.
+    const cached = await Cache.findOne({ key: SYMBOLS_CACHE_KEY });
+    if (cached?.data) return cached.data;
+
     const res = await fetch("https://api.exchange.coinbase.com/products");
     if (!res.ok) throw new Error(`Coinbase symbols HTTP ${res.status}`);
     const data = await res.json();
     // Filter for pairs quoted in USD (the primary US currency) and map to the product ID.
-    return data
+    const symbols = data
       .filter((p) => p.quote_currency === "USD")
       .map((p) => p.id);
+
+    await Cache.findOneAndUpdate(
+      { key: SYMBOLS_CACHE_KEY },
+      { data: symbols, expiresAt: new Date(Date.now() + SYMBOLS_CACHE_MS) },
+      { upsert: true, new: true }
+    );
+    return symbols;
   } catch (err) {
     console.error("[PriceService] Failed fetching symbols:", err.message);
     return [];

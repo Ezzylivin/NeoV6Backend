@@ -6,29 +6,61 @@ import User from '../dbStructure/user.js'; // Ensure this matches your filename 
 import { generateToken } from '../utils/token.js';
 
 // 🔐 Encryption Configuration
-const ALGORITHM = 'aes-256-cbc';
-// Use the ENCRYPTION_KEY from .env, or fallback (only for dev)
-const SECRET_KEY = process.env.ENCRYPTION_KEY || 'default_secret_key_must_be_32_bytes'; 
-// Create a 32-byte key buffer from the string
-const key = crypto.scryptSync(SECRET_KEY, 'salt', 32);
+// ENCRYPTION_KEY is REQUIRED — fail fast so we never silently fall back to a
+// hardcoded (publicly known) key for real exchange secrets.
+const SECRET_KEY = process.env.ENCRYPTION_KEY;
+if (!SECRET_KEY || SECRET_KEY.length < 16) {
+  throw new Error(
+    "ENCRYPTION_KEY env var is required (>= 16 chars) to encrypt exchange API secrets."
+  );
+}
+
+const GCM_ALGORITHM = 'aes-256-gcm';
+const LEGACY_ALGORITHM = 'aes-256-cbc';
+// Legacy key (old static salt) — used ONLY to decrypt values written before the
+// GCM upgrade, so existing users don't have to re-enter their API keys.
+const legacyKey = crypto.scryptSync(SECRET_KEY, 'salt', 32);
+const deriveKey = (salt) => crypto.scryptSync(SECRET_KEY, salt, 32);
 
 // --- Encryption Helpers ---
+// New format (authenticated): gcm:<salt>:<iv>:<authTag>:<ciphertext>  (hex)
 const encrypt = (text) => {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  let encrypted = cipher.update(text);
-  encrypted = Buffer.concat([encrypted, cipher.final()]);
-  return iv.toString('hex') + ':' + encrypted.toString('hex');
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(GCM_ALGORITHM, deriveKey(salt), iv);
+  const encrypted = Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return [
+    'gcm',
+    salt.toString('hex'),
+    iv.toString('hex'),
+    authTag.toString('hex'),
+    encrypted.toString('hex'),
+  ].join(':');
 };
 
-const decrypt = (text) => {
-  const textParts = text.split(':');
-  const iv = Buffer.from(textParts.shift(), 'hex');
-  const encryptedText = Buffer.from(textParts.join(':'), 'hex');
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  let decrypted = decipher.update(encryptedText);
-  decrypted = Buffer.concat([decrypted, decipher.final()]);
-  return decrypted.toString();
+const decrypt = (payload) => {
+  const parts = payload.split(':');
+
+  // New GCM format
+  if (parts[0] === 'gcm') {
+    const [, saltHex, ivHex, tagHex, ctHex] = parts;
+    const decipher = crypto.createDecipheriv(
+      GCM_ALGORITHM, deriveKey(Buffer.from(saltHex, 'hex')), Buffer.from(ivHex, 'hex')
+    );
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(ctHex, 'hex')), decipher.final(),
+    ]).toString('utf8');
+  }
+
+  // Legacy CBC format: <iv>:<ciphertext>
+  const iv = Buffer.from(parts.shift(), 'hex');
+  const encryptedText = Buffer.from(parts.join(':'), 'hex');
+  const decipher = crypto.createDecipheriv(LEGACY_ALGORITHM, legacyKey, iv);
+  return Buffer.concat([
+    decipher.update(encryptedText), decipher.final(),
+  ]).toString();
 };
 
 // --- Services ---

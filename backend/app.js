@@ -14,6 +14,7 @@ import marketRoutes from "./routes/marketRoutes.js";
 import mlRoutes from "./routes/mlRoutes.js";
 import helpRoutes from "./routes/helpRoutes.js";
 import ledgerRoutes from "./routes/ledgerRoutes.js"; // 🧠 Trade Learning Ledger proxy
+import fleetRoutes from "./routes/fleetRoutes.js"; // 🚢 Fleet orchestration proxy
 
 const app = express();
 
@@ -72,6 +73,7 @@ app.use("/api/bot", botRoutes);
 app.use("/api/market", marketRoutes); // 🟢 Fixes chart 404
 app.use("/api/ml", mlRoutes);
 app.use("/api/ledger", ledgerRoutes); // 🧠 Proxies the Python engine's ledger over HTTPS
+app.use("/api/fleet", fleetRoutes); // 🚢 Proxies the Python engine's fleet orchestration over HTTPS
 
 // --- Health Check ---
 app.get("/", (req, res) => {

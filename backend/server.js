@@ -5,9 +5,10 @@ import mongoose from "mongoose";
 import express from "express";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
-import axios from "axios"; 
-import http from "http"; 
-import { Server } from "socket.io"; 
+import axios from "axios";
+import http from "http";
+import crypto from "crypto";
+import { Server } from "socket.io";
 import app from "./app.js"; 
 import { startPriceFeed } from "./services/priceService.js";
 
@@ -62,11 +63,27 @@ app.get("/", (req, res) => res.status(200).send("🚀 NEO-V6 Backend Healthy!"))
 // 🟢 3. WEBSOCKET SETUP
 // ============================================================
 const server = http.createServer(app);
+
+// SECURITY (BE#5): prefer an exact-match allowlist from ALLOWED_ORIGINS
+// (comma-separated) so production can lock CORS to the app's own domains.
+// Falls back to the loose *.vercel.app rule only when no allowlist is set.
+const EXACT_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+    .split(",").map((o) => o.trim()).filter(Boolean);
 const isAllowedOrigin = (origin) => {
     if (!origin) return true; // non-browser clients (server-to-server)
-    const vercelRegex = /\.vercel\.app$/;
-    const localhostRegex = /^http:\/\/localhost:\d+$/;
-    return localhostRegex.test(origin) || vercelRegex.test(origin);
+    if (/^http:\/\/localhost:\d+$/.test(origin)) return true;
+    if (EXACT_ORIGINS.length) return EXACT_ORIGINS.includes(origin);
+    return /\.vercel\.app$/.test(origin); // fallback until ALLOWED_ORIGINS is set
+};
+
+// Constant-time secret comparison (avoids leaking the key via timing, and
+// handles length/undefined safely — timingSafeEqual throws on length mismatch).
+const safeKeyEqual = (a, b) => {
+    if (typeof a !== "string" || typeof b !== "string") return false;
+    const ba = Buffer.from(a);
+    const bb = Buffer.from(b);
+    if (ba.length !== bb.length) return false;
+    return crypto.timingSafeEqual(ba, bb);
 };
 
 const io = new Server(server, {
@@ -109,29 +126,38 @@ io.on('connection', (socket) => {
  * This handles BOTH 'bot_log' (saved to DB) and 'bot_status_update' (real-time metrics).
  */
 app.post('/api/internal/broadcast', async (req, res) => {
-    // 🔐 Server-to-server auth: the Python ML service must send a matching
-    // x-internal-key header. Enforced when INTERNAL_API_KEY is configured;
-    // if it isn't set yet, warn loudly rather than silently allowing anyone.
+    // 🔐 Server-to-server auth (BE#2). FAIL CLOSED: if INTERNAL_API_KEY isn't
+    // configured the endpoint is DISABLED rather than open to anyone; when set,
+    // the header is compared in constant time.
     const expectedKey = process.env.INTERNAL_API_KEY;
-    if (expectedKey) {
-        if (req.get('x-internal-key') !== expectedKey) {
-            return res.status(401).json({ error: "Unauthorized internal call" });
-        }
-    } else {
-        console.warn("⚠️ INTERNAL_API_KEY not set — /api/internal/broadcast is UNPROTECTED. Set it on both the Node backend and the Python ML service.");
+    if (!expectedKey) {
+        console.error("❌ INTERNAL_API_KEY not set — /api/internal/broadcast is DISABLED. Set it on both the Node backend and the Python ML service.");
+        return res.status(503).json({ error: "Broadcast disabled: server not configured" });
+    }
+    if (!safeKeyEqual(req.get('x-internal-key'), expectedKey)) {
+        return res.status(401).json({ error: "Unauthorized internal call" });
     }
 
     const { userId, type, data } = req.body;
 
-    // 🟢 DEBUG LOG 1: Data arrived from Mendel (Python)
-    console.log(`📥 BRIDGE IN: Received ${type} for user ${userId}`);
+    // Validate the target + event so a caller can't push an arbitrary client
+    // event into an arbitrary user's room.
+    const ALLOWED_TYPES = new Set(['bot_log', 'bot_status_update']);
+    if (typeof userId !== 'string' || !userId || !ALLOWED_TYPES.has(type)) {
+        return res.status(400).json({ error: "Invalid broadcast payload" });
+    }
 
     try {
-        if (type === 'bot_log') { /* existing log logic */ }
-
-        // 🟢 DEBUG LOG 2: Attempting to send to browser
-        const roomSize = io.sockets.adapter.rooms.get(userId)?.size || 0;
-        console.log(`📤 BRIDGE OUT: Emitting to room ${userId}. Active listeners: ${roomSize}`);
+        if (type === 'bot_log') {
+            // BE#6: persist so /api/bot/logs/:userId history catch-up works.
+            // Non-fatal — a DB hiccup must not stop the live socket emit.
+            try {
+                const message = typeof data === 'string' ? data : JSON.stringify(data);
+                await Log.create({ userId, message, level: 'thought' });
+            } catch (logErr) {
+                console.error("⚠️ Log persist failed:", logErr.message);
+            }
+        }
 
         io.to(userId).emit(type, data);
         res.status(200).json({ success: true });

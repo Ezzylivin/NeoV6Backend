@@ -164,6 +164,11 @@ export const getBacktestStatusController = async (req, res) => {
         const userId = req.user._id;
 
         if (!jobId) return res.status(400).json({ message: "Missing jobId parameter." });
+        // BE#8: validate the id (like the sibling controllers) so a malformed
+        // jobId returns 400, not a CastError → generic 500.
+        if (!mongoose.Types.ObjectId.isValid(jobId)) {
+            return res.status(400).json({ message: "Invalid jobId format." });
+        }
 
         const backtest = await Backtest.findOne({ _id: jobId, userId }).select("status stage progress").lean();
         

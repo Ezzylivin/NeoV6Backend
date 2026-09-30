@@ -30,15 +30,24 @@ const authLimiter = rateLimit({
 });
 
 // --- CORS Configuration ---
+// SECURITY (BE#5): prefer an exact-match allowlist from ALLOWED_ORIGINS
+// (comma-separated) so production can lock CORS to the app's own domains.
+// Falls back to the loose *.vercel.app rule only when no allowlist is set.
+// Read env lazily per-request: app.js is imported before dotenv runs, so a
+// module-load read could miss a local .env value.
 const corsOptions = {
   origin: function (origin, callback) {
-    const vercelRegex = /\.vercel\.app$/;
-    const localhostRegex = /^http:\/\/localhost:\d+$/;
-
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
+    if (/^http:\/\/localhost:\d+$/.test(origin)) return callback(null, true);
 
-    if (localhostRegex.test(origin) || vercelRegex.test(origin)) {
+    const exact = (process.env.ALLOWED_ORIGINS || "")
+      .split(",").map((o) => o.trim()).filter(Boolean);
+    const allowed = exact.length
+      ? exact.includes(origin)
+      : /\.vercel\.app$/.test(origin); // fallback until ALLOWED_ORIGINS is set
+
+    if (allowed) {
       callback(null, true);
     } else {
       callback(new Error("Request from this origin is not allowed by CORS"));

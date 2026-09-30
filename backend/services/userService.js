@@ -151,13 +151,32 @@ export const getUserApiKeys = async (userId) => {
     const user = await User.findById(userId);
     if (!user) throw new Error('User not found');
 
-    // Map to safe objects (no secret, only last 4 of public key)
+    // BE#12: map to safe objects — no secret, and only the last 4 of the public
+    // key (the full key was being returned despite this comment).
     return user.apiKeys.map(k => ({
         exchange: k.exchange,
-        apiKey: k.key,
         last4: k.key.slice(-4),
         addedAt: k.addedAt
     }));
+};
+
+/**
+ * SERVER-ONLY: return the DECRYPTED api key + secret for one exchange, so the
+ * bot service can inject them into the engine payload when trading live.
+ * NEVER return this over an HTTP response — it contains the plaintext secret.
+ * Returns null if the user has no key for that exchange (or decryption fails).
+ */
+export const getDecryptedApiKeys = async (userId, exchange) => {
+  const user = await User.findById(userId);
+  if (!user) return null;
+  const entry = user.apiKeys.find(k => k.exchange === exchange);
+  if (!entry) return null;
+  try {
+    return { apiKey: entry.key, apiSecret: decrypt(entry.secret) };
+  } catch (err) {
+    console.error(`[userService] Failed to decrypt ${exchange} secret for ${userId}: ${err.message}`);
+    return null;
+  }
 };
 
 /**

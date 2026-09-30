@@ -4,6 +4,7 @@ import axios from "axios";
 import https from 'https';
 import Bot from "../dbStructure/bot.js";
 import Strategy from "../dbStructure/strategy.js";
+import { getDecryptedApiKeys } from "./userService.js";
 
 // Set ML_SERVER_URL in the environment (see .env.example). Falls back to a
 // local dev endpoint — never a hardcoded production host in source.
@@ -57,8 +58,12 @@ async function resolveStrategies(userId, config) {
     }
 
     if (config.strategyId) {
-        const strategy = await Strategy.findById(config.strategyId).lean();
-        if (strategy) return [{ code: strategy.code, params: strategy.params }];
+        // BE#4 (IDOR): scope to the owner so a user can't load another user's
+        // private strategy by passing its _id. try/catch guards a bad ObjectId.
+        try {
+            const strategy = await Strategy.findOne({ _id: config.strategyId, userId }).lean();
+            if (strategy) return [{ code: strategy.code, params: strategy.params }];
+        } catch (err) { /* invalid ObjectId → treat as not found */ }
     }
     return [];
 }
@@ -80,12 +85,38 @@ export async function startTradingBot(userId, incomingData = {}) {
     // Explicitly extract enable_shorting from incoming payload
     const enableShorting = config.enable_shorting === true || config.enable_shorting === 'true';
 
+    // Resolve trading mode from either key the client might send (the engine
+    // reads `trading_mode`, the DB/legacy code uses `mode`).
+    const mode = String(config.trading_mode || config.mode || 'paper').toLowerCase();
+
+    // LIVE TRADING: inject the user's stored, DECRYPTED exchange keys here on the
+    // server so the browser never handles secrets (the frontend sends none). The
+    // engine expects krakenKey/krakenSecret for margin, apiKey/secret for spot.
+    let apiKeys = {};
+    if (mode === 'live') {
+        const exchange = enableShorting ? 'kraken' : 'coinbase';
+        const creds = await getDecryptedApiKeys(userId, exchange);
+        if (creds) {
+            apiKeys = enableShorting
+                ? { krakenKey: creds.apiKey, krakenSecret: creds.apiSecret, apiKey: creds.apiKey, secret: creds.apiSecret }
+                : { apiKey: creds.apiKey, secret: creds.apiSecret };
+        } else {
+            console.warn(`[startBot] live mode but no ${exchange} keys stored for ${userId}; engine will fall back to paper.`);
+        }
+    }
+
     const strategiesPayload = await resolveStrategies(userId, config);
     const botId = `${userId}_${symbol}_${timeframe}`;
 
    const rawConfig = {
         botId,
-        mode: config.mode || 'paper',
+        mode,
+        // Engine reads `trading_mode`; send it explicitly (was only sending `mode`,
+        // so the engine always fell back to paper).
+        trading_mode: mode,
+        // Server-injected exchange keys for live mode (empty for paper). Never
+        // persisted to the DB below.
+        api_keys: apiKeys,
         symbol,
         timeframe,
         enable_shorting: enableShorting,
@@ -283,8 +314,10 @@ export async function closeActivePosition(userId, symbol) {
 
     console.log(`🎯 Service: Requesting Manual Exit for ${botId}`);
 
-    // 1. Tell the Python Engine to close the trade
-    const pythonResponse = await callPythonApi('/api/bot/close-position', 'POST', {
+    // 1. Tell the Python Engine to close the trade.
+    // FIX: the engine route is /api/bot/close_position (underscore) — the old
+    // kebab path 404'd, so manual exits never actually closed the live position.
+    const pythonResponse = await callPythonApi('/api/bot/close_position', 'POST', {
         userId,
         symbol,
         botId

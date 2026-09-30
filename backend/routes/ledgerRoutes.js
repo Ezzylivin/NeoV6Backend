@@ -26,7 +26,9 @@ router.get("/stats", protect, async (req, res) => {
     const body = await r.text();
     res.status(r.status).type("application/json").send(body);
   } catch (e) {
-    res.status(502).json({ error: "Ledger engine unreachable", detail: String(e) });
+    // BE#11: log the detail server-side; don't leak the engine host/URL to the client.
+    console.error("[ledger] engine unreachable:", e.message);
+    res.status(502).json({ error: "Ledger engine unreachable" });
   }
 });
 

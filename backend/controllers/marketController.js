@@ -4,10 +4,11 @@ import axios from "axios";
 export const getCandlesController = async (req, res) => {
     try {
         const { symbol, timeframe, limit } = req.query;
-        
-        // 1. Format Symbol for US Exchange (BTC-USD -> BTCUSD)
-        // Binance.US supports direct USD pairs, unlike the global site which relies on USDT
-        const usSymbol = symbol.replace('-', '').toUpperCase(); // e.g. "BTCUSD"
+        if (!symbol) return res.status(400).json({ error: "Missing symbol parameter." });
+
+        // 1. Format Symbol for US Exchange (BTC-USD -> BTCUSD). Global regex so
+        // every hyphen is stripped (BE#9), not just the first.
+        const usSymbol = symbol.replace(/-/g, '').toUpperCase(); // e.g. "BTCUSD"
 
         const response = await axios.get('https://api.binance.us/api/v3/klines', {
             params: {
@@ -39,8 +40,9 @@ export const getCandlesController = async (req, res) => {
 export const getPriceController = async (req, res) => {
     try {
         const { symbol } = req.query;
-        // Format: BTC-USD -> BTCUSD
-        const usSymbol = symbol.replace('-', '').toUpperCase();
+        if (!symbol) return res.status(400).json({ price: 0, error: "Missing symbol parameter." });
+        // Format: BTC-USD -> BTCUSD (global regex — strip every hyphen, BE#9)
+        const usSymbol = symbol.replace(/-/g, '').toUpperCase();
         
         const response = await axios.get('https://api.binance.us/api/v3/ticker/price', {
             params: { symbol: usSymbol }

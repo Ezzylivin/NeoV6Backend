@@ -13,7 +13,8 @@ export const protect = async (req, res, next) => {
         return next();
     }
 
-    console.log('--- [AUTH MIDDLEWARE] INCOMING HEADERS:', req.headers);
+    // SECURITY: never log req.headers — it contains the Authorization Bearer
+    // token (30-day JWT). Logging it leaked usable tokens into Render logs.
     let token;
 
     try {

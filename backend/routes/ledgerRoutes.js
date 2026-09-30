@@ -37,16 +37,6 @@ router.get("/stats", protect, async (req, res) => {
     const headers = { Accept: "application/json" };
     if (ENGINE_API_KEY) headers["X-Internal-Key"] = ENGINE_API_KEY;
     const r = await fetch(url, { headers });
-// Use the SAME value botController uses to reach the engine (env or constant).
-const ENGINE_URL = process.env.ML_ENGINE_URL || "http://74.208.28.77:8000";
-
-// GET /api/ledger/stats -> engine /api/ledger/stats
-router.get("/stats", protect, async (req, res) => {
-  try {
-    const recent = encodeURIComponent(req.query.recent ?? "30");
-    const r = await fetch(`${ENGINE_URL}/api/ledger/stats?recent=${recent}`, {
-      headers: { Accept: "application/json" },
-    });
     const body = await r.text();
     res.status(r.status).type("application/json").send(body);
   } catch (e) {

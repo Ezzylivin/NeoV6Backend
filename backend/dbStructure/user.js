@@ -82,6 +82,11 @@ const userSchema = new mongoose.Schema({
     index: true
   },
 
+  // 📧 Email verification
+  isVerified: { type: Boolean, default: false },
+  verificationToken: { type: String, index: true },
+  verificationTokenExpires: { type: Date },
+
   // 🔐 API Keys for Trading
   apiKeys: [apiKeySchema],
 

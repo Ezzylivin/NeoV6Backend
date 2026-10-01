@@ -4,6 +4,10 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto'; // 👈 Needed for encryption
 import User from '../dbStructure/user.js'; // Ensure this matches your filename (User.js vs user.js)
 import { generateToken } from '../utils/token.js';
+import { sendVerificationEmail } from '../utils/mailer.js';
+
+const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const newVerifyToken = () => crypto.randomBytes(32).toString('hex');
 
 // 🔐 Encryption Configuration
 // ENCRYPTION_KEY is REQUIRED — fail fast so we never silently fall back to a
@@ -75,15 +79,58 @@ export const registerUser = async (username, email, password) => {
   }
 
   // Password hashing is handled by the User model's pre-save hook
-  const newUser = await User.create({ username, email, password });
+  const verificationToken = newVerifyToken();
+  const newUser = await User.create({
+    username, email, password,
+    isVerified: false,
+    verificationToken,
+    verificationTokenExpires: new Date(Date.now() + VERIFY_TTL_MS),
+  });
   const token = generateToken(newUser._id);
-  
+
+  // Fire the verification email (non-fatal: a mail hiccup must not fail signup;
+  // the user can resend from the in-app banner).
+  try { await sendVerificationEmail(email, verificationToken); }
+  catch (e) { console.error('[register] verification email failed:', e.message); }
+
   return {
     _id: newUser._id,
     username: newUser.username,
     email: newUser.email,
+    isVerified: false,
     token,
   };
+};
+
+/**
+ * Verify an email address from the token in the verification link.
+ */
+export const verifyEmail = async (token) => {
+  if (!token) throw new Error('Missing verification token');
+  const user = await User.findOne({ verificationToken: token });
+  if (!user) throw new Error('Invalid or already-used verification link');
+  if (user.verificationTokenExpires && user.verificationTokenExpires < new Date()) {
+    throw new Error('Verification link expired — request a new one from the app');
+  }
+  user.isVerified = true;
+  user.verificationToken = undefined;
+  user.verificationTokenExpires = undefined;
+  await user.save();
+  return { email: user.email, isVerified: true };
+};
+
+/**
+ * Regenerate + resend a verification email for a logged-in user.
+ */
+export const resendVerification = async (userId) => {
+  const user = await User.findById(userId);
+  if (!user) throw new Error('User not found');
+  if (user.isVerified) return { alreadyVerified: true, email: user.email };
+  user.verificationToken = newVerifyToken();
+  user.verificationTokenExpires = new Date(Date.now() + VERIFY_TTL_MS);
+  await user.save();
+  const r = await sendVerificationEmail(user.email, user.verificationToken);
+  return { sent: !!r.sent, email: user.email, reason: r.reason };
 };
 
 /**
@@ -106,6 +153,7 @@ export const loginUser = async (identifier, password) => {
     _id: user._id,
     username: user.username,
     email: user.email,
+    isVerified: !!user.isVerified,
     token,
   };
 };

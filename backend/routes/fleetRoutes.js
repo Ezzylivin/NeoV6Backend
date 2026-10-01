@@ -155,4 +155,16 @@ router.post("/stop", protect, async (req, res) => {
   }
 });
 
+// GET /api/fleet/evidence -> engine GET /api/exitlab/results (read-only validation
+// report: which exit configs generalized across coins). Not user-scoped.
+router.get("/evidence", protect, async (req, res) => {
+  try {
+    const r = await fetch(`${ENGINE_URL}/api/exitlab/results`, { headers: engineHeaders() });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[fleet] evidence engine unreachable:", e.message);
+    res.status(502).json({ error: "Fleet engine unreachable" });
+  }
+});
+
 export default router;

@@ -51,6 +51,7 @@ router.post("/start", protect, async (req, res) => {
       capitalEach: b.capitalEach,
       fleetMaxDrawdownPct: b.fleetMaxDrawdownPct,
       sizeByConviction: b.sizeByConviction,
+      longOnly: b.longOnly,
       longTimeframe: b.longTimeframe,
       shortTimeframe: b.shortTimeframe,
     };

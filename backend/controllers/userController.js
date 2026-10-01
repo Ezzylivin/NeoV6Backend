@@ -6,8 +6,40 @@ import {
     getMe as getMeSvc,
     updateUserApiKeys as updateKeysSvc,
     getUserApiKeys as getKeysSvc,      // 👈 New Import
-    deleteUserApiKey as deleteKeySvc   // 👈 New Import
+    deleteUserApiKey as deleteKeySvc,  // 👈 New Import
+    verifyEmail as verifyEmailSvc,
+    resendVerification as resendVerificationSvc
 } from "../services/userService.js";
+
+/**
+ * Verify an email from the token in the verification link.
+ * GET /api/users/verify/:token
+ */
+export const verifyEmail = async (req, res) => {
+  try {
+    const token = req.params.token || req.query.token;
+    const result = await verifyEmailSvc(token);
+    res.status(200).json({ message: "Email verified — you're all set.", ...result });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
+/**
+ * Resend the verification email for the logged-in user.
+ * POST /api/users/resend-verification
+ */
+export const resendVerification = async (req, res) => {
+  try {
+    const result = await resendVerificationSvc(req.user.id);
+    res.status(200).json({
+      message: result.alreadyVerified ? "Email already verified." : "Verification email sent.",
+      ...result,
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
 
 /**
  * Handles user registration request.

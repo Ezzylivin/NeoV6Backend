@@ -14,9 +14,21 @@ import { startPriceFeed } from "./services/priceService.js";
 
 // 🟢 DB IMPORTS
 import Bot from "./dbStructure/bot.js"; 
-import Log from "./dbStructure/log.js"; 
+import Log from "./dbStructure/log.js";
+import User from "./dbStructure/user.js";
+import { sendTradeAlert } from "./utils/mailer.js";
 import { getBotStatus } from "./services/botService.js";
 import { protect } from "./middleware/authMiddleware.js";
+
+// Trade-alert email rate guard: at most N emails per user per rolling minute,
+// so a burst of fleet entries can't spam an inbox.
+const _alertTimes = new Map(); // baseUserId -> [timestamps]
+function alertAllowed(id) {
+  const now = Date.now();
+  const arr = (_alertTimes.get(id) || []).filter((t) => now - t < 60000);
+  if (arr.length >= 6) { _alertTimes.set(id, arr); return false; }
+  arr.push(now); _alertTimes.set(id, arr); return true;
+}
 
 dotenv.config();
 
@@ -142,7 +154,7 @@ app.post('/api/internal/broadcast', async (req, res) => {
 
     // Validate the target + event so a caller can't push an arbitrary client
     // event into an arbitrary user's room.
-    const ALLOWED_TYPES = new Set(['bot_log', 'bot_status_update']);
+    const ALLOWED_TYPES = new Set(['bot_log', 'bot_status_update', 'trade_alert']);
     if (typeof userId !== 'string' || !userId || !ALLOWED_TYPES.has(type)) {
         return res.status(400).json({ error: "Invalid broadcast payload" });
     }
@@ -157,6 +169,23 @@ app.post('/api/internal/broadcast', async (req, res) => {
             } catch (logErr) {
                 console.error("⚠️ Log persist failed:", logErr.message);
             }
+        }
+
+        // 📧 Trade-alert email to the user on file (verified addresses only).
+        if (type === 'trade_alert') {
+            const baseId = (data && data.baseUserId) || String(userId).split('::')[0];
+            // Fire-and-forget: email must never block or fail the broadcast.
+            (async () => {
+                try {
+                    if (!alertAllowed(baseId)) return;
+                    const user = await User.findById(baseId).select('email isVerified').lean();
+                    if (user && user.email && user.isVerified) {
+                        await sendTradeAlert(user.email, data);
+                    }
+                } catch (e) {
+                    console.error("[trade_alert] email failed:", e.message);
+                }
+            })();
         }
 
         io.to(userId).emit(type, data);

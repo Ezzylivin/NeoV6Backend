@@ -5,7 +5,9 @@ import {
   getMe,
   updateApiKeys,
   getApiKeys,    // 👈 New Import
-  deleteApiKey   // 👈 New Import
+  deleteApiKey,  // 👈 New Import
+  verifyEmail,
+  resendVerification
 } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -14,9 +16,13 @@ const router = express.Router();
 // --- Public routes ---
 router.post("/register", registerUser);
 router.post("/login", loginUser);
+// 📧 Email verification (public — the link is clicked from an email, no token yet)
+router.get("/verify/:token", verifyEmail);
 
 // --- Protected routes ---
 router.get("/me", protect, getMe);
+// 📧 Resend verification for the logged-in user
+router.post("/resend-verification", protect, resendVerification);
 
 // 🚀 API Key Management
 router.route("/keys")

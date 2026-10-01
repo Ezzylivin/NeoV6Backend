@@ -111,6 +111,22 @@ router.get("/bot", protect, async (req, res) => {
   }
 });
 
+// GET /api/fleet/activity?limit=  -> recent closed trades across the whole fleet
+// (the live trade feed). Scoped to the caller.
+router.get("/activity", protect, async (req, res) => {
+  try {
+    const uid = fleetUserId(req);
+    if (!uid) return res.status(401).json({ error: "Not authenticated" });
+    const limit = encodeURIComponent(req.query.limit || "20");
+    const r = await fetch(`${ENGINE_URL}/api/fleet/activity?userId=${encodeURIComponent(uid)}&limit=${limit}`,
+      { headers: engineHeaders() });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[fleet] activity engine unreachable:", e.message);
+    res.status(502).json({ error: "Fleet engine unreachable" });
+  }
+});
+
 // GET /api/fleet/regime  -> engine GET /api/fleet/regime  (no user scope; market-wide)
 router.get("/regime", protect, async (req, res) => {
   try {

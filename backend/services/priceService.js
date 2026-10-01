@@ -6,17 +6,36 @@ import fetch from "node-fetch";
 const SYMBOLS_CACHE_KEY = "exchange_symbols::usd";
 const SYMBOLS_CACHE_MS = 15 * 60 * 1000; // 15 minutes
 
-// --- Redis client (fallback to memory if Redis fails) ---
-let redis;
-try {
-  redis = new Redis(process.env.REDIS_URL);
-  redis.on("error", (err) => {
-    console.error("[Redis] Connection error:", err.message);
+// --- Redis client (OPTIONAL; falls back to in-memory cache) ---
+// Only connect when REDIS_URL is explicitly set. Without it, ioredis would
+// default to localhost:6379 and retry forever, flooding the logs with
+// "[Redis] Connection error". We also cap retries, disable the offline queue
+// (so commands fail fast instead of piling up), and log the error ONCE — so an
+// absent or unreachable Redis degrades to memory quietly instead of spamming.
+let redis = null;
+if (process.env.REDIS_URL) {
+  try {
+    const client = new Redis(process.env.REDIS_URL, {
+      retryStrategy: (times) => (times > 5 ? null : Math.min(times * 200, 2000)),
+      maxRetriesPerRequest: 2,
+      enableOfflineQueue: false,
+    });
+    redis = client;
+    let loggedErr = false;
+    client.on("error", (err) => {
+      if (!loggedErr) {
+        console.error("[Redis] Connection error — falling back to memory cache:", err.message);
+        loggedErr = true;
+      }
+    });
+    // Connection gave up / closed for good -> stop using it, use memory.
+    client.on("end", () => { redis = null; });
+  } catch (e) {
+    console.warn("[Redis] Init failed, using memory cache:", e.message);
     redis = null;
-  });
-} catch (e) {
-  console.warn("[Redis] Not configured, falling back to memory cache");
-  redis = null;
+  }
+} else {
+  console.warn("[Redis] REDIS_URL not set — using in-memory price cache.");
 }
 
 let prices = {}; // in-memory fallback cache
@@ -58,9 +77,10 @@ export const savePrice = async (symbol, fetchPriceFn = fetchPrice) => {
   const price = new Price(priceDataForDB);
   await price.save();
 
-  // Save to Redis or memory
+  // Save to Redis or memory (Redis failures degrade to memory, never throw)
   if (redis) {
-    await redis.set(`price:${symbol}`, fetchedData.close);
+    try { await redis.set(`price:${symbol}`, fetchedData.close); }
+    catch { prices[symbol] = fetchedData.close; }
   } else {
     prices[symbol] = fetchedData.close;
   }
@@ -75,7 +95,8 @@ export const getPrices = async (symbols = ["BTC-USD"]) => {
   const result = {};
   for (const s of symbols) {
     if (redis) {
-      result[s] = await redis.get(`price:${s}`);
+      try { result[s] = await redis.get(`price:${s}`); }
+      catch { result[s] = prices[s] || null; }
     } else {
       result[s] = prices[s] || null;
     }

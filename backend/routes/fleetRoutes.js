@@ -94,6 +94,23 @@ router.get("/drift", protect, async (req, res) => {
   }
 });
 
+// GET /api/fleet/bot?symbol=&side=  -> engine per-coin child detail (positions,
+// markers, signals) for the unified Fleet page chart. Scoped to the caller.
+router.get("/bot", protect, async (req, res) => {
+  try {
+    const uid = fleetUserId(req);
+    if (!uid) return res.status(401).json({ error: "Not authenticated" });
+    const symbol = encodeURIComponent(req.query.symbol || "");
+    const side = encodeURIComponent(req.query.side || "");
+    const url = `${ENGINE_URL}/api/fleet/bot?userId=${encodeURIComponent(uid)}&symbol=${symbol}&side=${side}`;
+    const r = await fetch(url, { headers: engineHeaders() });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[fleet] bot engine unreachable:", e.message);
+    res.status(502).json({ error: "Fleet engine unreachable" });
+  }
+});
+
 // GET /api/fleet/regime  -> engine GET /api/fleet/regime  (no user scope; market-wide)
 router.get("/regime", protect, async (req, res) => {
   try {

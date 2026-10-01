@@ -18,6 +18,13 @@ import fleetRoutes from "./routes/fleetRoutes.js"; // 🚢 Fleet orchestration p
 
 const app = express();
 
+// Render (and most PaaS) put this app behind a reverse proxy that sets
+// X-Forwarded-For. Trust the first proxy hop so req.ip is the real client IP —
+// without this, express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on
+// the rate-limited auth routes. '1' = trust exactly one proxy (Render's LB), which
+// is safer than `true` (trust all, spoofable).
+app.set("trust proxy", 1);
+
 // --- Security headers ---
 app.use(helmet());
 

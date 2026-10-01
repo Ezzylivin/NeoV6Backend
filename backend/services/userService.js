@@ -134,6 +134,45 @@ export const resendVerification = async (userId) => {
 };
 
 /**
+ * Change the logged-in user's email address. Resets verification state and
+ * sends a fresh verification link to the NEW address (trade alerts only go to
+ * verified addresses, so the new one must be re-confirmed).
+ */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const updateEmail = async (userId, rawEmail) => {
+  const email = String(rawEmail || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) throw new Error('Please provide a valid email address');
+
+  const user = await User.findById(userId);
+  if (!user) throw new Error('User not found');
+
+  if (String(user.email || '').toLowerCase() === email) {
+    throw new Error('That is already your email address');
+  }
+
+  // Make sure no other account owns this address.
+  const taken = await User.findOne({ email, _id: { $ne: user._id } });
+  if (taken) throw new Error('That email is already in use by another account');
+
+  user.email = email;
+  user.isVerified = false;
+  user.verificationToken = newVerifyToken();
+  user.verificationTokenExpires = new Date(Date.now() + VERIFY_TTL_MS);
+  await user.save();
+
+  // Non-fatal: the address is already changed; the user can resend if mail hiccups.
+  let sent = false, reason;
+  try {
+    const r = await sendVerificationEmail(user.email, user.verificationToken);
+    sent = !!r.sent; reason = r.reason;
+  } catch (e) {
+    console.error('[updateEmail] verification email failed:', e.message);
+    reason = e.message;
+  }
+  return { email: user.email, isVerified: false, sent, reason };
+};
+
+/**
  * Logs in an existing user.
  */
 export const loginUser = async (identifier, password) => {

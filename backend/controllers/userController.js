@@ -8,7 +8,8 @@ import {
     getUserApiKeys as getKeysSvc,      // 👈 New Import
     deleteUserApiKey as deleteKeySvc,  // 👈 New Import
     verifyEmail as verifyEmailSvc,
-    resendVerification as resendVerificationSvc
+    resendVerification as resendVerificationSvc,
+    updateEmail as updateEmailSvc
 } from "../services/userService.js";
 
 /**
@@ -34,6 +35,26 @@ export const resendVerification = async (req, res) => {
     const result = await resendVerificationSvc(req.user.id);
     res.status(200).json({
       message: result.alreadyVerified ? "Email already verified." : "Verification email sent.",
+      ...result,
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
+/**
+ * Change the logged-in user's email, then send a verification link to it.
+ * PUT /api/users/email  { email }
+ */
+export const updateEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "A new email address is required" });
+    const result = await updateEmailSvc(req.user.id, email);
+    res.status(200).json({
+      message: result.sent
+        ? "Email updated — check the new inbox for a verification link."
+        : "Email updated. We couldn't send the verification email yet; use \"Resend\" once mail is configured.",
       ...result,
     });
   } catch (err) {

@@ -188,7 +188,16 @@ app.post('/api/internal/broadcast', async (req, res) => {
             })();
         }
 
+        // Emit to the exact room (single-bot listeners join their bare uid) AND,
+        // for FLEET children keyed "<uid>::<symbol>::<side>", also to the base-uid
+        // room the browser actually joined — otherwise fleet events never reach the
+        // page. Tag the child id on object payloads so the client can route it.
         io.to(userId).emit(type, data);
+        const baseId = String(userId).split("::")[0];
+        if (baseId && baseId !== userId) {
+            const payload = data && typeof data === "object" ? { ...data, _childId: userId } : data;
+            io.to(baseId).emit(type, payload);
+        }
         res.status(200).json({ success: true });
     } catch (err) {
         console.error("❌ BRIDGE ERROR:", err.message);

@@ -4,7 +4,21 @@
 //   FRONTEND_URL (for the verify link; falls back to the first ALLOWED_ORIGINS)
 // If SMTP isn't configured, every send is a logged no-op — nothing in the app
 // breaks, emails are just skipped until you add the credentials.
-import nodemailer from "nodemailer";
+//
+// nodemailer is loaded LAZILY (dynamic import) so that if the package is missing
+// or fails to resolve on the host, it degrades to a no-op instead of crashing the
+// whole server at boot (an import failure here would take the API down).
+let _nodemailer = null;
+async function loadNodemailer() {
+  if (_nodemailer) return _nodemailer;
+  try {
+    _nodemailer = (await import("nodemailer")).default;
+  } catch (e) {
+    console.error("[mailer] nodemailer unavailable — email disabled:", e.message);
+    _nodemailer = null;
+  }
+  return _nodemailer;
+}
 
 const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM } = process.env;
 
@@ -21,11 +35,13 @@ export function isMailConfigured() {
   return Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
 }
 
-function getTransport() {
+async function getTransport() {
   if (!isMailConfigured()) return null;
   if (!transporter) {
+    const nm = await loadNodemailer();
+    if (!nm) return null; // package missing on host — degrade to no-op
     const port = Number(SMTP_PORT) || 587;
-    transporter = nodemailer.createTransport({
+    transporter = nm.createTransport({
       host: SMTP_HOST,
       port,
       secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS
@@ -37,9 +53,9 @@ function getTransport() {
 
 export async function sendMail({ to, subject, html, text }) {
   if (!to) return { sent: false, reason: "no_recipient" };
-  const t = getTransport();
+  const t = await getTransport();
   if (!t) {
-    console.warn(`[mailer] SMTP not configured — skipped "${subject}" to ${to}`);
+    console.warn(`[mailer] SMTP unavailable — skipped "${subject}" to ${to}`);
     return { sent: false, reason: "not_configured" };
   }
   try {

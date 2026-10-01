@@ -32,4 +32,21 @@ router.get("/stats", protect, async (req, res) => {
   }
 });
 
+// POST /api/ledger/clear -> engine clears THIS user's trades (scoped by token id).
+router.post("/clear", protect, async (req, res) => {
+  try {
+    const uid = botUserId(req);
+    if (!uid) return res.status(401).json({ error: "Not authenticated" });
+    const headers = { Accept: "application/json" };
+    if (ENGINE_API_KEY) headers["X-Internal-Key"] = ENGINE_API_KEY;
+    const r = await fetch(`${ENGINE_URL}/api/ledger/clear?user_id=${encodeURIComponent(uid)}`,
+      { method: "POST", headers });
+    const body = await r.text();
+    res.status(r.status).type("application/json").send(body);
+  } catch (e) {
+    console.error("[ledger] clear engine unreachable:", e.message);
+    res.status(502).json({ error: "Ledger engine unreachable" });
+  }
+});
+
 export default router;

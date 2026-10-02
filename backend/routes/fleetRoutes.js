@@ -52,6 +52,7 @@ router.post("/start", protect, async (req, res) => {
       fleetMaxDrawdownPct: b.fleetMaxDrawdownPct,
       sizeByConviction: b.sizeByConviction,
       longOnly: b.longOnly,
+      riskPct: b.riskPct,
       longTimeframe: b.longTimeframe,
       shortTimeframe: b.shortTimeframe,
     };

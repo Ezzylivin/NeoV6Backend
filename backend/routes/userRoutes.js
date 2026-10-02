@@ -8,7 +8,9 @@ import {
   deleteApiKey,  // 👈 New Import
   verifyEmail,
   resendVerification,
-  updateEmail
+  updateEmail,
+  forgotPassword,
+  resetPassword
 } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -19,6 +21,9 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 // 📧 Email verification (public — the link is clicked from an email, no token yet)
 router.get("/verify/:token", verifyEmail);
+// 🔑 Password reset (public): request a link, then submit a new password with the token
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 // --- Protected routes ---
 router.get("/me", protect, getMe);

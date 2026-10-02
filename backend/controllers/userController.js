@@ -9,8 +9,36 @@ import {
     deleteUserApiKey as deleteKeySvc,  // 👈 New Import
     verifyEmail as verifyEmailSvc,
     resendVerification as resendVerificationSvc,
-    updateEmail as updateEmailSvc
+    updateEmail as updateEmailSvc,
+    requestPasswordReset as requestPasswordResetSvc,
+    resetPassword as resetPasswordSvc
 } from "../services/userService.js";
+
+/**
+ * Start a password reset (emails a link). Always 200 — never reveal if the
+ * email is registered. POST /api/users/forgot-password { email }
+ */
+export const forgotPassword = async (req, res) => {
+  try {
+    await requestPasswordResetSvc(req.body?.email);
+  } catch (err) {
+    console.error("[forgotPassword]", err.message);
+  }
+  res.status(200).json({ message: "If that email is registered, a reset link is on its way." });
+};
+
+/**
+ * Complete a password reset from the token. POST /api/users/reset-password { token, password }
+ */
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    await resetPasswordSvc(token, password);
+    res.status(200).json({ message: "Password updated — you can sign in now." });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
 
 /**
  * Verify an email from the token in the verification link.

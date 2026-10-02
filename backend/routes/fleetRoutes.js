@@ -157,6 +157,21 @@ router.post("/stop", protect, async (req, res) => {
   }
 });
 
+// POST /api/fleet/killswitch { on } -> engine emergency halt of all NEW entries.
+// NOTE: global/operator-level — affects the whole engine, not just this user.
+router.post("/killswitch", protect, async (req, res) => {
+  try {
+    const on = req.body?.on !== false; // default true (engage)
+    const r = await fetch(`${ENGINE_URL}/api/fleet/killswitch?on=${on ? "true" : "false"}`, {
+      method: "POST", headers: engineHeaders(),
+    });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[fleet] killswitch engine unreachable:", e.message);
+    res.status(502).json({ error: "Fleet engine unreachable" });
+  }
+});
+
 // GET /api/fleet/evidence -> engine GET /api/exitlab/results (read-only validation
 // report: which exit configs generalized across coins). Not user-scoped.
 router.get("/evidence", protect, async (req, res) => {

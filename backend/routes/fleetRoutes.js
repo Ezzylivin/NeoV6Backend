@@ -172,6 +172,25 @@ router.post("/killswitch", protect, async (req, res) => {
   }
 });
 
+// POST /api/fleet/risk { riskPct } -> update risk % on the caller's RUNNING fleet.
+// Applies to NEW entries only (open positions keep their original size/stop), so
+// you don't have to stop & re-ignite to change risk. Scoped to the token's user.
+router.post("/risk", protect, async (req, res) => {
+  try {
+    const uid = fleetUserId(req);
+    if (!uid) return res.status(401).json({ error: "Not authenticated" });
+    const rp = Number(req.body?.riskPct);
+    if (!Number.isFinite(rp)) return res.status(400).json({ error: "riskPct must be a number" });
+    const r = await fetch(`${ENGINE_URL}/api/fleet/risk?userId=${encodeURIComponent(uid)}&riskPct=${encodeURIComponent(rp)}`, {
+      method: "POST", headers: engineHeaders(),
+    });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[fleet] risk engine unreachable:", e.message);
+    res.status(502).json({ error: "Fleet engine unreachable" });
+  }
+});
+
 // GET /api/fleet/evidence -> engine GET /api/exitlab/results (read-only validation
 // report: which exit configs generalized across coins). Not user-scoped.
 router.get("/evidence", protect, async (req, res) => {

@@ -53,6 +53,12 @@ router.post("/run", protect, async (req, res) => {
     const ib = Number(b.initialBalance ?? b.initial_balance);
     if (Number.isFinite(ib) && ib > 0) qp.set("initial_balance", String(ib));
 
+    const legs = Number(b.maxLegs ?? b.max_legs);
+    if (Number.isFinite(legs)) qp.set("max_legs", String(Math.min(5, Math.max(1, Math.round(legs)))));
+
+    const addAtr = Number(b.addAtr ?? b.add_atr);
+    if (Number.isFinite(addAtr)) qp.set("add_atr", String(Math.min(5, Math.max(0.25, addAtr))));
+
     const r = await fetch(`${ENGINE_URL}/api/strategylab/run?${qp.toString()}`, {
       method: "POST",
       headers: engineHeaders(),

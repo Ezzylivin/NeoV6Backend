@@ -4,9 +4,10 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto'; // 👈 Needed for encryption
 import User from '../dbStructure/user.js'; // Ensure this matches your filename (User.js vs user.js)
 import { generateToken } from '../utils/token.js';
-import { sendVerificationEmail } from '../utils/mailer.js';
+import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/mailer.js';
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const RESET_TTL_MS = 60 * 60 * 1000;       // 1h
 const newVerifyToken = () => crypto.randomBytes(32).toString('hex');
 
 // 🔐 Encryption Configuration
@@ -170,6 +171,44 @@ export const updateEmail = async (userId, rawEmail) => {
     reason = e.message;
   }
   return { email: user.email, isVerified: false, sent, reason };
+};
+
+/**
+ * Start a password reset: email a time-limited reset link. Always resolves the
+ * same way whether or not the email exists (don't leak which emails are registered).
+ */
+export const requestPasswordReset = async (rawEmail) => {
+  const email = String(rawEmail || '').trim().toLowerCase();
+  const user = email ? await User.findOne({ email }) : null;
+  if (user) {
+    user.resetToken = newVerifyToken();
+    user.resetTokenExpires = new Date(Date.now() + RESET_TTL_MS);
+    await user.save();
+    try { await sendPasswordResetEmail(user.email, user.resetToken); }
+    catch (e) { console.error('[reset] email failed:', e.message); }
+  }
+  // Uniform response regardless of existence.
+  return { ok: true };
+};
+
+/**
+ * Complete a password reset from the token in the emailed link.
+ */
+export const resetPassword = async (token, newPassword) => {
+  if (!token) throw new Error('Missing reset token');
+  if (!newPassword || String(newPassword).length < 8) {
+    throw new Error('Password must be at least 8 characters');
+  }
+  const user = await User.findOne({ resetToken: token });
+  if (!user) throw new Error('Invalid or already-used reset link');
+  if (user.resetTokenExpires && user.resetTokenExpires < new Date()) {
+    throw new Error('Reset link expired — request a new one');
+  }
+  user.password = newPassword;           // pre-save hook hashes it
+  user.resetToken = undefined;
+  user.resetTokenExpires = undefined;
+  await user.save();
+  return { ok: true, email: user.email };
 };
 
 /**

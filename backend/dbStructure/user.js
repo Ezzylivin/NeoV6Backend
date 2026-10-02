@@ -87,6 +87,10 @@ const userSchema = new mongoose.Schema({
   verificationToken: { type: String, index: true },
   verificationTokenExpires: { type: Date },
 
+  // 🔑 Password reset
+  resetToken: { type: String, index: true },
+  resetTokenExpires: { type: Date },
+
   // 🔐 API Keys for Trading
   apiKeys: [apiKeySchema],
 

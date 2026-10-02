@@ -88,6 +88,20 @@ export async function sendVerificationEmail(to, token) {
   });
 }
 
+export async function sendPasswordResetEmail(to, token) {
+  const link = `${FRONTEND_URL}/reset-password?token=${encodeURIComponent(token)}`;
+  return sendMail({
+    to,
+    subject: "Reset your NeoV6 password",
+    html: shell("Reset your password", `
+      <p>We got a request to reset your NeoV6 password. Click below to choose a new one:</p>
+      <p style="margin:18px 0"><a href="${link}" style="background:#34d399;color:#04110b;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:700">Reset password</a></p>
+      <p style="color:#8aa0b4;font-size:12px">Or paste this link into your browser:<br>${link}</p>
+      <p style="color:#6b7684;font-size:11px">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change.</p>`),
+    text: `Reset your NeoV6 password: ${link}`,
+  });
+}
+
 export async function sendTradeAlert(to, ev) {
   const side = String(ev.side || "").toUpperCase();
   const isEntry = (ev.action || ev.type) === "entry";

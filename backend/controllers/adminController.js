@@ -25,9 +25,15 @@ function engineHeaders(extra = {}) {
  */
 export const getOverview = async (req, res) => {
   try {
-    const [total, byTierAgg, admins, verified] = await Promise.all([
+    const [total, byTierAgg, payingAgg, admins, verified] = await Promise.all([
       User.countDocuments({}),
       User.aggregate([{ $group: { _id: "$tier", n: { $sum: 1 } } }]),
+      // Paying = non-admin, non-comped users on a paid tier. Admins are comped
+      // (auto-whale) so they must NOT count toward paying users or MRR.
+      User.aggregate([
+        { $match: { role: { $ne: "admin" }, tier: { $ne: "free" }, tierManualOverride: { $ne: true } } },
+        { $group: { _id: "$tier", n: { $sum: 1 } } },
+      ]),
       User.countDocuments({ role: "admin" }),
       User.countDocuments({ isVerified: true }),
     ]);
@@ -36,9 +42,14 @@ export const getOverview = async (req, res) => {
       const key = row._id || "free";
       byTier[key] = (byTier[key] || 0) + row.n;
     }
-    const paying = TIER_ORDER.filter((t) => t !== "free").reduce((s, t) => s + (byTier[t] || 0), 0);
-    // Rough MRR from the catalog's monthly price × paying users on each tier.
-    const mrr = TIER_ORDER.reduce((s, t) => s + (byTier[t] || 0) * (TIERS[t].priceMonthly || 0), 0);
+    // Paying count + rough MRR from the catalog's monthly price, excluding
+    // admins and hand-comped accounts.
+    let paying = 0;
+    let mrr = 0;
+    for (const row of payingAgg) {
+      paying += row.n;
+      mrr += row.n * ((TIERS[row._id] && TIERS[row._id].priceMonthly) || 0);
+    }
     res.json({ total, byTier, admins, verified, paying, estMrr: mrr });
   } catch (err) {
     res.status(500).json({ message: err.message });

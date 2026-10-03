@@ -9,6 +9,8 @@ import {
   listUsers,
   updateUser,
   setKillswitch,
+  recalibrate,
+  getRecalibration,
 } from "../controllers/adminController.js";
 
 const router = express.Router();
@@ -17,5 +19,8 @@ router.get("/overview", protect, requireAdmin, getOverview);
 router.get("/users", protect, requireAdmin, listUsers);
 router.patch("/users/:id", protect, requireAdmin, updateUser);
 router.post("/killswitch", protect, requireAdmin, setKillswitch);
+// ♻️ Validation recalibration ("harden the system")
+router.post("/recalibrate", protect, requireAdmin, recalibrate);
+router.get("/recalibration", protect, requireAdmin, getRecalibration);
 
 export default router;

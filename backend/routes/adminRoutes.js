@@ -11,6 +11,8 @@ import {
   setKillswitch,
   recalibrate,
   getRecalibration,
+  research,
+  getResearch,
 } from "../controllers/adminController.js";
 
 const router = express.Router();
@@ -22,5 +24,8 @@ router.post("/killswitch", protect, requireAdmin, setKillswitch);
 // ♻️ Validation recalibration ("harden the system")
 router.post("/recalibrate", protect, requireAdmin, recalibrate);
 router.get("/recalibration", protect, requireAdmin, getRecalibration);
+// 🔬 Automated research (find the best-performing configs)
+router.post("/research", protect, requireAdmin, research);
+router.get("/research", protect, requireAdmin, getResearch);
 
 export default router;

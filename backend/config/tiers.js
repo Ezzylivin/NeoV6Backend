@@ -73,6 +73,7 @@ export const TIERS = {
     features: [
       "Everything in Free (unlimited paper)",
       "LIVE trading on up to 3 coins",
+      "Fee-free live via Coinbase One / Binance.US (0% maker)",
       "2-leg pyramiding live",
       "1 connected exchange",
       "Validated Go-Live hand-off",
@@ -97,7 +98,7 @@ export const TIERS = {
     highlight: true, // "Most popular"
     features: [
       "Everything in Trader",
-      "LIVE on up to 8 coins",
+      "LIVE on up to 8 coins (fee-free via Coinbase One / Binance.US)",
       "5-leg pyramiding live",
       "Up to 3 exchanges",
       "Portfolio-blend risk engine",
@@ -122,7 +123,7 @@ export const TIERS = {
     highlight: false,
     features: [
       "Everything in Pro",
-      "Unlimited live coins & legs",
+      "Unlimited live coins & legs (fee-free via Coinbase One / Binance.US)",
       "All exchanges",
       "Highest API rate limits",
       "Priority human support",

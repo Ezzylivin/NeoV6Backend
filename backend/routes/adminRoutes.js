@@ -13,6 +13,7 @@ import {
   getRecalibration,
   research,
   getResearch,
+  broadcastEmail,
 } from "../controllers/adminController.js";
 
 const router = express.Router();
@@ -27,5 +28,7 @@ router.get("/recalibration", protect, requireAdmin, getRecalibration);
 // 🔬 Automated research (find the best-performing configs)
 router.post("/research", protect, requireAdmin, research);
 router.get("/research", protect, requireAdmin, getResearch);
+// 📣 Broadcast email to many users
+router.post("/broadcast", protect, requireAdmin, broadcastEmail);
 
 export default router;

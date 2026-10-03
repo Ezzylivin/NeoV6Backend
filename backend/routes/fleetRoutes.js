@@ -182,6 +182,23 @@ router.post("/stop", protect, async (req, res) => {
   }
 });
 
+// POST /api/fleet/reset-history -> HARD reset of the caller's trade-history data
+// (live feed, chart markers, drift, equity) AND their persisted Track Record
+// ledger. Leaves open positions + balances untouched. Scoped to the token user.
+router.post("/reset-history", protect, async (req, res) => {
+  try {
+    const uid = fleetUserId(req);
+    if (!uid) return res.status(401).json({ error: "Not authenticated" });
+    const r = await fetch(`${ENGINE_URL}/api/fleet/reset_history?userId=${encodeURIComponent(uid)}`, {
+      method: "POST", headers: engineHeaders(),
+    });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[fleet] reset-history engine unreachable:", e.message);
+    res.status(502).json({ error: "Fleet engine unreachable" });
+  }
+});
+
 // POST /api/fleet/killswitch { on } -> engine emergency halt of all NEW entries.
 // NOTE: global/operator-level — affects the whole engine, not just this user.
 router.post("/killswitch", protect, async (req, res) => {

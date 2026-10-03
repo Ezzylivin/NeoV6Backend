@@ -173,6 +173,7 @@ export const recalibrate = async (req, res) => {
     const maxLegs = req.body?.maxLegs;
     let url = `${ENGINE_URL}/api/fleet/recalibrate?level=${level}`;
     if (maxLegs) url += `&max_legs=${encodeURIComponent(maxLegs)}`;
+    if (req.body?.coinbaseOne) url += `&coinbase_one=true`;
     const r = await fetch(url, { method: "POST", headers: engineHeaders() });
     const body = await r.text();
     res.status(r.status).type("application/json").send(body);

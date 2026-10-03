@@ -194,3 +194,30 @@ export const getRecalibration = async (req, res) => {
     res.status(502).json({ message: "Engine unreachable", error: err.message });
   }
 };
+
+/**
+ * POST /api/admin/research — run the cross-coin research sweep now (find the
+ * best-performing exit/sizing configs). Background; proxies the engine.
+ */
+export const research = async (req, res) => {
+  try {
+    const r = await fetch(`${ENGINE_URL}/api/fleet/research`, { method: "POST", headers: engineHeaders() });
+    const body = await r.text();
+    res.status(r.status).type("application/json").send(body);
+  } catch (err) {
+    res.status(502).json({ message: "Engine unreachable", error: err.message });
+  }
+};
+
+/**
+ * GET /api/admin/research — latest research ranking + running state + cadence.
+ */
+export const getResearch = async (req, res) => {
+  try {
+    const r = await fetch(`${ENGINE_URL}/api/fleet/research`, { headers: engineHeaders() });
+    const body = await r.text();
+    res.status(r.status).type("application/json").send(body);
+  } catch (err) {
+    res.status(502).json({ message: "Engine unreachable", error: err.message });
+  }
+};

@@ -54,7 +54,7 @@ router.post("/run", protect, async (req, res) => {
     if (Number.isFinite(ib) && ib > 0) qp.set("initial_balance", String(ib));
 
     const legs = Number(b.maxLegs ?? b.max_legs);
-    if (Number.isFinite(legs)) qp.set("max_legs", String(Math.min(5, Math.max(1, Math.round(legs)))));
+    if (Number.isFinite(legs)) qp.set("max_legs", String(Math.min(2, Math.max(1, Math.round(legs))))); // pyramids capped at 1-2
 
     const addAtr = Number(b.addAtr ?? b.add_atr);
     if (Number.isFinite(addAtr)) qp.set("add_atr", String(Math.min(5, Math.max(0.25, addAtr))));

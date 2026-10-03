@@ -53,7 +53,8 @@ router.post("/start", protect, async (req, res) => {
       sizeByConviction: b.sizeByConviction,
       longOnly: b.longOnly,
       riskPct: Math.min(20, Math.max(0.1, Number(b.riskPct) || 1)), // hard cap 20%
-      maxLegs: b.maxLegs,
+      maxLegs: Math.min(2, Math.max(1, Number(b.maxLegs) || 1)), // pyramids capped at 1-2
+
       longTimeframe: b.longTimeframe,
       shortTimeframe: b.shortTimeframe,
     };

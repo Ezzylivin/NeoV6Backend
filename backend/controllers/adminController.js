@@ -159,3 +159,38 @@ export const setKillswitch = async (req, res) => {
     res.status(502).json({ message: "Engine unreachable", error: err.message });
   }
 };
+
+/**
+ * POST /api/admin/recalibrate   { level?, maxLegs? }
+ * "Harden the system" on demand — re-run the hard out-of-sample + cost-stress
+ * validation that gates live pyramiding, at a chosen strictness, and rewrite the
+ * eligibility registry. Proxies the engine; returns immediately (runs in bg).
+ */
+export const recalibrate = async (req, res) => {
+  try {
+    const level = encodeURIComponent(req.body?.level || "strict");
+    const maxLegs = req.body?.maxLegs;
+    let url = `${ENGINE_URL}/api/fleet/recalibrate?level=${level}`;
+    if (maxLegs) url += `&max_legs=${encodeURIComponent(maxLegs)}`;
+    const r = await fetch(url, { method: "POST", headers: engineHeaders() });
+    const body = await r.text();
+    res.status(r.status).type("application/json").send(body);
+  } catch (err) {
+    res.status(502).json({ message: "Engine unreachable", error: err.message });
+  }
+};
+
+/**
+ * GET /api/admin/recalibration
+ * Last recalibration result (per-leg verdicts + cleared coins) and whether one
+ * is running now, plus the automated cadence. Read-only proxy.
+ */
+export const getRecalibration = async (req, res) => {
+  try {
+    const r = await fetch(`${ENGINE_URL}/api/fleet/recalibration`, { headers: engineHeaders() });
+    const body = await r.text();
+    res.status(r.status).type("application/json").send(body);
+  } catch (err) {
+    res.status(502).json({ message: "Engine unreachable", error: err.message });
+  }
+};

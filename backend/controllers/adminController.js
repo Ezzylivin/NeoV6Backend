@@ -5,6 +5,7 @@
 // global kill switch — the "control everything" surface.
 import User from "../dbStructure/user.js";
 import { TIERS, TIER_ORDER } from "../config/tiers.js";
+import { sendMail, isMailConfigured } from "../utils/mailer.js";
 
 const ENGINE_URL =
   process.env.ML_ENGINE_URL || process.env.ML_SERVER_URL || "http://74.208.28.77:8000";
@@ -219,5 +220,58 @@ export const getResearch = async (req, res) => {
     res.status(r.status).type("application/json").send(body);
   } catch (err) {
     res.status(502).json({ message: "Engine unreachable", error: err.message });
+  }
+};
+
+// Minimal branded HTML wrapper for admin broadcasts (plain text -> paragraphs).
+function broadcastHtml(subject, body) {
+  const safe = String(body || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${p.replace(/\n/g, "<br>")}</p>`).join("");
+  return `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b0f14;color:#e7eef6;padding:24px;border-radius:12px;max-width:560px;margin:auto;border:1px solid #1f2b38">
+    <h2 style="color:#34d399;margin:0 0 14px">${String(subject || "").replace(/</g, "&lt;")}</h2>
+    ${safe}
+    <p style="color:#6b7684;font-size:11px;margin-top:22px">NeoV6 Trading · you're receiving this because you have a NeoV6 account.</p>
+  </div>`;
+}
+
+/**
+ * POST /api/admin/broadcast  { subject, body, tier?, role?, onlyVerified?, userIds? }
+ * Send an email to many users at once. Audience = explicit userIds, or a filter
+ * (tier / role / onlyVerified); no filter = ALL users. Each recipient gets their
+ * own email (no exposed To list). Admin-gated.
+ */
+export const broadcastEmail = async (req, res) => {
+  try {
+    const { subject, body, tier, role, onlyVerified, userIds } = req.body || {};
+    if (!subject || !String(subject).trim() || !body || !String(body).trim()) {
+      return res.status(400).json({ message: "Subject and body are required." });
+    }
+    if (!isMailConfigured()) {
+      return res.status(503).json({ message: "Email isn't configured yet — set the SMTP_* env vars to enable sending." });
+    }
+
+    const filter = {};
+    if (Array.isArray(userIds) && userIds.length) {
+      filter._id = { $in: userIds };
+    } else {
+      if (tier && TIERS[tier]) filter.tier = tier;
+      if (role && ROLES.includes(role)) filter.role = role;
+      if (onlyVerified) filter.isVerified = true;
+    }
+
+    const users = await User.find(filter).select("email username").lean();
+    const recipients = users.filter((u) => u.email).slice(0, 1000); // safety cap
+    if (!recipients.length) return res.status(400).json({ message: "No recipients match that audience." });
+
+    const html = broadcastHtml(subject, body);
+    let sent = 0, failed = 0;
+    for (const u of recipients) {
+      const r = await sendMail({ to: u.email, subject: String(subject), html, text: String(body) });
+      if (r.sent) sent++; else failed++;
+    }
+    res.json({ matched: recipients.length, sent, failed });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };

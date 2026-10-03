@@ -13,6 +13,24 @@ import {
     requestPasswordReset as requestPasswordResetSvc,
     resetPassword as resetPasswordSvc
 } from "../services/userService.js";
+import User from "../dbStructure/user.js";
+
+/**
+ * Mark the logged-in user as having seen the onboarding tour. Idempotent and
+ * only ever sets the timestamp ONCE (first login), so the tour never auto-shows
+ * again on any device. POST /api/users/onboarded
+ */
+export const markOnboarded = async (req, res) => {
+  try {
+    await User.updateOne(
+      { _id: req.user.id, $or: [{ onboardedAt: { $exists: false } }, { onboardedAt: null }] },
+      { $set: { onboardedAt: new Date() } }
+    );
+    res.status(200).json({ onboarded: true });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
 
 /**
  * Start a password reset (emails a link). Always 200 — never reveal if the

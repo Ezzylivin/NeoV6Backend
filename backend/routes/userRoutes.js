@@ -10,7 +10,8 @@ import {
   resendVerification,
   updateEmail,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  markOnboarded
 } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -27,6 +28,8 @@ router.post("/reset-password", resetPassword);
 
 // --- Protected routes ---
 router.get("/me", protect, getMe);
+// 🎓 Mark the onboarding tour as seen (first-login-only gate)
+router.post("/onboarded", protect, markOnboarded);
 // 📧 Resend verification for the logged-in user
 router.post("/resend-verification", protect, resendVerification);
 // 📧 Change email (resets verification + emails the new address a fresh link)

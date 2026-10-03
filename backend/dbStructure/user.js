@@ -91,6 +91,10 @@ const userSchema = new mongoose.Schema({
   resetToken: { type: String, index: true },
   resetTokenExpires: { type: Date },
 
+  // 🎓 First-login onboarding tour — set once, ever (per account, across devices),
+  // so the guided tour only auto-shows on the user's very first login.
+  onboardedAt: { type: Date },
+
   // 🔐 API Keys for Trading
   apiKeys: [apiKeySchema],
 

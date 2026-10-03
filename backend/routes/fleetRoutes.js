@@ -130,6 +130,18 @@ router.get("/activity", protect, async (req, res) => {
   }
 });
 
+// GET /api/fleet/learning -> self-learning status: ledger models trained from the
+// fleet's own closed trades + each coin's progress toward the training threshold.
+router.get("/learning", protect, async (req, res) => {
+  try {
+    const r = await fetch(`${ENGINE_URL}/api/fleet/learning`, { headers: engineHeaders() });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[fleet] learning engine unreachable:", e.message);
+    res.status(502).json({ error: "Fleet engine unreachable" });
+  }
+});
+
 // GET /api/fleet/eligibility -> which coins are validation-cleared for live
 // pyramiding (survived the Strategy Lab's holdout + cost-stress tests). Read-only.
 router.get("/eligibility", protect, async (req, res) => {

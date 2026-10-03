@@ -70,4 +70,29 @@ router.post("/run", protect, async (req, res) => {
   }
 });
 
+// POST /api/strategylab/portfolio -> engine /api/exitlab/portfolio. Runs ONE
+// config across many coins as a combined portfolio (blended equity) — the
+// diversification view. Read-only; body params become engine query params.
+router.post("/portfolio", protect, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const qp = new URLSearchParams();
+    const passStr = (k, ek) => { if (b[k] != null && String(b[k]).trim() !== "") qp.set(ek || k, String(b[k])); };
+    passStr("timeframe");
+    passStr("entry");
+    passStr("direction");
+    passStr("style");
+    if (Array.isArray(b.symbols) && b.symbols.length) qp.set("symbols", b.symbols.join(","));
+    else passStr("symbols");
+    const r = await fetch(`${ENGINE_URL}/api/exitlab/portfolio?${qp.toString()}`, {
+      method: "POST",
+      headers: engineHeaders(),
+    });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[strategylab] portfolio engine unreachable:", e.message);
+    res.status(502).json({ error: "Strategy Lab engine unreachable" });
+  }
+});
+
 export default router;

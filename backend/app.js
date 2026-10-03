@@ -16,6 +16,9 @@ import helpRoutes from "./routes/helpRoutes.js";
 import ledgerRoutes from "./routes/ledgerRoutes.js"; // 🧠 Trade Learning Ledger proxy
 import fleetRoutes from "./routes/fleetRoutes.js"; // 🚢 Fleet orchestration proxy
 import strategyLabRoutes from "./routes/strategyLabRoutes.js"; // 🧪 Strategy Lab (read-only backtest) proxy
+import adminRoutes from "./routes/adminRoutes.js"; // 🛡️ Admin control plane (role-gated)
+import billingRoutes from "./routes/billingRoutes.js"; // 💳 Subscription billing (Stripe)
+import { handleWebhook } from "./controllers/billingController.js";
 
 const app = express();
 
@@ -67,6 +70,11 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// --- Stripe webhook (MUST come before express.json) ---
+// Stripe verifies the signature against the exact raw bytes, so this one route
+// takes a raw Buffer body instead of parsed JSON. Everything else gets JSON.
+app.post("/api/billing/webhook", express.raw({ type: "application/json" }), handleWebhook);
+
 // --- Middleware ---
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -83,6 +91,8 @@ app.use("/api/ml", mlRoutes);
 app.use("/api/ledger", ledgerRoutes); // 🧠 Proxies the Python engine's ledger over HTTPS
 app.use("/api/fleet", fleetRoutes); // 🚢 Proxies the Python engine's fleet orchestration over HTTPS
 app.use("/api/strategylab", strategyLabRoutes); // 🧪 Proxies the engine's read-only Strategy Lab backtests
+app.use("/api/admin", adminRoutes); // 🛡️ Admin control plane (list/manage users, tiers, kill switch)
+app.use("/api/billing", billingRoutes); // 💳 Subscription billing: plans, checkout, portal
 
 // --- Health Check ---
 app.get("/", (req, res) => {

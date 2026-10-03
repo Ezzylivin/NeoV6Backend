@@ -89,6 +89,10 @@ export const registerUser = async (username, email, password) => {
   });
   const token = generateToken(newUser._id);
 
+  // If this is a configured owner email, elevate it right away.
+  const patch = await maybePromoteOwner(newUser);
+  if (patch) Object.assign(newUser, patch);
+
   // Fire the verification email (non-fatal: a mail hiccup must not fail signup;
   // the user can resend from the in-app banner).
   try { await sendVerificationEmail(email, verificationToken); }
@@ -99,6 +103,8 @@ export const registerUser = async (username, email, password) => {
     username: newUser.username,
     email: newUser.email,
     isVerified: false,
+    role: newUser.role || "user",
+    tier: newUser.tier || "free",
     token,
   };
 };
@@ -214,6 +220,25 @@ export const resetPassword = async (token, newPassword) => {
 /**
  * Logs in an existing user.
  */
+// Owner bootstrap: any email in ADMIN_EMAILS (comma-separated) is auto-granted
+// role:"admin" + the top tier, so the operator never has to hand-edit Mongo to
+// reach the admin panel. Idempotent — only writes when something actually needs
+// changing. Returns the (possibly) patched fields so callers can reflect them.
+function ownerEmails() {
+  return (process.env.ADMIN_EMAILS || "")
+    .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+}
+async function maybePromoteOwner(userDoc) {
+  const email = (userDoc.email || "").toLowerCase();
+  if (!email || !ownerEmails().includes(email)) return null;
+  const patch = {};
+  if (userDoc.role !== "admin") patch.role = "admin";
+  if (userDoc.tier !== "whale") { patch.tier = "whale"; patch.tierManualOverride = true; }
+  if (!Object.keys(patch).length) return null;
+  await User.updateOne({ _id: userDoc._id }, { $set: patch });
+  return patch;
+}
+
 export const loginUser = async (identifier, password) => {
   const user = await User.findOne({ $or: [{ email: identifier }, { username: identifier }] });
   if (!user) {
@@ -225,6 +250,10 @@ export const loginUser = async (identifier, password) => {
     throw new Error('Invalid credentials');
   }
 
+  // Auto-promote the configured owner account(s) on the way in.
+  const patch = await maybePromoteOwner(user);
+  if (patch) Object.assign(user, patch);
+
   const token = generateToken(user._id);
 
   return {
@@ -232,6 +261,8 @@ export const loginUser = async (identifier, password) => {
     username: user.username,
     email: user.email,
     isVerified: !!user.isVerified,
+    role: user.role || "user",
+    tier: user.tier || "free",
     token,
   };
 };
@@ -244,6 +275,9 @@ export const getMe = async (userId) => {
   if (!user) {
     throw new Error('User not found');
   }
+  // Keep the owner account(s) elevated even if the DB was edited/seeded fresh.
+  const patch = await maybePromoteOwner(user);
+  if (patch) Object.assign(user, patch);
   return user;
 };
 

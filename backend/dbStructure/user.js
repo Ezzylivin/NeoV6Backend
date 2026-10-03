@@ -95,6 +95,30 @@ const userSchema = new mongoose.Schema({
   // so the guided tour only auto-shows on the user's very first login.
   onboardedAt: { type: Date },
 
+  // 💳 SUBSCRIPTION / BILLING
+  // `tier` unlocks LIVE trading and its limits (see config/tiers.js). Paper
+  // trading is ALWAYS unlimited regardless of tier — tiers never touch paper.
+  // `role` (above) stays separate: it's authz (admin panel), not a plan.
+  tier: {
+    type: String,
+    enum: ["free", "trader", "pro", "whale"],
+    default: "free",
+  },
+  // Stripe linkage (populated by the billing webhook; safe to be null until the
+  // user subscribes). Admins may also set `tier` directly (comped accounts).
+  stripeCustomerId: { type: String, index: true },
+  stripeSubscriptionId: { type: String },
+  subscriptionStatus: {
+    // mirrors Stripe: trialing | active | past_due | canceled | incomplete | null
+    type: String,
+    default: null,
+  },
+  subscriptionInterval: { type: String }, // 'month' | 'year'
+  currentPeriodEnd: { type: Date },
+  // When an admin comps/overrides a tier by hand (bypasses Stripe), we record it
+  // so the webhook won't stomp a manual grant. null = plan is Stripe-driven.
+  tierManualOverride: { type: Boolean, default: false },
+
   // 🔐 API Keys for Trading
   apiKeys: [apiKeySchema],
 

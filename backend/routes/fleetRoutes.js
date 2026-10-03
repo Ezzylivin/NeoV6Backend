@@ -53,6 +53,7 @@ router.post("/start", protect, async (req, res) => {
       sizeByConviction: b.sizeByConviction,
       longOnly: b.longOnly,
       riskPct: b.riskPct,
+      maxLegs: b.maxLegs,
       longTimeframe: b.longTimeframe,
       shortTimeframe: b.shortTimeframe,
     };
@@ -125,6 +126,18 @@ router.get("/activity", protect, async (req, res) => {
     await pipe(r, res);
   } catch (e) {
     console.error("[fleet] activity engine unreachable:", e.message);
+    res.status(502).json({ error: "Fleet engine unreachable" });
+  }
+});
+
+// GET /api/fleet/eligibility -> which coins are validation-cleared for live
+// pyramiding (survived the Strategy Lab's holdout + cost-stress tests). Read-only.
+router.get("/eligibility", protect, async (req, res) => {
+  try {
+    const r = await fetch(`${ENGINE_URL}/api/fleet/eligibility`, { headers: engineHeaders() });
+    await pipe(r, res);
+  } catch (e) {
+    console.error("[fleet] eligibility engine unreachable:", e.message);
     res.status(502).json({ error: "Fleet engine unreachable" });
   }
 });

@@ -8,12 +8,15 @@ Tier catalog lives in **one** place: `backend/config/tiers.js`. Change a price o
 a limit there and the Plans page, the admin panel, Stripe mapping, and the live
 gate all update together.
 
-| Tier   | Price (mo / yr) | Live? | Live coins | Live legs | Exchanges |
-|--------|-----------------|-------|-----------|-----------|-----------|
-| Free   | $0              | no    | —         | —         | —         |
-| Trader | $29 / $23       | yes   | 3         | 2         | 1         |
-| Pro ⭐  | $79 / $63       | yes   | 8         | 5         | 3         |
-| Whale  | $199 / $159     | yes   | ∞         | ∞         | all       |
+Annual billing = **6 months free** (pay for 6, get 12 → 50% off). The `/mo`
+annual figures below are the per-month equivalent; the yearly total is in ().
+
+| Tier   | Monthly | Annual (/mo · total) | Live? | Live coins | Live legs | Exchanges |
+|--------|---------|----------------------|-------|-----------|-----------|-----------|
+| Free   | $0      | —                    | no    | —         | —         | —         |
+| Trader | $29     | $14.50 · $174/yr     | yes   | 3         | 2         | 1         |
+| Pro ⭐  | $79     | $39.50 · $474/yr     | yes   | 8         | 5         | 3         |
+| Whale  | $199    | $99.50 · $1,194/yr   | yes   | ∞         | ∞         | all       |
 
 ---
 

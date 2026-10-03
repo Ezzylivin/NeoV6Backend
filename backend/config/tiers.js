@@ -18,7 +18,9 @@
 //      works, then deployed." Live scales by coins / legs / exchanges by tier.
 //
 //   3. FLAT PRICE, NO PER-TRADE CUT, NO PERFORMANCE FEE (Pionex bites every
-//      trade; we don't). Annual billing saves ~20%. 7-day live trial, no card.
+//      trade; we don't). Annual billing = 6 MONTHS FREE (pay for 6, get 12 →
+//      50% off; `priceAnnual` is the per-month equivalent = priceMonthly / 2).
+//      7-day live trial, no card.
 //
 // `stripePriceIdMonthly` / `stripePriceIdAnnual` are read from env so you can
 // point each tier at your own Stripe Price without editing code:
@@ -57,7 +59,8 @@ export const TIERS = {
     name: "Trader",
     tagline: "Go live on a validated setup.",
     priceMonthly: 29,
-    priceAnnual: 23,
+    priceAnnual: 14.5, // 6 months free: ($29 × 6) / 12
+
     trialDays: 7,
     stripePriceIdMonthly: process.env.STRIPE_PRICE_TRADER_M || null,
     stripePriceIdAnnual: process.env.STRIPE_PRICE_TRADER_A || null,
@@ -81,7 +84,8 @@ export const TIERS = {
     name: "Pro",
     tagline: "A full validated fleet, live.",
     priceMonthly: 79,
-    priceAnnual: 63,
+    priceAnnual: 39.5, // 6 months free: ($79 × 6) / 12
+
     trialDays: 7,
     stripePriceIdMonthly: process.env.STRIPE_PRICE_PRO_M || null,
     stripePriceIdAnnual: process.env.STRIPE_PRICE_PRO_A || null,
@@ -105,7 +109,8 @@ export const TIERS = {
     name: "Whale",
     tagline: "No limits. Every coin, every leg.",
     priceMonthly: 199,
-    priceAnnual: 159,
+    priceAnnual: 99.5, // 6 months free: ($199 × 6) / 12
+
     trialDays: 7,
     stripePriceIdMonthly: process.env.STRIPE_PRICE_WHALE_M || null,
     stripePriceIdAnnual: process.env.STRIPE_PRICE_WHALE_A || null,

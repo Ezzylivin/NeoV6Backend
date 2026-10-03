@@ -52,7 +52,7 @@ router.post("/start", protect, async (req, res) => {
       fleetMaxDrawdownPct: b.fleetMaxDrawdownPct,
       sizeByConviction: b.sizeByConviction,
       longOnly: b.longOnly,
-      riskPct: b.riskPct,
+      riskPct: Math.min(20, Math.max(0.1, Number(b.riskPct) || 1)), // hard cap 20%
       maxLegs: b.maxLegs,
       longTimeframe: b.longTimeframe,
       shortTimeframe: b.shortTimeframe,
@@ -221,8 +221,9 @@ router.post("/risk", protect, async (req, res) => {
   try {
     const uid = fleetUserId(req);
     if (!uid) return res.status(401).json({ error: "Not authenticated" });
-    const rp = Number(req.body?.riskPct);
-    if (!Number.isFinite(rp)) return res.status(400).json({ error: "riskPct must be a number" });
+    const raw = Number(req.body?.riskPct);
+    if (!Number.isFinite(raw)) return res.status(400).json({ error: "riskPct must be a number" });
+    const rp = Math.min(20, Math.max(0.1, raw)); // hard cap 20%
     const r = await fetch(`${ENGINE_URL}/api/fleet/risk?userId=${encodeURIComponent(uid)}&riskPct=${encodeURIComponent(rp)}`, {
       method: "POST", headers: engineHeaders(),
     });

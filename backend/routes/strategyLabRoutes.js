@@ -48,7 +48,7 @@ router.post("/run", protect, async (req, res) => {
     ["symbol", "timeframe", "entry", "direction", "style", "start", "end"].forEach(passStr);
 
     const rp = Number(b.riskPct ?? b.risk_pct);
-    if (Number.isFinite(rp)) qp.set("risk_pct", String(Math.min(50, Math.max(0.1, rp))));
+    if (Number.isFinite(rp)) qp.set("risk_pct", String(Math.min(20, Math.max(0.1, rp)))); // hard cap 20%
 
     const ib = Number(b.initialBalance ?? b.initial_balance);
     if (Number.isFinite(ib) && ib > 0) qp.set("initial_balance", String(ib));

@@ -14,6 +14,7 @@ import {
   research,
   getResearch,
   broadcastEmail,
+  executionDryrun,
 } from "../controllers/adminController.js";
 
 const router = express.Router();
@@ -30,5 +31,7 @@ router.post("/research", protect, requireAdmin, research);
 router.get("/research", protect, requireAdmin, getResearch);
 // 📣 Broadcast email to many users
 router.post("/broadcast", protect, requireAdmin, broadcastEmail);
+// 🧾 Limit-order execution — Stage 1 dry-run preview (sends nothing)
+router.post("/execution/dryrun", protect, requireAdmin, executionDryrun);
 
 export default router;

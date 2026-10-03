@@ -277,3 +277,24 @@ export const broadcastEmail = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+/**
+ * POST /api/admin/execution/dryrun  { exchange, symbol, side, usd, price? }
+ * Stage 1 of limit-order execution: ask the engine to compute the REAL post-only
+ * limit order it WOULD place on an exchange, returned WITHOUT sending. Read-only.
+ */
+export const executionDryrun = async (req, res) => {
+  try {
+    const q = new URLSearchParams();
+    ["exchange", "symbol", "side"].forEach((k) => { if (req.body?.[k]) q.set(k, String(req.body[k])); });
+    if (req.body?.usd) q.set("usd", String(req.body.usd));
+    if (req.body?.price) q.set("price", String(req.body.price));
+    const r = await fetch(`${ENGINE_URL}/api/fleet/execution_dryrun?${q.toString()}`, {
+      method: "POST", headers: engineHeaders(),
+    });
+    const body = await r.text();
+    res.status(r.status).type("application/json").send(body);
+  } catch (err) {
+    res.status(502).json({ message: "Engine unreachable", error: err.message });
+  }
+};
